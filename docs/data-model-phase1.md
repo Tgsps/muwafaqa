@@ -75,14 +75,13 @@ System columns (not created manually): `mwf_contractid`, `ownerid`, `owningbusin
 |---|---|---|
 | Draft (default) | Active | Being authored. |
 | Pending Approval | Active | Submitted, awaiting approval. |
-| Active | Active | Approved and in force. |
+| In Force | Active | Approved and in force. Named "In Force" (not "Active") to avoid colliding with the State name. |
 | Rejected | Inactive | Approval refused. Record becomes read-only. |
 
 **Not verified (check in the development environment before relying on it):**
 - Whether the default Status Reason options (`Active`, `Inactive`) can be renamed or deleted, versus only having new options added.
 - Whether Rejected → Draft (reopen) is possible via the native Activate command, and the exact behavior of the Inactive state on model-driven forms (expected: read-only).
 - Whether "Enable status transitions" (restricting allowed `statuscode` changes) can express the intended flow, and how it interacts with plugin/Flow updates.
-- Naming collision: a Status Reason called "Active" under State "Active" is confusing in views and queries. Consider a clearer label (e.g. "In Force"). Open point, not yet decided.
 - Later states such as Expired or Terminated would need Inactive-state options. Not planned in Phase 1.
 
 ### Choice values
@@ -108,8 +107,9 @@ Trade-off of Restrict: a counterparty cannot be deleted while it has contracts. 
 | Item | Reason for deferral | Phase |
 |---|---|---|
 | ApprovalMatrix | Needs a stable status model first, plus the approval flow design | 2 |
-| Frozen USD value | Needs a plugin that captures the exchange rate at a defined moment (e.g. on reaching Active) and does not recalculate it | 2 |
+| Frozen USD value | Needs a plugin that captures the exchange rate at a defined moment (e.g. on reaching In Force) and does not recalculate it | 2 |
 | Value Type | Changes the meaning of the Value column. Settle the base first | 2 |
+| Type/Direction combination rule (plugin) | Independent columns allow illogical combinations (decision D10) | 2 |
 | Estimated Annual Value | Derived from value and dates. Depends on Value Type | 2 |
 | Delegation | Depends on the approval model (ApprovalMatrix) | 3 |
 | Obligation | Child table (1:N from Contract) with its own model | 3 |
@@ -140,7 +140,7 @@ For future use only. **No test data is generated at this stage.**
 | ID | Decision |
 |---|---|
 | D1 | Native Currency column (Lookup to `transactioncurrency` + `exchangerate` + base amount). No custom currency Choice. |
-| D2 | Native `statuscode` / `statecode` (mapping in section 2). |
+| D2 | Native `statuscode` / `statecode` (mapping in section 2). Status Reason "Active" is named **"In Force"** to avoid colliding with State "Active". |
 | D3 | Contract Number is plain text now, plugin in Phase 2. Autonumber considered and rejected: [ADR-002](decisions/ADR-002-contract-number.md). |
 | D4 | Contract: User/team owned. Counterparty: Organization-owned. Ownership cannot be changed after table creation. |
 | D5 | Restrict on delete of a Counterparty that has contracts. |
@@ -148,13 +148,11 @@ For future use only. **No test data is generated at this stage.**
 | D7 | Contract Type: Maintenance · Procurement · Insurance · Sales · Services. "Insurance" is an open assumption. |
 | D8 | All Choices are local. Can be converted to global later, manually. |
 | D9 | English only (Base language English). |
+| D10 | Contract Type and Contract Direction stay **independent columns**. The rule blocking illogical combinations (e.g. Sales + Expense) is **deferred to the Phase 2 plugin**. Until then, nothing prevents such combinations, and the test data avoids them. |
 
-### Open points (no decision recorded)
+### Open points
 
-- **Type vs Direction overlap:** Sales is almost always Income and Procurement almost always Expense, while Maintenance and Services can be either. Independent columns allow illogical combinations (e.g. Sales + Expense).
-  - Option A: keep independent, add a business rule or plugin to block illogical combinations. Flexible, but a rule to maintain.
-  - Option B: derive Direction from Type where possible. Simpler, but restricts rare cases.
-- **Status Reason label "Active"** collision (see section 2).
+None. Remaining uncertainties are the **not verified** items above, tracked in [verification-checklist.md](verification-checklist.md).
 
 ---
 

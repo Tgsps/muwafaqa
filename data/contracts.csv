@@ -1,0 +1,11 @@
+mwf_name,mwf_contractnumber,mwf_contracttype,mwf_direction,mwf_counterpartyid,mwf_value,transactioncurrencyid,mwf_signeddate,mwf_effectivedate,mwf_expirydate,statuscode
+Test HVAC Maintenance Agreement,TEST-CT-0001,Maintenance,Expense,Imaginary Facilities Maintenance Test LLC,48000.00,US Dollar,2025-12-15,2026-01-01,2026-12-31,In Force
+Test Kitchen Equipment Purchase,TEST-CT-0002,Procurement,Expense,Acme Test Services Co,99500.00,US Dollar,2026-02-10,2026-02-15,2027-02-14,Pending Approval
+Test Guest Linen Supply Contract,TEST-CT-0003,Procurement,Expense,Acme Test Services Co,367250.00,UAE Dirham,2026-03-01,2026-03-01,2027-02-28,In Force
+Test Property Insurance Policy,TEST-CT-0004,Insurance,Expense,Sample Cover Brokers Test Ltd,6500.250,Kuwaiti Dinar,,2026-11-01,2027-10-31,Draft
+Test Banquet Hall Booking Agreement,TEST-CT-0005,Sales,Income,Fictional Events Group Test Co,62000.00,US Dollar,2026-01-20,2026-02-01,2026-12-31,In Force
+Test Conference Package Sales Contract,TEST-CT-0006,Sales,Income,Fictional Events Group Test Co,365000.00,Saudi Riyal,2026-09-05,2026-10-01,2027-09-30,Pending Approval
+Test Landscaping Services Agreement,TEST-CT-0007,Services,Expense,Imaginary Facilities Maintenance Test LLC,9000.000,Kuwaiti Dinar,,2026-07-01,2027-06-30,Rejected
+Test Facility Cleaning Services Contract,TEST-CT-0008,Services,Expense,Acme Test Services Co,150000.00,Saudi Riyal,2025-10-20,2025-11-01,2026-10-31,In Force
+Test Event Staffing Services Agreement,TEST-CT-0009,Services,Income,Fictional Events Group Test Co,18500.00,US Dollar,,2026-12-01,2027-05-31,Draft
+Test Elevator Maintenance Agreement,TEST-CT-0010,Maintenance,Expense,Imaginary Facilities Maintenance Test LLC,120000.00,UAE Dirham,2026-09-20,2026-10-15,2027-10-14,Pending Approval

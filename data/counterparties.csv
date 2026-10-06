@@ -1,0 +1,6 @@
+mwf_name,mwf_counterpartytype,mwf_commercialregistration,mwf_contactname,mwf_email
+Acme Test Services Co,Supplier,TEST-CR-0001,Procurement Dept (test),acme.test@example.com
+Imaginary Facilities Maintenance Test LLC,Contractor,TEST-CR-0002,Operations Dept (test),imaginary.test@example.com
+Fictional Events Group Test Co,Customer,TEST-CR-0003,Sales Dept (test),fictional.events@example.com
+Sample Cover Brokers Test Ltd,Other,TEST-CR-0004,Accounts Dept (test),sample.cover@example.com
+Demo Partner Holdings Test Inc,Partner,TEST-CR-0005,Partnerships Dept (test),demo.partner@example.com
