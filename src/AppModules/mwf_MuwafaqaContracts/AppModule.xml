@@ -1,0 +1,43 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<AppModule>
+  <UniqueName>mwf_MuwafaqaContracts</UniqueName>
+  <IntroducedVersion>1.0.0.0</IntroducedVersion>
+  <WebResourceId>953b9fac-1e5e-e611-80d6-00155ded156f</WebResourceId>
+  <OptimizedFor></OptimizedFor>
+  <statecode>0</statecode>
+  <statuscode>1</statuscode>
+  <FormFactor>1</FormFactor>
+  <ClientType>4</ClientType>
+  <NavigationType>0</NavigationType>
+  <AppModuleComponents>
+    <AppModuleComponent type="1" schemaName="mwf_contract" />
+    <AppModuleComponent type="1" schemaName="mwf_counterparty" />
+    <AppModuleComponent type="26" id="{21fc3229-e8f5-4e9c-be4c-247461e7390d}" />
+    <AppModuleComponent type="26" id="{e23a2f82-446b-4b57-863d-26ee1925ca45}" />
+    <AppModuleComponent type="26" id="{c0c547d1-dee9-4c0c-b689-43bb5ec15aa3}" />
+    <AppModuleComponent type="26" id="{ce2cf46a-34cf-414a-b931-8031902837ac}" />
+    <AppModuleComponent type="26" id="{1f675a6e-faca-4f7d-bceb-ab971ccc9d56}" />
+    <AppModuleComponent type="26" id="{84540384-fe79-4543-a9fc-c16bd0e7b0de}" />
+    <AppModuleComponent type="26" id="{959dd065-ce6a-4921-9380-c76b1e8287e3}" />
+    <AppModuleComponent type="26" id="{e11dc1a8-b661-4f5c-8bde-e2b66255407f}" />
+    <AppModuleComponent type="60" id="{a72298be-85b1-49bc-9a6e-132b6ed57d1a}" />
+    <AppModuleComponent type="60" id="{19711b71-c484-4164-930f-558bfa22a157}" />
+    <AppModuleComponent type="62" schemaName="mwf_MuwafaqaContracts" />
+  </AppModuleComponents>
+  <AppModuleRoleMaps>
+    <Role id="{627090ff-40a3-4053-8790-584edc5be201}" />
+    <Role id="{119f245c-3cc8-4b62-b31c-d1a046ced15d}" />
+  </AppModuleRoleMaps>
+  <LocalizedNames>
+    <LocalizedName description="Muwafaqa Contracts" languagecode="1033" />
+  </LocalizedNames>
+  <Descriptions>
+    <Description description="Contract and counterparty management. Phase 1 core." languagecode="1033" />
+  </Descriptions>
+  <appsettings>
+    <appsetting settingdefinitionid.uniquename="AppChannel">
+      <iscustomizable>1</iscustomizable>
+      <value>1</value>
+    </appsetting>
+  </appsettings>
+</AppModule>
