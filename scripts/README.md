@@ -59,3 +59,17 @@ Optional: `-SolutionUniqueName <name>` (default `Muwafaqa`).
 - Web API accepts a local Choice without an explicit option set `Name` and generates one. If Dataverse rejects it, the error is printed and nothing partial remains beyond columns already created.
 - The columns appear in the Solution because of the header. Check the solution's table > Columns after running.
 - New columns are not added to any form or view by this script. That is click-work.
+
+## create-contract-table.mjs
+
+Creates `mwf_contract` (table, columns, Lookup with Restrict delete), then verifies it and runs an exchange-rate test.
+
+```bash
+node scripts/create-contract-table.mjs --env=https://<org>.crm4.dynamics.com [--solution=Muwafaqa] [--export=<zip path outside the repo>] [--skip-fx]
+```
+
+- Same auth, idempotency, and stop-on-error rules as `add-counterparty-columns.mjs`. A `STOP:` message (exit code 3) is a deliberate checkpoint, not a crash.
+- Stops if `transactioncurrencyid`, `exchangerate`, or `mwf_value_base` do not appear after creating `mwf_value`. It never creates them explicitly.
+- Does **not** change Status Reason options (see [data model section 8](../docs/data-model-phase1.md)); it only reads them.
+- The FX test creates one test counterparty and two test contracts (100 USD, 100 KWD), reads back the base amounts, and deletes only the rows it created. It needs currency records USD and KWD and creates none.
+- Keep any `--export` zip outside the repository (`*.zip` is git-ignored anyway).

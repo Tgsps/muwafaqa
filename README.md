@@ -15,7 +15,7 @@ A service-contract model for the hospitality sector (maintenance, procurement, i
 - Base currency: **USD**
 - Base language: **English**
 
-Both are fixed at environment creation and cannot be changed afterwards. See [ADR-001](docs/decisions/ADR-001-dedicated-solution.md).
+Both are set at environment creation. The base currency changes only through Base Currency Conversion, a heavy process, so it is treated as practically fixed. See [ADR-001](docs/decisions/ADR-001-dedicated-solution.md).
 
 ## Current status
 

@@ -2,7 +2,7 @@
 
 - **Status:** Final for Phase 1 per owner decisions. Not yet built.
 - **Prefix:** `mwf` (see [ADR-001](decisions/ADR-001-dedicated-solution.md))
-- **Environment constraints:** Base currency USD, Base language English (fixed at environment creation, see ADR-001)
+- **Environment constraints:** Base currency USD, Base language English (set at environment creation, practically fixed, see ADR-001; the USD base is **not confirmed**, see section 8)
 - **Scope:** Tables `Counterparty` and `Contract` only.
 - **Language:** all Display names, Choice values, status values, and descriptions are English only.
 - **Naming:** schema names are English and lowercase. Dataverse derives the logical name from the schema name in lowercase.
@@ -45,8 +45,8 @@ Status: native `statecode` / `statuscode` (Active / Inactive) with defaults. No 
 |---|---|
 | Display name | Contract |
 | Plural display name | Contracts |
-| Schema name | `mwf_contract` |
-| Entity set name (Web API) | `mwf_contracts` (**not verified**: confirm after creation) |
+| Schema name | `mwf_Contract` (maker-style casing, same as `mwf_Counterparty`). Logical name `mwf_contract` |
+| Entity set name (Web API) | `mwf_contracts` (**verified** 2026-10-06) |
 | Ownership | **User or team owned** |
 | Primary name column | `mwf_name` |
 
@@ -58,7 +58,7 @@ Status: native `statecode` / `statuscode` (Active / Inactive) with defaults. No 
 | Contract Direction | `mwf_direction` | Choice (local) | Business Required | Income · Expense | Cash-flow direction from the organization's perspective. |
 | Counterparty | `mwf_counterpartyid` | Lookup → `mwf_counterparty` | Business Required | n/a | N:1. Delete behavior: Restrict (see section 3). Appears in the Web API as `_mwf_counterpartyid_value`. |
 | Value | `mwf_value` | Currency | Business Required | n/a | Native Currency column. Auto-creates `mwf_value_base` (base amount, USD). |
-| Currency | `transactioncurrencyid` | Lookup → `transactioncurrency` (native) | Business Required | n/a | Added automatically with the first Currency column. Replaces a custom Choice (decision D1). |
+| Currency | `transactioncurrencyid` | Lookup → `transactioncurrency` (native) | **Optional (observed)** | n/a | Added automatically with the first Currency column (**verified** via the Web API). Replaces a custom Choice (decision D1). Observed Required level is `None`, not Business Required as intended. Not modified: open decision, see section 8. |
 | Exchange Rate | `exchangerate` | Decimal (native) | System | n/a | Copied from the currency record on create. Read-only. |
 | Value (Base) | `mwf_value_base` | Currency (system-calculated) | System | n/a | Value converted to USD. Calculated by the platform. |
 | Signed Date | `mwf_signeddate` | Date and Time, Format = Date Only, Behavior = Date Only | Optional | n/a | Empty while Draft. |
@@ -158,7 +158,7 @@ None. Remaining uncertainties are the **not verified** items above, tracked in [
 
 ## 7. Dataverse notes affecting the design
 
-1. **Currency:** the first Currency column creates `transactioncurrencyid` and `exchangerate` on the table and a calculated `<column>_base`. The base currency is fixed at environment creation. The exchange rate on a record is copied from the currency record on create. It is believed that changing the currency record later does not recalculate existing records (**not verified**; test before designing the frozen-value feature).
+1. **Currency:** the first Currency column creates `transactioncurrencyid` and `exchangerate` on the table and a calculated `<column>_base`. The base currency is set at environment creation and changes only via Base Currency Conversion. The exchange rate on a record is copied from the currency record on create. It is believed that changing the currency record later does not recalculate existing records (**not verified**; test before designing the frozen-value feature).
 2. **Required level is not enforced on the API:** `Business Required` applies in forms only. Flows, imports, the Web API, and plugins can create records without it. Critical rules need a plugin or a server-side rule.
 3. **Lookup:** produces a 1:N relationship. Delete behavior is set at creation and, it is believed, adjustable later from the relationship properties (**not verified**). A Lookup's Required level is subject to note 2.
 4. **Primary name:** each table has exactly one primary name column, text only, not deletable, shown in Lookups and views. "Contract Subject" is a good primary name. Contract Number is not, because it will be generated later.
@@ -168,3 +168,34 @@ None. Remaining uncertainties are the **not verified** items above, tracked in [
 8. **Commercial Registration** and similar fields: even as plain text, no real value may be entered. Fictitious values follow an obviously fake pattern.
 9. **Alternate key:** Commercial Registration or Contract Number could later become an Alternate key for uniqueness. Behavior with empty values is **not verified**, so nothing depends on it now.
 10. **Web API naming:** the Contract Lookup `mwf_counterpartyid` appears as `_mwf_counterpartyid_value` in Web API responses, and Counterparty's primary key has the same logical name `mwf_counterpartyid`. No real conflict (different tables), but take care in FetchXML and `$expand`.
+
+---
+
+## 8. Build status and observed values (2026-10-06)
+
+Created with [scripts/create-contract-table.mjs](../scripts/create-contract-table.mjs) via the Dataverse Web API, inside solution `Muwafaqa`. Counterparty columns were created earlier by [scripts/add-counterparty-columns.mjs](../scripts/add-counterparty-columns.mjs).
+
+### Verified
+
+| Item | Observed |
+|---|---|
+| Table `mwf_contract` | UserOwned, `HasNotes=false`, `HasActivities=false`, SchemaName `mwf_Contract`, EntitySetName `mwf_contracts`, PrimaryNameAttribute `mwf_name` (SchemaName `mwf_Name`, max length 200 accepted, Required level ApplicationRequired) |
+| Money column | Creating `mwf_value` (`PrecisionSource=2`) via the Web API **did** auto-create `transactioncurrencyid`, `exchangerate`, and `mwf_value_base` |
+| `transactioncurrencyid` | Required level **None** (read only, not modified) |
+| Date columns | `mwf_signeddate`, `mwf_effectivedate`, `mwf_expirydate`: Format `DateOnly`, `DateTimeBehavior` = `DateOnly` |
+| Required levels | `mwf_contracttype`, `mwf_direction`, `mwf_counterpartyid`, `mwf_value`: ApplicationRequired. Effective and Expiry dates: Recommended. Signed date and Contract Number: None |
+| Choice values (local) | `mwf_contracttype`: Maintenance 867640000 · Procurement 867640001 · Insurance 867640002 · Sales 867640003 · Services 867640004. `mwf_direction`: Income 867640000 · Expense 867640001. `mwf_counterpartytype`: Supplier 867640000 · Customer …01 · Contractor …02 · Partner …03 · Other …04 |
+| Relationship `mwf_counterparty_mwf_contract` | 1:N, referenced `mwf_counterparty.mwf_counterpartyid`, Delete = **Restrict**, Assign/Merge/Reparent/Share/Unshare = NoCascade. Lookup `mwf_counterpartyid` ApplicationRequired. The solution header was accepted |
+| Solution membership | Exported unmanaged solution contains `mwf_Contract` with all columns and the relationship. Both tables are root components with `behavior="0"` (include all subcomponents) |
+| Default Status Reason | `statuscode`: 1 = Active (State 0), 2 = Inactive (State 1). `statecode`: 0 = Active (DefaultStatus 1), 1 = Inactive (DefaultStatus 2). A new row gets `statuscode=1`, `statecode=0` |
+| Exchange test (rows deleted afterwards) | 100 in USD: rate 49, base amount 2.04. 100 in KWD: rate 150, base amount 0.67. Convention confirmed: **base = value ÷ rate**. Base amount returned with 2 decimals |
+
+### Not done: Status Reason customization
+
+The default options are still `Active` (1) and `Inactive` (2). Planned: rename to Draft and Rejected, and add Pending Approval and In Force under State 0 with `InsertStatusValue`. **Blocked:** the Microsoft docs reviewed do not confirm that `UpdateOptionValue` works on `statuscode`. Its reference says it updates an option "in a global or local option set" and does not mention status columns. `UpdateStateValue` is documented for `statecode` only.
+
+### Open points
+
+1. **Base currency is probably not USD.** The currency records show USD = 49 and KWD = 150, whereas a base currency has rate 1. The organization base currency has not been queried. The "USD base" assumptions in ADR-001, README, CLAUDE.md, and `data/README.md` are unconfirmed.
+2. `transactioncurrencyid` is Optional, so a contract can be saved without a currency. Enforcement would need a form-level setting or a plugin. Changing the Required level of this system column was not attempted.
+3. Status Reason rename: method to be decided.
