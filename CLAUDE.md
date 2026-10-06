@@ -37,7 +37,7 @@ If a task approaches violating this, warn the owner before proceeding.
 ## Conventions
 
 - Publisher prefix: `mwf`. Schema names are `mwf_<name>`, lowercase (see `docs/decisions/ADR-001-dedicated-solution.md`).
-- Environment constraints: Base currency USD, Base language English (see ADR-001).
+- Environment: Base currency **TRY** (existing environment, deliberate decision; changing it is possible through Base Currency Conversion but heavy), Base language English (see ADR-001). Base amounts are in TRY. The authority threshold is in USD, so Phase 2 computes an independent USD value.
 - Architecture decisions are recorded in `docs/decisions/` as `ADR-NNN-<slug>.md`.
 
 ## Repository layout

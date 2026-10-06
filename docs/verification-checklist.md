@@ -4,13 +4,13 @@ Manual tests performed in the development environment while building, with resul
 
 The expected results are **hypotheses** based on understanding of Dataverse, not confirmed facts. If the actual result differs, update the affected document ([data-model-phase1.md](data-model-phase1.md), [flow-approval-v1.md](flow-approval-v1.md), or an ADR).
 
-Environment: Base currency USD, Base language English. Use only fictitious data.
+Environment: Base currency TRY, Base language English. Use only fictitious data.
 
 | # | Item | Affects |
 |---|---|---|
 | 1 | Rename default Status Reason options | Data model section 2 |
 | 2 | KWD precision | Data model, test data |
-| 3 | Exchange rate change and its effect on existing records | Phase 2 frozen USD value |
+| 3 | Exchange rate change and its effect on existing records | Phase 2 independent USD value |
 | 4 | Rejected → Draft transition | Data model section 2, flow test plan |
 | 5 | Alternate key with empty values | Phase 2 Contract Number |
 | 6 | Flow sets Status Reason only: is State derived? | Flow spec section 7 |
@@ -52,7 +52,7 @@ Environment: Base currency USD, Base language English. Use only fictitious data.
 **Expected result**
 - If the column precision follows the currency record, KWD shows 3 decimals and USD shows 2 (rounding `100.255`).
 - If the column uses a fixed precision (e.g. 2), `6500.250` is rounded to 2 decimals in KWD as well.
-- `mwf_value_base` may use the base currency precision (2 for USD).
+- `mwf_value_base` may use the base currency precision (2 for TRY).
 
 **Actual result**:
 
@@ -76,7 +76,7 @@ Also confirms the **direction** of the exchange rate convention.
 9. Try to edit `exchangerate` directly on a record (form and API) and record whether it is allowed.
 
 **Expected result**
-- Convention: base = value ÷ rate (rate = units of currency per 1 USD).
+- Convention: base = value ÷ rate (rate = units of the currency per 1 unit of the base currency, TRY). **Confirmed by test on 2026-10-06** (see data model section 8).
 - Step 5: Contract A keeps the rate and base amount it had (3.67).
 - Step 6: unchanged.
 - Step 7: possibly unchanged, possibly refreshed to 3.70. Unknown.
@@ -85,7 +85,7 @@ Also confirms the **direction** of the exchange rate convention.
 
 **Actual result**:
 
-Decision to take from the result: whether the platform alone gives a "frozen" USD value or whether the Phase 2 plugin must store it in a separate column.
+Decision to take from the result: how the Phase 2 plugin freezes the independent USD value (the platform base amount is in TRY, not USD).
 
 ---
 

@@ -15,9 +15,9 @@ Items marked **(not verified)** must be checked while building. They are also tr
 
 | Placeholder | Meaning | How to get it |
 |---|---|---|
-| `<PENDING_APPROVAL_VALUE>` | Numeric value of Status Reason "Pending Approval" | Contract table → Status Reason column → options. Custom options are expected to start at `867640000` (publisher Option Value Prefix `86764`). Read the actual value, do not guess. |
-| `<IN_FORCE_VALUE>` | Numeric value of "In Force" | Same place |
-| `<REJECTED_VALUE>` | Numeric value of "Rejected" | Same place |
+| `<PENDING_APPROVAL_VALUE>` | Numeric value of Status Reason "Pending Approval" | Verified: `867640000` (2026-10-06). |
+| `<IN_FORCE_VALUE>` | Numeric value of "In Force" | Verified: `867640001`. |
+| `<REJECTED_VALUE>` | Numeric value of "Rejected" | Verified: `2` (the renamed default Inactive option; State Inactive). |
 | `<DEPT_HEAD_TEST_ACCOUNT>` | Test user for the Department Head stage | A test user in the dev tenant. **Never commit a real address or UPN.** |
 | `<FINANCE_MGR_TEST_ACCOUNT>` | Test user for the Finance Manager stage | Same |
 | `<ENV_URL>` | Dev environment base URL | From the environment details page |
@@ -73,7 +73,7 @@ Details (Markdown):
 ```
 **Contract:** @{triggerOutputs()?['body/mwf_name']}
 **Number:** @{triggerOutputs()?['body/mwf_contractnumber']}
-**Value (USD, base):** @{triggerOutputs()?['body/mwf_value_base']}
+**Value (base amount, TRY):** @{triggerOutputs()?['body/mwf_value_base']}
 **Stage:** 1 of 2 (Department Head)
 ```
 
@@ -159,7 +159,7 @@ Trigger: Contract modified, statuscode = Pending Approval
 | Contract Subject | `mwf_name` |
 | Contract Number | `mwf_contractnumber` |
 | Value (original) | `mwf_value` |
-| Value (base, USD) | `mwf_value_base` (expected, **not verified**) |
+| Value (base amount, TRY) | `mwf_value_base` (**verified** to exist; in the environment base currency TRY, not USD) |
 | Status Reason | `statuscode` |
 | State | `statecode` |
 | Currency (lookup, GUID in Web API) | `_transactioncurrencyid_value` |

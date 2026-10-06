@@ -12,10 +12,10 @@ A service-contract model for the hospitality sector (maintenance, procurement, i
 
 ## Environment constraints
 
-- Base currency: **USD**
+- Base currency: **TRY** (Turkish Lira)
 - Base language: **English**
 
-Both are set at environment creation. The base currency changes only through Base Currency Conversion, a heavy process, so it is treated as practically fixed. See [ADR-001](docs/decisions/ADR-001-dedicated-solution.md).
+The environment already existed, and TRY is a deliberate decision. The base currency can be changed through Base Currency Conversion, but that is a heavy process, so it is treated as practically fixed. Contract base amounts are therefore in TRY, while the approval authority threshold is in US dollars. Phase 2 computes an independent USD value and freezes it at submission. See [ADR-001](docs/decisions/ADR-001-dedicated-solution.md).
 
 ## Current status
 
