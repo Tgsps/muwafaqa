@@ -35,6 +35,70 @@
                         <control id="ownerid" classid="{270BD3DB-D9AF-4782-9025-509E298DEC0A}" datafieldname="ownerid" />
                       </cell>
                     </row>
+                    <row>
+                      <cell id="ade42048-0664-460c-b5dc-33efb4e2eecc" showlabel="true" visible="true" colspan="1" rowspan="1">
+                        <labels>
+                          <label description="Contract Number" languagecode="1033" />
+                        </labels>
+                        <control id="63075975-e0df-487e-bd50-697511657144" classid="{4273EDBD-AC1D-40D3-9FB2-095C621B552D}" datafieldname="mwf_contractnumber" disabled="false" isrequired="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="9af11886-ea90-4b86-a12c-78c9a2262035" showlabel="true" visible="true" colspan="1" rowspan="1">
+                        <labels>
+                          <label description="Contract Type" languagecode="1033" />
+                        </labels>
+                        <control id="8e7003cd-3846-4dc4-ad60-5b3c6bb70469" classid="{3EF39988-22BB-4F0B-BBBE-64B5A3748AEE}" datafieldname="mwf_contracttype" disabled="false" isrequired="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="f6754f64-98fc-4e42-ac8c-a25bb74b88b8" showlabel="true" visible="true" colspan="1" rowspan="1">
+                        <labels>
+                          <label description="Contract Direction" languagecode="1033" />
+                        </labels>
+                        <control id="dd066f96-e071-41e6-ad70-1f84ecf0472a" classid="{3EF39988-22BB-4F0B-BBBE-64B5A3748AEE}" datafieldname="mwf_direction" disabled="false" isrequired="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="ab246bfe-8846-4d99-8346-eaaea561254e" showlabel="true" visible="true" colspan="1" rowspan="1">
+                        <labels>
+                          <label description="Counterparty" languagecode="1033" />
+                        </labels>
+                        <control id="7a090264-f378-403c-94e8-575ca6bce600" classid="{270BD3DB-D9AF-4782-9025-509E298DEC0A}" datafieldname="mwf_counterpartyid" disabled="false" isrequired="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="070b00e1-e2f3-4e87-a61b-7a2b653a8dcd" showlabel="true" visible="true" colspan="1" rowspan="1">
+                        <labels>
+                          <label description="Value" languagecode="1033" />
+                        </labels>
+                        <control id="86720022-4016-426a-82b0-9326d2328998" classid="{533B9E00-756B-4312-95A0-DC888637AC78}" datafieldname="mwf_value" disabled="false" isrequired="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="c2295e39-6e49-420f-b6fb-c6020a8d33ae" showlabel="true" visible="true" colspan="1" rowspan="1">
+                        <labels>
+                          <label description="Signed Date" languagecode="1033" />
+                        </labels>
+                        <control id="179de57d-779b-4e3e-955b-325eea0d39a3" classid="{5B773807-9FB2-42DB-97C3-7A91EFF8ADFF}" datafieldname="mwf_signeddate" disabled="false" isrequired="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="e08be8f5-b959-48d5-b97f-5d6a17ff3bd6" showlabel="true" visible="true" colspan="1" rowspan="1">
+                        <labels>
+                          <label description="Effective Date" languagecode="1033" />
+                        </labels>
+                        <control id="4851d75c-fde9-4823-a9f0-1741a6645812" classid="{5B773807-9FB2-42DB-97C3-7A91EFF8ADFF}" datafieldname="mwf_effectivedate" disabled="false" isrequired="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="9bcea3b2-0ea7-4213-9dcc-3a1ccbc1df9e" showlabel="true" visible="true" colspan="1" rowspan="1">
+                        <labels>
+                          <label description="Expiry Date" languagecode="1033" />
+                        </labels>
+                        <control id="1b29afae-40b6-4024-959a-2c0e98cf1ca7" classid="{5B773807-9FB2-42DB-97C3-7A91EFF8ADFF}" datafieldname="mwf_expirydate" disabled="false" isrequired="false" />
+                      </cell>
+                    </row>
                   </rows>
                 </section>
               </sections>
@@ -42,6 +106,51 @@
           </columns>
         </tab>
       </tabs>
+      <header id="{e4d01ddd-fd61-4e4e-bc8d-7c4c9fa25dca}" celllabelposition="Top" columns="111" labelwidth="115" celllabelalignment="Left">
+        <rows>
+          <row>
+            <cell id="{650eb353-3b4e-48c3-a794-f9041673ad1d}" showlabel="false">
+              <labels>
+                <label description="" languagecode="1033" />
+              </labels>
+            </cell>
+            <cell id="{9aa230b6-f627-4b75-a9ee-e2391011a2dc}" showlabel="false">
+              <labels>
+                <label description="" languagecode="1033" />
+              </labels>
+            </cell>
+            <cell id="{4c1f06e4-918c-4cae-8795-0ac79a5fd3c3}" showlabel="false">
+              <labels>
+                <label description="" languagecode="1033" />
+              </labels>
+            </cell>
+          </row>
+        </rows>
+      </header>
+      <footer id="{0c43f86b-c2f6-49a0-8d38-b1d8bb18169b}" celllabelposition="Top" columns="111" labelwidth="115" celllabelalignment="Left">
+        <rows>
+          <row>
+            <cell id="{974d7136-cc56-41b4-86bd-d443bf0feee7}" showlabel="false">
+              <labels>
+                <label description="" languagecode="1033" />
+              </labels>
+            </cell>
+            <cell id="{656ace1b-c9ae-4346-85d7-be29ba03b163}" showlabel="false">
+              <labels>
+                <label description="" languagecode="1033" />
+              </labels>
+            </cell>
+            <cell id="{f5309205-835d-4996-bbb2-a2f04a78cc8b}" showlabel="false">
+              <labels>
+                <label description="" languagecode="1033" />
+              </labels>
+            </cell>
+          </row>
+        </rows>
+      </footer>
+      <DisplayConditions Order="0" FallbackForm="true">
+        <Everyone />
+      </DisplayConditions>
     </form>
     <IsCustomizable>1</IsCustomizable>
     <CanBeDeleted>1</CanBeDeleted>

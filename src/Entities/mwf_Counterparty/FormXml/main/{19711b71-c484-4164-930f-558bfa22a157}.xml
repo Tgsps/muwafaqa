@@ -27,6 +27,38 @@
                         <control id="mwf_name" classid="{4273EDBD-AC1D-40d3-9FB2-095C621B552D}" datafieldname="mwf_name" />
                       </cell>
                     </row>
+                    <row>
+                      <cell id="f7dfc0ab-7d8c-4686-ba3d-91d8c1bb7ec5" showlabel="true" visible="true" colspan="1" rowspan="1">
+                        <labels>
+                          <label description="Type" languagecode="1033" />
+                        </labels>
+                        <control id="2c72f30b-7061-4c85-9c6a-0341d41fb355" classid="{3EF39988-22BB-4F0B-BBBE-64B5A3748AEE}" datafieldname="mwf_counterpartytype" disabled="false" isrequired="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="86d2c78b-7c88-4a45-95c2-e19ee3f6642c" showlabel="true" visible="true" colspan="1" rowspan="1">
+                        <labels>
+                          <label description="Commercial Registration" languagecode="1033" />
+                        </labels>
+                        <control id="186aed20-1ea7-4379-ba85-ef566341e1dd" classid="{4273EDBD-AC1D-40D3-9FB2-095C621B552D}" datafieldname="mwf_commercialregistration" disabled="false" isrequired="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="04770efb-221f-467f-a5d2-baa5edbe14d6" showlabel="true" visible="true" colspan="1" rowspan="1">
+                        <labels>
+                          <label description="Contact" languagecode="1033" />
+                        </labels>
+                        <control id="75509c49-4c3a-4fce-ac9e-c62cb5d44ab7" classid="{4273EDBD-AC1D-40D3-9FB2-095C621B552D}" datafieldname="mwf_contactname" disabled="false" isrequired="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="090a7059-b002-4b47-a0af-8ffe1618097c" showlabel="true" visible="true" colspan="1" rowspan="1">
+                        <labels>
+                          <label description="Email" languagecode="1033" />
+                        </labels>
+                        <control id="781e652c-8e4f-4d27-9542-1674547eacda" classid="{4273EDBD-AC1D-40D3-9FB2-095C621B552D}" datafieldname="mwf_email" disabled="false" isrequired="false" />
+                      </cell>
+                    </row>
                   </rows>
                 </section>
               </sections>
@@ -34,6 +66,51 @@
           </columns>
         </tab>
       </tabs>
+      <header id="{74b68555-a6bf-460d-a785-9333fc0ee14e}" celllabelposition="Top" columns="111" labelwidth="115" celllabelalignment="Left">
+        <rows>
+          <row>
+            <cell id="{6a434fbe-2105-470e-8d66-08b7a51838ee}" showlabel="false">
+              <labels>
+                <label description="" languagecode="1033" />
+              </labels>
+            </cell>
+            <cell id="{abc55306-b6a4-4ece-94e3-f2f1a820ae78}" showlabel="false">
+              <labels>
+                <label description="" languagecode="1033" />
+              </labels>
+            </cell>
+            <cell id="{0cd36ba1-2fd0-409a-bc3b-98cbfdc43d99}" showlabel="false">
+              <labels>
+                <label description="" languagecode="1033" />
+              </labels>
+            </cell>
+          </row>
+        </rows>
+      </header>
+      <footer id="{0bcb65fd-a2c2-4969-b9b5-12ad2521658c}" celllabelposition="Top" columns="111" labelwidth="115" celllabelalignment="Left">
+        <rows>
+          <row>
+            <cell id="{793f4d1e-bbe6-4835-8a41-286914d592ab}" showlabel="false">
+              <labels>
+                <label description="" languagecode="1033" />
+              </labels>
+            </cell>
+            <cell id="{893cfe7c-950a-44e8-b984-cfce8718be02}" showlabel="false">
+              <labels>
+                <label description="" languagecode="1033" />
+              </labels>
+            </cell>
+            <cell id="{0ef5bb2d-4df7-4fcf-8d7f-679d71e66493}" showlabel="false">
+              <labels>
+                <label description="" languagecode="1033" />
+              </labels>
+            </cell>
+          </row>
+        </rows>
+      </footer>
+      <DisplayConditions Order="0" FallbackForm="true">
+        <Everyone />
+      </DisplayConditions>
     </form>
     <IsCustomizable>1</IsCustomizable>
     <CanBeDeleted>1</CanBeDeleted>

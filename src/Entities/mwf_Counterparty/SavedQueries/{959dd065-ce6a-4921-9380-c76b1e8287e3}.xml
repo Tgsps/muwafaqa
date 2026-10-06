@@ -12,6 +12,10 @@
         <row name="result" id="mwf_counterpartyid">
           <cell name="mwf_name" width="300" />
           <cell name="createdon" width="125" />
+          <cell name="mwf_counterpartytype" width="100" />
+          <cell name="mwf_commercialregistration" width="100" />
+          <cell name="mwf_contactname" width="100" />
+          <cell name="mwf_email" width="100" />
         </row>
       </grid>
     </layoutxml>
@@ -22,6 +26,10 @@
           <attribute name="mwf_counterpartyid" />
           <attribute name="mwf_name" />
           <attribute name="createdon" />
+          <attribute name="mwf_counterpartytype" />
+          <attribute name="mwf_commercialregistration" />
+          <attribute name="mwf_contactname" />
+          <attribute name="mwf_email" />
           <order attribute="mwf_name" descending="false" />
           <filter type="and">
             <condition attribute="statecode" operator="eq" value="0" />

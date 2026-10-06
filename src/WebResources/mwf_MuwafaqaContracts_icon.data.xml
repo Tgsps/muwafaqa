@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<WebResource xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <WebResourceId>{9f450f96-9fc1-f111-aaad-000d3ab4ceb3}</WebResourceId>
+  <Name>mwf_MuwafaqaContracts_icon</Name>
+  <DisplayName>Muwafaqa Contracts Icon</DisplayName>
+  <WebResourceType>11</WebResourceType>
+  <IntroducedVersion>1.0</IntroducedVersion>
+  <IsEnabledForMobileClient>0</IsEnabledForMobileClient>
+  <IsAvailableForMobileOffline>0</IsAvailableForMobileOffline>
+  <IsCustomizable>1</IsCustomizable>
+  <CanBeDeleted>1</CanBeDeleted>
+  <IsHidden>0</IsHidden>
+  <FileName>/WebResources/mwf_MuwafaqaContracts_icon9F450F96-9FC1-F111-AAAD-000D3AB4CEB3</FileName>
+</WebResource>
