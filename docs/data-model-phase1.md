@@ -210,5 +210,5 @@ Created with [scripts/create-contract-table.mjs](../scripts/create-contract-tabl
 
 1. **Currency is Optional.** `transactioncurrencyid` has Required level None, so a contract can be saved without a currency. Enforcement would need a form-level setting or a plugin. Changing the Required level of this system column was not attempted.
 2. **Authority threshold in USD vs base amount in TRY.** Phase 2 computes an independent USD value and freezes it at submission. Not designed yet.
-3. **Test data amounts** in `data/contracts.csv` were not recalculated for the TRY base and must not be imported before Phase 2.
+3. **Test data loaded (2026-10-06, owner's decision):** the 5 counterparties and 10 contracts were loaded with `scripts/load-test-data.mjs`. The CSV amounts were **not recalculated** for the TRY base, so base amounts are TRY conversions of the original values and the "near 100,000 USD" test cases no longer hold. The three contracts whose CSV status was Pending Approval (TEST-CT-0002, 0006, 0010) were loaded as **Draft**. Statuses In Force and Rejected were set by an update after creation and verified.
 4. The `UpdateOptionValue` rename relies on undocumented behavior.
