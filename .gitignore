@@ -1,0 +1,54 @@
+# --- Power Platform ---
+# Exported solution packages (the unpacked source in /src is the source of truth)
+*.zip
+solutions/
+out/
+# pac CLI / local tooling state
+.pac/
+# Canvas packed apps (keep unpacked sources only)
+*.msapp
+# Local environment config and secrets
+.env
+.env.*
+!.env.example
+*.local.json
+appsettings.local.json
+local.settings.json
+*.pfx
+*.snk
+*.key
+*.pem
+secrets/
+
+# --- Node (PCF) ---
+node_modules/
+npm-debug.log*
+yarn-error.log*
+.npm/
+dist/
+# PCF build output
+pcf/**/out/
+pcf/**/generated/
+
+# --- .NET (plugins) ---
+bin/
+obj/
+*.user
+*.suo
+*.nupkg
+.vs/
+*.dll
+*.pdb
+TestResults/
+packages/
+
+# --- Editors / OS ---
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Claude Code local state ---
+.claude/settings.local.json
