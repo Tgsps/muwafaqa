@@ -8,6 +8,10 @@ out/
 # Canvas packed apps (keep unpacked sources only)
 *.msapp
 # Local environment config and secrets
+*.token
+*token*.txt
+*token*.json
+access_token*
 .env
 .env.*
 !.env.example
