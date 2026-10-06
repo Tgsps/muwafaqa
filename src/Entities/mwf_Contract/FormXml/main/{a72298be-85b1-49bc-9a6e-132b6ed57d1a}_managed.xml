@@ -5,18 +5,18 @@
     <IntroducedVersion>1.0.0.0</IntroducedVersion>
     <FormPresentation>1</FormPresentation>
     <FormActivationState>1</FormActivationState>
-    <form>
+    <form headerdensity="HighWithControls">
       <tabs>
-        <tab verticallayout="true" id="{02cc4671-d9da-434f-86cb-c558fba316d0}" IsUserDefined="1">
+        <tab verticallayout="true" id="{02cc4671-d9da-434f-86cb-c558fba316d0}" IsUserDefined="1" name="general">
           <labels>
             <label description="General" languagecode="1033" />
           </labels>
           <columns>
             <column width="100%">
               <sections>
-                <section showlabel="false" showbar="false" IsUserDefined="0" id="{e289fd95-36c5-43ef-9514-8d500ed1d3b1}">
+                <section showlabel="true" showbar="false" IsUserDefined="0" id="{e289fd95-36c5-43ef-9514-8d500ed1d3b1}" name="contract_section">
                   <labels>
-                    <label description="General" languagecode="1033" />
+                    <label description="Contract" languagecode="1033" />
                   </labels>
                   <rows>
                     <row>
@@ -25,14 +25,6 @@
                           <label description="" languagecode="1033" />
                         </labels>
                         <control id="mwf_name" classid="{4273EDBD-AC1D-40d3-9FB2-095C621B552D}" datafieldname="mwf_name" />
-                      </cell>
-                    </row>
-                    <row>
-                      <cell id="{6420ddc3-39c0-42d8-910c-3eea04815997}">
-                        <labels>
-                          <label description="" languagecode="1033" />
-                        </labels>
-                        <control id="ownerid" classid="{270BD3DB-D9AF-4782-9025-509E298DEC0A}" datafieldname="ownerid" />
                       </cell>
                     </row>
                     <row>
@@ -67,6 +59,14 @@
                         <control id="7a090264-f378-403c-94e8-575ca6bce600" classid="{270BD3DB-D9AF-4782-9025-509E298DEC0A}" datafieldname="mwf_counterpartyid" disabled="false" isrequired="false" />
                       </cell>
                     </row>
+                  </rows>
+                </section>
+                <section name="null_section_3" id="76a7346e-badd-4894-b3e9-67238711a055" IsUserDefined="0" locklevel="0" showlabel="true" showbar="false" layout="varwidth" celllabelalignment="Left" celllabelposition="Left" columns="1" labelwidth="115">
+                  <labels>
+                    <label description="Financial" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row />
                     <row>
                       <cell id="070b00e1-e2f3-4e87-a61b-7a2b653a8dcd" showlabel="true" visible="true" colspan="1" rowspan="1">
                         <labels>
@@ -75,6 +75,38 @@
                         <control id="86720022-4016-426a-82b0-9326d2328998" classid="{533B9E00-756B-4312-95A0-DC888637AC78}" datafieldname="mwf_value" disabled="false" isrequired="false" />
                       </cell>
                     </row>
+                    <row>
+                      <cell id="{13f3d680-e313-4cbc-a88d-616bdf45938a}" locklevel="0" colspan="1" rowspan="1">
+                        <labels>
+                          <label description="" languagecode="1033" />
+                        </labels>
+                        <control id="transactioncurrencyid" classid="{270BD3DB-D9AF-4782-9025-509E298DEC0A}" datafieldname="transactioncurrencyid" disabled="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{f5860298-4867-4f3f-9ad7-91510b1fc9e4}" locklevel="0" colspan="1" rowspan="1">
+                        <labels>
+                          <label description="" languagecode="1033" />
+                        </labels>
+                        <control id="exchangerate" classid="{C3EFE0C3-0EC6-42BE-8349-CBD9079DFD8E}" datafieldname="exchangerate" disabled="true" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{6209dbed-c5e6-433a-920a-8a726180814c}" locklevel="0" colspan="1" rowspan="1">
+                        <labels>
+                          <label description="" languagecode="1033" />
+                        </labels>
+                        <control id="mwf_value_base" classid="{533B9E00-756B-4312-95A0-DC888637AC78}" datafieldname="mwf_value_base" disabled="true" />
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+                <section name="null_section_4" id="651e5c15-3c0e-40d7-bc9c-7af1ee07f38a" IsUserDefined="0" locklevel="0" showlabel="true" showbar="false" layout="varwidth" celllabelalignment="Left" celllabelposition="Left" columns="1" labelwidth="115">
+                  <labels>
+                    <label description="Dates" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row />
                     <row>
                       <cell id="c2295e39-6e49-420f-b6fb-c6020a8d33ae" showlabel="true" visible="true" colspan="1" rowspan="1">
                         <labels>
@@ -97,6 +129,30 @@
                           <label description="" languagecode="1033" />
                         </labels>
                         <control id="1b29afae-40b6-4024-959a-2c0e98cf1ca7" classid="{5B773807-9FB2-42DB-97C3-7A91EFF8ADFF}" datafieldname="mwf_expirydate" disabled="false" isrequired="false" />
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+                <section name="null_section_5" id="4cfc1a85-2e19-4be3-86fd-02d90823543e" IsUserDefined="0" locklevel="0" showlabel="true" showbar="false" layout="varwidth" celllabelalignment="Left" celllabelposition="Left" columns="1" labelwidth="115">
+                  <labels>
+                    <label description="Status" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row />
+                    <row>
+                      <cell id="{6420ddc3-39c0-42d8-910c-3eea04815997}" colspan="1" rowspan="1">
+                        <labels>
+                          <label description="" languagecode="1033" />
+                        </labels>
+                        <control id="ownerid" classid="{270BD3DB-D9AF-4782-9025-509E298DEC0A}" datafieldname="ownerid" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{c1ead9b3-76e4-478d-a613-25f0f808e19a}" locklevel="0" colspan="1" rowspan="1">
+                        <labels>
+                          <label description="" languagecode="1033" />
+                        </labels>
+                        <control id="statuscode" classid="{3EF39988-22BB-4F0B-BBBE-64B5A3748AEE}" datafieldname="statuscode" disabled="false" />
                       </cell>
                     </row>
                   </rows>
