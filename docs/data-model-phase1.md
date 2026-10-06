@@ -1,177 +1,172 @@
-# نموذج البيانات — المرحلة ١ (النواة)
+# Data Model — Phase 1 (Core)
 
-- **الحالة:** مسودة للمراجعة. لا بناء قبل الموافقة.
-- **Prefix:** `mwf` (انظر [ADR-001](decisions/ADR-001-dedicated-solution.md))
-- **النطاق:** Table: `Counterparty` و `Contract` فقط.
-- **التسمية:** Schema names بالإنجليزية وأحرف صغيرة. Dataverse يشتق Logical name من Schema name بأحرف صغيرة.
-- كل قيم الأمثلة وهمية.
+- **Status:** Final for Phase 1 per owner decisions. Not yet built.
+- **Prefix:** `mwf` (see [ADR-001](decisions/ADR-001-dedicated-solution.md))
+- **Environment constraints:** Base currency USD, Base language English (fixed at environment creation, see ADR-001)
+- **Scope:** Tables `Counterparty` and `Contract` only.
+- **Language:** all Display names, Choice values, status values, and descriptions are English only.
+- **Naming:** schema names are English and lowercase. Dataverse derives the logical name from the schema name in lowercase.
+- All example values are fictitious.
 
-مفتاح الأعمدة: **Required level** = `System` (يفرضه Dataverse) · `Business Required` (يُفرض في الـ forms فقط) · `Business Recommended` · `Optional`.
+Required level key: `System` (enforced by Dataverse) · `Business Required` (enforced in forms only) · `Business Recommended` · `Optional`.
+
+Items marked **(assumption)** are not given by the owner. Items marked **(not verified)** are believed correct but must be checked in the development environment.
 
 ---
 
-## ١. Table: Counterparty (الطرف المقابل)
+## 1. Table: Counterparty
 
-| الخاصية | القيمة |
+| Property | Value |
 |---|---|
-| Display name | الطرف المقابل |
-| Plural display name | الأطراف المقابلة |
+| Display name | Counterparty |
+| Plural display name | Counterparties |
 | Schema name | `mwf_counterparty` |
-| Entity set (Web API) | `mwf_counterparties` (يُشتق تلقائياً. يُتحقق منه بعد الإنشاء) |
-| Ownership | Organization-owned (انظر D4) |
+| Entity set name (Web API) | `mwf_counterparties` (derived automatically, **not verified**: confirm after creation) |
+| Ownership | **Organization-owned** |
 | Primary name column | `mwf_name` |
 
-| Display name | Schema name | نوع العمود | Required level | القيم (Choice) | ملاحظة |
+| Display name | Schema name | Column type | Required level | Choice values | Description / note |
 |---|---|---|---|---|---|
-| الاسم | `mwf_name` | Single line of text (Text) | System (Primary name) | — | Primary name. الطول الافتراضي 100. أقترح 200. |
-| النوع | `mwf_counterpartytype` | Choice (local) | Business Required | مورّد · عميل · مقاول · شريك · أخرى — **افتراض مني، لم تحدد القائمة** | انظر D6. |
-| السجل التجاري | `mwf_commercialregistration` | Single line of text (Text) | Optional | — | قيم وهمية فقط، مثل `TEST-CR-0001`. انظر الملاحظة ٧. |
-| جهة الاتصال | `mwf_contactname` | Single line of text (Text) | Optional | — | نص حر، **ليس** Lookup إلى Contact. دور/قسم وهمي فقط (مثل "قسم المشتريات - تجريبي"). ممنوع أسماء أشخاص. انظر D6. |
-| البريد | `mwf_email` | Single line of text، Format = Email | Optional | — | عناوين وهمية على نطاق محجوز فقط: `example.com` أو `example.test` (محجوزان بموجب RFC 2606). |
+| Name | `mwf_name` | Single line of text | System (primary name) | n/a | Primary name. Default max length is 100. Proposed: 200. |
+| Type | `mwf_counterpartytype` | Choice (local) | Business Required | Supplier · Customer · Contractor · Partner · Other **(assumption)** | Role of the counterparty. |
+| Commercial Registration | `mwf_commercialregistration` | Single line of text | Optional | n/a | Fictitious values only, e.g. `TEST-CR-0001`. |
+| Contact | `mwf_contactname` | Single line of text | Optional | n/a | Free text, not a Lookup to the native Contact table. Role or department label only (e.g. "Procurement Dept (test)"). No person names. |
+| Email | `mwf_email` | Single line of text, Format = Email | Optional | n/a | Reserved domains only: `example.com` or `example.test` (RFC 2606). |
 
-أعمدة النظام (لا تُنشأ يدوياً): `mwf_counterpartyid` (GUID)، `statecode`، `statuscode`، `createdon`، `modifiedon`، `createdby`، `modifiedby`، `ownerid`/Owning business unit بحسب الـ ownership.
+System columns (not created manually): `mwf_counterpartyid` (GUID), `statecode`, `statuscode`, `createdon`, `modifiedon`, `createdby`, `modifiedby`, `owningbusinessunit`.
+
+Status: native `statecode` / `statuscode` (Active / Inactive) with defaults. No customization in Phase 1.
 
 ---
 
-## ٢. Table: Contract (العقد)
+## 2. Table: Contract
 
-| الخاصية | القيمة |
+| Property | Value |
 |---|---|
-| Display name | العقد |
-| Plural display name | العقود |
+| Display name | Contract |
+| Plural display name | Contracts |
 | Schema name | `mwf_contract` |
-| Entity set (Web API) | `mwf_contracts` (يُتحقق منه بعد الإنشاء) |
-| Ownership | User or team owned (انظر D4) |
+| Entity set name (Web API) | `mwf_contracts` (**not verified**: confirm after creation) |
+| Ownership | **User or team owned** |
 | Primary name column | `mwf_name` |
 
-| Display name | Schema name | نوع العمود | Required level | القيم (Choice) | ملاحظة |
+| Display name | Schema name | Column type | Required level | Choice values | Description / note |
 |---|---|---|---|---|---|
-| موضوع العقد | `mwf_name` | Single line of text | System (Primary name) | — | Primary name. أقترح طول 200. |
-| رقم العقد | `mwf_contractnumber` | Single line of text | Optional | — | مؤقت: نص عادي. يُولَّد بـ plugin في المرحلة ٢ (انظر D3). |
-| نوع العقد | `mwf_contracttype` | Choice (local) | Business Required | صيانة · مشتريات · تأمينات · مبيعات · خدمات | "تأمينات" ملتبسة: انظر D7. |
-| اتجاه العقد | `mwf_direction` | Choice (local) | Business Required | دخل · مصروف | الاسم المنطقي `Income / Expense`. العلاقة مع النوع: انظر D7. |
-| الطرف الثاني | `mwf_counterpartyid` | Lookup → `mwf_counterparty` | Business Required | — | علاقة N:1. سلوك الحذف: انظر D5. في الـ Web API يظهر كـ `_mwf_counterpartyid_value` (انظر الملاحظة ١٠). |
-| القيمة | `mwf_value` | Currency | Business Required | — | انظر D1. ينشئ تلقائياً: `mwf_value_base` (Currency Value Base). |
-| العملة | `transactioncurrencyid` | Lookup → Currency (أصلي في Dataverse) | Business Required (يُضاف تلقائياً عند أول عمود Currency) | — | **انحراف عن طلبك** (كان Choice). السبب والبديل في D1. |
-| سعر الصرف | `exchangerate` | Decimal (أصلي) | System | — | يُملأ تلقائياً من سجل العملة عند الإنشاء. للقراءة فقط. |
-| تاريخ التوقيع | `mwf_signeddate` | Date and time، Format = Date only، Behavior = Date only | Optional | — | يكون فارغاً في المسودة. |
-| تاريخ السريان | `mwf_effectivedate` | Date and time، Format = Date only، Behavior = Date only | Business Recommended | — | قد يختلف عن التوقيع. |
-| تاريخ الانتهاء | `mwf_expirydate` | Date and time، Format = Date only، Behavior = Date only | Business Recommended | — | أساس تنبيهات الانتهاء لاحقاً. |
-| الحالة | `mwf_status` | Choice (local) | Business Required | مسودة (افتراضي) · قيد الاعتماد · ساري · مرفوض | **مُتّبع كما طلبت**، لكن أوصي بالبديل الأصلي `statuscode`. انظر D2. |
+| Contract Subject | `mwf_name` | Single line of text | System (primary name) | n/a | Primary name. Proposed max length 200. |
+| Contract Number | `mwf_contractnumber` | Single line of text | Optional | n/a | Plain text for now. Generated by a plugin in Phase 2 (see [ADR-002](decisions/ADR-002-contract-number.md)). Not guaranteed unique in Phase 1. |
+| Contract Type | `mwf_contracttype` | Choice (local) | Business Required | Maintenance · Procurement · Insurance · Sales · Services | **Open assumption:** "Insurance" may actually mean security deposits. To be confirmed before build. |
+| Contract Direction | `mwf_direction` | Choice (local) | Business Required | Income · Expense | Cash-flow direction from the organization's perspective. |
+| Counterparty | `mwf_counterpartyid` | Lookup → `mwf_counterparty` | Business Required | n/a | N:1. Delete behavior: Restrict (see section 3). Appears in the Web API as `_mwf_counterpartyid_value`. |
+| Value | `mwf_value` | Currency | Business Required | n/a | Native Currency column. Auto-creates `mwf_value_base` (base amount, USD). |
+| Currency | `transactioncurrencyid` | Lookup → `transactioncurrency` (native) | Business Required | n/a | Added automatically with the first Currency column. Replaces a custom Choice (decision D1). |
+| Exchange Rate | `exchangerate` | Decimal (native) | System | n/a | Copied from the currency record on create. Read-only. |
+| Value (Base) | `mwf_value_base` | Currency (system-calculated) | System | n/a | Value converted to USD. Calculated by the platform. |
+| Signed Date | `mwf_signeddate` | Date and Time, Format = Date Only, Behavior = Date Only | Optional | n/a | Empty while Draft. |
+| Effective Date | `mwf_effectivedate` | Date and Time, Format = Date Only, Behavior = Date Only | Business Recommended | n/a | May differ from the signed date. |
+| Expiry Date | `mwf_expirydate` | Date and Time, Format = Date Only, Behavior = Date Only | Business Recommended | n/a | Basis for expiry alerts in later phases. |
+| Status Reason | `statuscode` (native) | Status Reason | System | See mapping below | Native column. No custom `mwf_status`. |
+| Status | `statecode` (native) | State | System | Active · Inactive | Native column. |
 
-أعمدة النظام: `mwf_contractid`، `statecode`، `statuscode`، `ownerid`، `createdon`... إلخ.
+System columns (not created manually): `mwf_contractid`, `ownerid`, `owningbusinessunit`, `createdon`, `modifiedon`, `createdby`, `modifiedby`.
 
-### قيم Choice
+### Status mapping (decision D2)
 
-- **قيم الأرقام:** يولدها Dataverse من الـ Choice value prefix في الـ Publisher (انظر ADR-001). لا أخترع أرقاماً هنا. تُسجَّل بعد الإنشاء من الـ solution المفكوك.
-- **ترتيب القوائم** كما أعلاه.
-- **قائمة العملات المقترحة (افتراض مني، ليست متطلباً):** هذه **سجلات** في جدول Currency وليست Choice. السجلات المقترحة: USD · EUR · GBP · SAR · AED. العملة الأساسية (Base currency) تُحدَّد عند إنشاء البيئة ولا تتغير بعدها. **لا أعرف عملة بيئتك الأساسية.** أخبرني بها.
+| Status Reason (`statuscode`) | State (`statecode`) | Meaning |
+|---|---|---|
+| Draft (default) | Active | Being authored. |
+| Pending Approval | Active | Submitted, awaiting approval. |
+| Active | Active | Approved and in force. |
+| Rejected | Inactive | Approval refused. Record becomes read-only. |
+
+**Not verified (check in the development environment before relying on it):**
+- Whether the default Status Reason options (`Active`, `Inactive`) can be renamed or deleted, versus only having new options added.
+- Whether Rejected → Draft (reopen) is possible via the native Activate command, and the exact behavior of the Inactive state on model-driven forms (expected: read-only).
+- Whether "Enable status transitions" (restricting allowed `statuscode` changes) can express the intended flow, and how it interacts with plugin/Flow updates.
+- Naming collision: a Status Reason called "Active" under State "Active" is confusing in views and queries. Consider a clearer label (e.g. "In Force"). Open point, not yet decided.
+- Later states such as Expired or Terminated would need Inactive-state options. Not planned in Phase 1.
+
+### Choice values
+
+- **Numeric values** are generated by Dataverse from the publisher's Choice value prefix (see ADR-001). No numbers are invented here. They will be recorded from the unpacked solution after creation.
+- **Order** of options is as listed above.
+- **Currency records** (rows in the `transactioncurrency` table, not Choice): USD (base), KWD, AED, SAR. The first is the environment base currency; KWD, AED, SAR are required for the test data (section 5). Exchange rates entered on these records are **assumptions** for demonstration, not market rates.
 
 ---
 
-## ٣. العلاقات
+## 3. Relationships
 
-| العلاقة | النوع | Parent | Child | سلوك مقترح |
+| Relationship | Type | Parent | Child | Behavior |
 |---|---|---|---|---|
-| Counterparty → Contract | 1:N | `mwf_counterparty` | `mwf_contract` | Referential, **Restrict** على Delete (انظر D5) |
+| Counterparty → Contract | 1:N | `mwf_counterparty` | `mwf_contract` | Referential, **Restrict** on Delete (D5) |
+
+Trade-off of Restrict: a counterparty cannot be deleted while it has contracts. This is safer than Remove Link (which would leave a contract with no counterparty, contradicting Business Required) or Cascade (which risks data loss), at the cost of manual cleanup before deleting.
 
 ---
 
-## ٤. مؤجَّل عمداً
+## 4. Deferred items
 
-**المراحل أدناه مقترحة مني، وليست خارطة طريق مؤكدة.** لم تعطني خطة المراحل بعد المرحلة ٢ (توليد رقم العقد بـ plugin). عدّلها كما تريد.
-
-| البند | سبب التأجيل | المرحلة المقترحة |
+| Item | Reason for deferral | Phase |
 |---|---|---|
-| القيمة بالدولار المجمّدة (frozen USD value) | تحتاج plugin يثبّت سعر الصرف عند لحظة محددة (مثلاً الانتقال إلى "ساري") ولا يعيد حسابه | ٢ (مع plugin توليد الرقم) |
-| نوع القيمة (ثابتة / متغيرة / سقف...) | يؤثر على معنى حقل القيمة. الأفضل تثبيت الأساس أولاً | ٣ |
-| نوع التجديد (تلقائي / يدوي / بدون) | مرتبط بتدفقات التجديد والتنبيهات | ٣ |
-| الالتزامات (Obligations) | Table تابع بعلاقة 1:N مع Contract. يتطلب نموذجاً مستقلاً | ٤ |
-| الملاحق (Addenda / Amendments) | علاقة Contract→Contract أو Table مستقل. قرار مفتوح يؤثر على القيمة والتواريخ | ٤ |
-| الكيان القانوني / الموقع (Legal entity / Site) | Tables مرجعية جديدة وLookups. لا حاجة لها لإثبات النواة | ٣ |
-| دورة الاعتماد (Approvals) | Power Automate + Approvals. يحتاج استقرار `mwf_status` أولاً | ٢–٣ |
-| Auditing وصلاحيات (Security roles) | يُفعَّل Auditing على Table/Column. الصلاحيات تُصمَّم مع الـ Ownership | ٢ |
+| ApprovalMatrix | Needs a stable status model first, plus the approval flow design | 2 |
+| Frozen USD value | Needs a plugin that captures the exchange rate at a defined moment (e.g. on reaching Active) and does not recalculate it | 2 |
+| Value Type | Changes the meaning of the Value column. Settle the base first | 2 |
+| Estimated Annual Value | Derived from value and dates. Depends on Value Type | 2 |
+| Delegation | Depends on the approval model (ApprovalMatrix) | 3 |
+| Obligation | Child table (1:N from Contract) with its own model | 3 |
+| Renewal Type | Tied to renewal flows and alerts | 3 |
+| Notice Period | Tied to renewal and expiry alerts | 3 |
+| Annexure | Out of plan. Option after Phase 6 | Out of plan |
+| RateCard | Out of plan. Option after Phase 6 | Out of plan |
+| Legal Entity / Site | Out of plan. Option after Phase 6 | Out of plan |
 
 ---
 
-## ٥. نقاط تحتاج قراري
+## 5. Test data requirements
 
-### D1 — العملة: Currency column الأصلي أم Choice + Decimal
+For future use only. **No test data is generated at this stage.**
 
-طلبت: القيمة (Currency/Decimal) + العملة (Choice).
-
-**المشكلة:** عمود من نوع Currency في Dataverse يفرض وجود `transactioncurrencyid` (Lookup إلى جدول Currency) و `exchangerate` على الـ Table، ويُنشئ عمود `_base` محسوباً. لا يمكنك استخدام Choice كعملة لعمود Currency. Choice مع Currency يعني عمودين للعملة (واحد منهما مهمل ومربك).
-
-| الخيار | الإيجابي | السلبي |
-|---|---|---|
-| **A (أوصي به):** Currency column + `transactioncurrencyid` الأصلي | مدعوم أصلياً: تنسيق، `_base` للتجميع بعملة موحدة، سعر صرف مخزّن، Rollups/Charts تعمل. يُظهر معرفة بنموذج Dataverse (مفيد لـ PL-400) | القائمة سجلات تُدار في جدول Currency وليست Choice. سعر الصرف يُدار يدوياً (لا تحديث تلقائي) |
-| **B:** Decimal + Choice للعملة | كامل التحكم بالقائمة. لا اعتماد على جدول Currency | لا `_base` ولا سعر صرف. التجميع بين عملات مختلفة يدوي. تعيد اختراع شيء موجود |
-
-### D2 — الحالة: Choice مخصص أم `statuscode` الأصلي
-
-| الخيار | الإيجابي | السلبي |
-|---|---|---|
-| **A:** `mwf_status` Choice مخصص (كما طلبت) | سهل الفهم. لا ارتباط بـ State | يتجاهل `statecode`/`statuscode` الموجودين أصلاً (فيصبح لدينا نظامان للحالة). لا قفل للقراءة فقط تلقائياً |
-| **B (أوصي به):** استخدام `statuscode` (Status Reason) مع `statecode` (Active/Inactive). مثال: مسودة/قيد الاعتماد/ساري ← Active. مرفوض ← Inactive | يتكامل مع Views الافتراضية، وقفل السجلات غير النشطة، وأزرار Activate/Deactivate. لا عمود إضافي | `statecode` ثنائي. التحول بين الحالات المنطقية (مثلاً "منتهٍ" لاحقاً) يحتاج تخطيطاً مسبقاً. التعديل على الـ transitions محدود |
-
-الجدول أعلاه يتبع A كما طلبت. أحوّله إلى B إن وافقت.
-
-### D3 — رقم العقد: Plugin أم Autonumber column
-
-| الخيار | الإيجابي | السلبي |
-|---|---|---|
-| **A: Plugin (خطتك)** | تحكم كامل: بادئة بحسب نوع العقد/السنة، إعادة العد سنوياً. يُظهر مهارة plugin (PL-400) | كود يُصان ويُنشر. ومخاطرة تكرار الرقم عند التزامن (concurrency) ما لم تُعالَج |
-| **B:** Autonumber column الأصلي (مثل `CT-{SEQNUM:5}`) | بدون كود. التزامن مُدار من المنصة | لا بادئة ديناميكية بحسب نوع العقد (لا أعرف إن كانت تدعم إعادة العد سنوياً: تحقق قبل الاعتماد عليها) |
-
-إن كان الهدف إثبات plugin، فـ A مبرَّر، لكن قلها صراحة في ADR لاحق أن Autonumber كان بديلاً أبسط.
-
-### D4 — Ownership (لا يمكن تغييره بعد الإنشاء)
-
-- **Contract:** أوصي بـ **User or team owned**. يتيح صلاحيات على مستوى السجل (Row-level) ومشاركة، ومطلوب لتصميم صلاحيات واقعي. التنازل: مزيد من تعقيد الـ security roles.
-- **Counterparty:** خياران:
-  - **Organization-owned:** أبسط، الكل يقرأ بحسب الدور. لا صلاحيات لكل سجل. (توصيتي: بيانات مرجعية)
-  - **User or team owned:** يسمح بإخفاء أطراف معينة. التنازل: تعقيد، وLookup من Contract قد يفشل لمن لا يرى الطرف.
-
-### D5 — سلوك حذف الـ Lookup (Contract → Counterparty)
-
-| الخيار | النتيجة | التنازل |
-|---|---|---|
-| **Restrict (أوصي به)** | يمنع حذف Counterparty له عقود | الحذف يتطلب حذف/إعادة تعيين العقود أولاً. أمان أعلى |
-| Remove Link (الافتراضي لعلاقات Referential) | الحذف ينجح ويصبح Lookup فارغاً | عقد بلا طرف مقابل، وهو مخالف لكونه Business Required |
-| Cascade | حذف الطرف يحذف عقوده | خطر فقدان بيانات. غير مناسب |
-
-### D6 — Counterparty: قائمة النوع و جهة الاتصال
-
-- قائمة النوع (مورّد · عميل · مقاول · شريك · أخرى) افتراض مني. أكّدها أو غيّرها.
-- **جهة الاتصال كنص:** أبسط، ولا تلوّث بيانات حقيقية. التنازل: لا تعدد جهات اتصال، ولا ربط بجدول Contact الأصلي.
-- **بديل:** Lookup إلى Contact الأصلي. التنازل: تعقيد أكبر، ودفع نحو بيانات أشخاص (مخالف لسياسة السرّية).
-
-### D7 — نوع العقد واتجاهه
-
-- **"تأمينات":** كلمة ملتبسة في العربية: Insurance (تأمين) أم Security deposits (تأمينات/ودائع ضمان). أيهما تقصد؟ الاسم الإنجليزي للـ Choice يتبع ذلك.
-- **تداخل النوع والاتجاه:** "مبيعات" ≈ دخل دائماً، و"مشتريات" ≈ مصروف دائماً. بينما "صيانة/خدمات" قد تكون في الاتجاهين. الاستقلال بين العمودين يسمح بتركيبات غير منطقية (مبيعات + مصروف).
-  - **A:** تبقى مستقلة، مع Business rule/plugin يمنع التركيبات غير المنطقية. مرونة، لكن قاعدة تُصان.
-  - **B:** اشتقاق الاتجاه من النوع حيث يمكن. أبسط، لكنه يقيّد حالات الاستخدام النادرة.
-
-### D8 — Choice محلي أم Global
-
-أوصي بـ **Local** لكل الأعمدة الآن (لا يتشاركها Table آخر). إن ظهرت حاجة لمشاركة (مثل اتجاه العقد في جدول الالتزامات)، يُحوَّل إلى Global. التنازل: التحويل لاحقاً ممكن لكنه عمل يدوي.
-
-### D9 — لغة Display names
-
-Schema names إنجليزية. Display names عربية كما في الجداول أعلاه. **لا أعرف اللغة الأساسية (Base language) لبيئتك.** إن كانت إنجليزية، فالتسميات العربية تُضاف كـ translations (Export/Import translations) أو تُكتب مباشرة كـ Display name في اللغة الأساسية. التنازل: عرض عربي كامل بسهولة مقابل تعقيد في ملفات الترجمة وفي بعض الأدوات عند الأسماء العربية.
+- Entirely fictitious. No real company, person, phone, email, account, or price.
+- Counterparties: invented companies with **obviously fake names** (e.g. a clear "Fictional" / "Test" marker in each name). Registrations follow a clearly fake pattern (`TEST-CR-####`). Emails on `example.com` / `example.test`.
+- Contracts: **multiple currencies — USD, KWD, AED, SAR** — so that the frozen-USD logic (Phase 2) can be demonstrated across rates.
+- **Exchange rates are assumptions**, set only for demonstration, not real market rates, and not to be presented as such.
+- KWD uses three decimal places in ISO 4217, unlike two for the others. The precision configured on the KWD currency record should be checked (**not verified** how the maker UI exposes it).
+- Contract values are invented and must not resemble real contractual prices.
+- Coverage: every Contract Type, both Directions, every Status Reason (including Rejected), contracts with empty Signed Date (Draft), and at least one counterparty with no contracts.
 
 ---
 
-## ٦. ملاحظات Dataverse تؤثر على التصميم
+## 6. Decisions record
 
-1. **Currency:** إضافة أول عمود Currency تُنشئ تلقائياً `transactioncurrencyid` و `exchangerate`، وتنشئ `<column>_base` محسوباً. العملة الأساسية للبيئة تُحدَّد عند الإنشاء ولا تتغير. سعر الصرف على السجل يُنسخ من سجل العملة عند الإنشاء (أعتقد أن تغيير سعر العملة لاحقاً لا يُعيد حساب السجلات القديمة. **يجب التحقق منه في بيئة التطوير** قبل الاعتماد عليه في تصميم "القيمة المجمّدة").
-2. **Required level لا يُفرض على الـ API:** `Business Required` يُفرض في واجهات الـ forms فقط. أي Flow أو import أو Web API أو plugin يستطيع إنشاء سجل بدونه. القواعد الحرجة تحتاج plugin أو Business rule مضبوطة على الخادم.
-3. **Lookup:** العلاقة الناتجة 1:N. سلوك الحذف يُحدد عند الإنشاء ويمكن تعديله لاحقاً من خصائص العلاقة. Lookup لا يضمن Required فعلياً (النقطة ٢).
-4. **Primary name:** كل Table له Primary name column واحد، نصي فقط، لا يُحذف، ويُظهر في Lookups والـ views. اختيار اسم غير معبّر يضر بتجربة المستخدم في كل مكان. لذلك "موضوع العقد" مناسب كاسم أساسي. رقم العقد ليس اسماً أساسياً لأنه سيُولَّد لاحقاً.
-5. **Date only:** عمود Date and time له Behavior: User local / Date only / Time-zone independent. اخترنا **Date only** لتفادي انزياح اليوم بحسب المنطقة الزمنية. تغيير الـ Behavior بعد الإنشاء مقيّد، فيُحسم الآن.
-6. **Ownership:** يُحدَّد عند إنشاء الـ Table ولا يمكن تغييره. راجع D4 قبل الإنشاء.
-7. **Choice:** القيم أرقام يولدها Dataverse، ولا تتغير بتغيير الـ Label. أي كود (plugin/Flow) يجب أن يتعامل بالقيمة لا بالنص. حذف قيمة Choice مستخدمة لا يُنظَّف تلقائياً من السجلات.
-8. **السجل التجاري والبيانات الحساسة:** حتى لو الحقل نص بسيط، لا يدخل أي رقم حقيقي. الأرقام الوهمية تتبع نمطاً واضح الزيف مثل `TEST-CR-0001`.
-9. **Alternate key:** يمكن لاحقاً جعل السجل التجاري (أو رقم العقد) Alternate key لضمان التفرد. لم أتحقق من سلوكه مع القيم الفارغة، فلا أعتمد عليه الآن.
-10. **أسماء الجداول:** `mwf_counterpartyid` اسم Lookup في Contract، وهو أيضاً اسم الـ primary key في Counterparty (النمط المعتاد: `<tablename>id`). لا تعارض فعلي لأنهما في جدولين مختلفين، لكن ينتبه عند كتابة FetchXML/Web API ($expand، `_mwf_counterpartyid_value`). إن فضّلت اسماً أوضح مثل `mwf_counterparty` للـ Lookup، فهذا خيار ثانوي.
+| ID | Decision |
+|---|---|
+| D1 | Native Currency column (Lookup to `transactioncurrency` + `exchangerate` + base amount). No custom currency Choice. |
+| D2 | Native `statuscode` / `statecode` (mapping in section 2). |
+| D3 | Contract Number is plain text now, plugin in Phase 2. Autonumber considered and rejected: [ADR-002](decisions/ADR-002-contract-number.md). |
+| D4 | Contract: User/team owned. Counterparty: Organization-owned. Ownership cannot be changed after table creation. |
+| D5 | Restrict on delete of a Counterparty that has contracts. |
+| D6 | Counterparty Type list: Supplier · Customer · Contractor · Partner · Other **(assumption)**. Contact is free text. |
+| D7 | Contract Type: Maintenance · Procurement · Insurance · Sales · Services. "Insurance" is an open assumption. |
+| D8 | All Choices are local. Can be converted to global later, manually. |
+| D9 | English only (Base language English). |
+
+### Open points (no decision recorded)
+
+- **Type vs Direction overlap:** Sales is almost always Income and Procurement almost always Expense, while Maintenance and Services can be either. Independent columns allow illogical combinations (e.g. Sales + Expense).
+  - Option A: keep independent, add a business rule or plugin to block illogical combinations. Flexible, but a rule to maintain.
+  - Option B: derive Direction from Type where possible. Simpler, but restricts rare cases.
+- **Status Reason label "Active"** collision (see section 2).
+
+---
+
+## 7. Dataverse notes affecting the design
+
+1. **Currency:** the first Currency column creates `transactioncurrencyid` and `exchangerate` on the table and a calculated `<column>_base`. The base currency is fixed at environment creation. The exchange rate on a record is copied from the currency record on create. It is believed that changing the currency record later does not recalculate existing records (**not verified**; test before designing the frozen-value feature).
+2. **Required level is not enforced on the API:** `Business Required` applies in forms only. Flows, imports, the Web API, and plugins can create records without it. Critical rules need a plugin or a server-side rule.
+3. **Lookup:** produces a 1:N relationship. Delete behavior is set at creation and, it is believed, adjustable later from the relationship properties (**not verified**). A Lookup's Required level is subject to note 2.
+4. **Primary name:** each table has exactly one primary name column, text only, not deletable, shown in Lookups and views. "Contract Subject" is a good primary name. Contract Number is not, because it will be generated later.
+5. **Date Only:** a Date and Time column has a Behavior of User Local, Date Only, or Time-Zone Independent. Date Only avoids day shifts across time zones. Changing the behavior after creation is restricted, so it is decided now.
+6. **Ownership** is fixed at table creation and cannot be changed (D4).
+7. **Choice:** values are numbers generated by Dataverse and do not change when a label changes. Code (plugin, Flow) must use the value, not the label. Deleting a used Choice option does not clean existing records.
+8. **Commercial Registration** and similar fields: even as plain text, no real value may be entered. Fictitious values follow an obviously fake pattern.
+9. **Alternate key:** Commercial Registration or Contract Number could later become an Alternate key for uniqueness. Behavior with empty values is **not verified**, so nothing depends on it now.
+10. **Web API naming:** the Contract Lookup `mwf_counterpartyid` appears as `_mwf_counterpartyid_value` in Web API responses, and Counterparty's primary key has the same logical name `mwf_counterpartyid`. No real conflict (different tables), but take care in FetchXML and `$expand`.

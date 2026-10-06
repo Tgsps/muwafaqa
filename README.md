@@ -1,31 +1,39 @@
 # Muwafaqa
 
-نظام إدارة عقود وموافقات مبني على Microsoft Power Platform (Dataverse · Model-driven app · Power Automate · Plugins · PCF).
+A contract and approval management system built on Microsoft Power Platform (Dataverse, model-driven app, Power Automate, plugins, PCF).
 
-مشروع Portfolio يُثبت مهارات PL-400 و AB-620.
+Portfolio project demonstrating PL-400 and AB-620 skills.
 
-## السيناريو
+## Scenario
 
-نموذج عقد خدمات في قطاع الضيافة (صيانة، مشتريات، تأمينات، مبيعات، خدمات): تسجيل العقود والأطراف المقابلة، ثم دورة اعتماد، ثم متابعة الانتهاء والتجديد.
+A service-contract model for the hospitality sector (maintenance, procurement, insurance, sales, services): register contracts and counterparties, run an approval cycle, then track expiry and renewal.
 
-> **كل البيانات مُختلقة بالكامل.** لا توجد عقود أو جهات أو أشخاص أو أرقام حقيقية في هذا المستودع.
+> **All data is entirely fictitious.** No real contracts, organizations, people, or figures exist in this repository.
 
-## الحالة الحالية
+## Environment constraints
 
-**المرحلة ١ — النواة:** Counterparty + Contract. نموذج البيانات قيد المراجعة: [docs/data-model-phase1.md](docs/data-model-phase1.md).
+- Base currency: **USD**
+- Base language: **English**
 
-## بنية المستودع
+Both are fixed at environment creation and cannot be changed afterwards. See [ADR-001](docs/decisions/ADR-001-dedicated-solution.md).
+
+## Current status
+
+**Phase 1 — Core:** Counterparty and Contract. Data model: [docs/data-model-phase1.md](docs/data-model-phase1.md).
+
+## Repository layout
 
 ```
-/src          الحل المفكوك (unpacked solution)
+/src          Unpacked solution
 /plugins      Dataverse plugins (.NET)
 /pcf          PCF controls
 /pipelines    ALM / CI-CD
-/docs         المواصفات والتوثيق
+/docs         Specifications and documentation
   /decisions  ADRs
-/data         بيانات اختبار مُختلقة
+/data         Fictitious test data
 ```
 
-## القرارات المعمارية
+## Architecture decisions
 
-- [ADR-001 — Solution مخصص بـ Publisher و Prefix `mwf`](docs/decisions/ADR-001-dedicated-solution.md)
+- [ADR-001 — Dedicated solution with publisher prefix `mwf`](docs/decisions/ADR-001-dedicated-solution.md)
+- [ADR-002 — Contract number: plain text now, plugin in Phase 2](docs/decisions/ADR-002-contract-number.md)

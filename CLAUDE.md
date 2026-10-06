@@ -1,53 +1,57 @@
 # CLAUDE.md — Muwafaqa
 
-مشروع Portfolio: نظام إدارة عقود وموافقات على Microsoft Power Platform، يُثبت مهارات PL-400 و AB-620.
+Portfolio project: a contract and approval management system on Microsoft Power Platform, demonstrating PL-400 and AB-620 skills.
 
-## قواعد التعامل
+## Language rules
 
-- الردود بالعربية، والمصطلحات التقنية بالإنجليزية.
-- مباشر ومختصر، بدون مقدمات أو كلام تحفيزي.
-- لا تخترع أرقاماً أو معلومات. إن لم تكن المعلومة متوفرة، قلها صراحة.
-- إن كانت فكرة المستخدم سيئة، قلها مع البديل.
-- عند أي اقتراح تصميم، اذكر التنازل (trade-off).
-- قبل البناء على نموذج البيانات، يُراجَع أولاً ويوافق عليه المستخدم.
+- **Chat replies to the owner: Arabic**, with technical terms kept in English.
+- **All project files are English only**: README, ADRs, data model, specs, code comments, Display names, Choice values, status values, column descriptions. No Arabic in the repository (the project is global-facing).
 
-## السرّية
+## Working rules
 
-لا يوجد أي عقد حقيقي في المشروع. كل البيانات مُختلقة بالكامل (أسماء شركات وهمية واضحة، أرقام وهمية).
+- Be direct and concise. No preamble, no motivational filler.
+- Do not invent numbers or facts. If information is unavailable, say so explicitly. Mark anything not verified as such in documents.
+- If the owner's idea is bad, say so and propose an alternative.
+- State the trade-off for every design suggestion.
+- The data model must be reviewed and approved before anything is built on it.
 
-ممنوع في أي ملف أو بيانات اختبار:
-- أسماء جهات حقيقية
-- أرقام حسابات، IBAN
-- أسماء أشخاص
-- هواتف
-- بريد إلكتروني حقيقي
-- أسعار تعاقدية حقيقية
+## Confidentiality
 
-إن اقتربت أي مهمة من خرق هذه القاعدة، نبّه المستخدم قبل المتابعة.
+There are no real contracts in this project. All data is entirely fictitious (obviously fake company names, fake numbers).
 
-## تقسيم العمل
+Forbidden in any file or test data:
+- Real organization names
+- Account numbers, IBANs
+- Person names
+- Phone numbers
+- Real email addresses (use reserved domains such as `example.com` / `example.test` only)
+- Real contractual prices
 
-- المستخدم ينفّذ يدوياً كل ما هو نقر في make.powerapps.com و Power Automate.
-- Claude يكتب الكود والمواصفات والتوثيق والملفات وأوامر `pac`.
+If a task approaches violating this, warn the owner before proceeding.
 
-## اصطلاحات
+## Division of labor
 
-- Publisher prefix: `mwf` — Schema names بالشكل `mwf_<name>` بأحرف صغيرة (انظر `docs/decisions/ADR-001-dedicated-solution.md`).
-- Schema names بالإنجليزية؛ Display names بحسب قرار اللغة في `docs/data-model-phase1.md`.
-- القرارات المعمارية تُسجَّل في `docs/decisions/` بصيغة `ADR-NNN-<slug>.md`.
+- The owner performs all click-work manually in make.powerapps.com and Power Automate.
+- Claude writes code, specifications, documentation, files, and `pac` commands.
 
-## بنية المستودع
+## Conventions
 
-| المسار | المحتوى |
+- Publisher prefix: `mwf`. Schema names are `mwf_<name>`, lowercase (see `docs/decisions/ADR-001-dedicated-solution.md`).
+- Environment constraints: Base currency USD, Base language English (see ADR-001).
+- Architecture decisions are recorded in `docs/decisions/` as `ADR-NNN-<slug>.md`.
+
+## Repository layout
+
+| Path | Content |
 |---|---|
-| `src/` | الحل المفكوك (unpacked solution) |
+| `src/` | Unpacked solution |
 | `plugins/` | Dataverse plugins (.NET) |
 | `pcf/` | PCF controls |
 | `pipelines/` | ALM / CI-CD |
-| `docs/` | المواصفات والتوثيق |
+| `docs/` | Specifications and documentation |
 | `docs/decisions/` | ADRs |
-| `data/` | بيانات اختبار مُختلقة فقط |
+| `data/` | Fictitious test data only |
 
-## الحالة الحالية
+## Current status
 
-المرحلة ١ (النواة): نموذج البيانات قيد المراجعة. لا بناء ولا بيانات اختبار قبل الموافقة.
+Phase 1 (core): data model finalized for the owner's decisions, pending build. No test data until the owner asks.
