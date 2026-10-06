@@ -15,7 +15,7 @@ Items marked **(not verified)** must be checked while building. They are also tr
 
 | Placeholder | Meaning | How to get it |
 |---|---|---|
-| `<PENDING_APPROVAL_VALUE>` | Numeric value of Status Reason "Pending Approval" | Contract table → Status Reason column → options. Dataverse generates it from the publisher Choice value prefix. Do not guess. |
+| `<PENDING_APPROVAL_VALUE>` | Numeric value of Status Reason "Pending Approval" | Contract table → Status Reason column → options. Custom options are expected to start at `867640000` (publisher Option Value Prefix `86764`). Read the actual value, do not guess. |
 | `<IN_FORCE_VALUE>` | Numeric value of "In Force" | Same place |
 | `<REJECTED_VALUE>` | Numeric value of "Rejected" | Same place |
 | `<DEPT_HEAD_TEST_ACCOUNT>` | Test user for the Department Head stage | A test user in the dev tenant. **Never commit a real address or UPN.** |
