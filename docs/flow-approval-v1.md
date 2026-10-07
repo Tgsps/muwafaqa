@@ -35,12 +35,11 @@ Rule: compare status by **numeric value**, not label. Values do not change when 
 | Change type | `Modified` |
 | Table name | `Contracts` |
 | Scope | `Organization` |
-| Select columns | leave empty |
+| Select columns | `statuscode`. In the Power Automate UI the "Filter columns" setting is labelled **Select columns**. It must contain `statuscode` and must **not** be left empty |
 | Filter rows | `statuscode eq <PENDING_APPROVAL_VALUE>` |
-| Filter columns | `statuscode` |
 
 Notes:
-- **Filter columns** limits which column changes fire the trigger. Only `statuscode` is listed.
+- **Filter columns** (labelled **Select columns** in the UI) limits which column changes fire the trigger. Only `statuscode` is listed there.
 - **Filter rows** is an OData expression evaluated on the server. It is the condition "Status Reason = Pending Approval".
 - Both are required. See section 6 for why Filter columns alone is not enough.
 
@@ -67,6 +66,8 @@ Settings for the trigger: **Concurrency control = On, degree of parallelism = 1*
 | Details | see below |
 | Item link | `<ENV_URL>/main.aspx?etn=mwf_contract&pagetype=entityrecord&id=@{triggerOutputs()?['body/mwf_contractid']}` |
 | Item link description | `Open contract` |
+
+Cosmetic note: in the built flow, the request title of `Approval_DeptHead` shows a space before the colon ("Approve contract :"). It does not affect behavior.
 
 Details (Markdown):
 
@@ -97,7 +98,9 @@ Expression form of the same condition:
 1. *Update a row* (Dataverse)
    - Table name: `Contracts`
    - Row ID: `@{triggerOutputs()?['body/mwf_contractid']}`
+   - **Status** (State): `Inactive`
    - Status Reason: `Rejected` (dropdown shows the label; if you must enter it as a value use `<REJECTED_VALUE>`)
+   - Both are required. Setting Status Reason alone fails with the real error: "2 is not a valid status code for state code mwf_ContractState.Active"
 2. *Terminate*
    - Status: `Succeeded` (the rejection is a normal business outcome, not a flow failure)
 
@@ -125,7 +128,7 @@ Same settings as Stage 1 except:
 ```
 
 **If no (Reject):**
-1. *Update a row* → Status Reason = `Rejected`, Row ID `@{triggerOutputs()?['body/mwf_contractid']}`
+1. *Update a row* → **Status** (State) = `Inactive` **and** Status Reason = `Rejected`, Row ID `@{triggerOutputs()?['body/mwf_contractid']}` (same reason as stage 1: Status Reason alone fails)
 2. *Terminate* → Status `Succeeded`
 
 **If yes (Approve):**
@@ -177,20 +180,25 @@ Trigger: Contract modified, statuscode = Pending Approval
 
 **What actually breaks the loop: Filter rows.** After the flow's update the row's Status Reason is Rejected or In Force. `statuscode eq <PENDING_APPROVAL_VALUE>` is false, so the second trigger evaluation does not start a run. Filter columns reduces noise (edits to other columns never start a run), and Filter rows is the loop guard.
 
-**Not verified:**
+**Tested live (2026-10-07):** 5 runs for 5 contracts, **one run per contract**. The flow's own update of the contract status did not start another run. The observed behavior is consistent with Filter rows being evaluated against the post-update row. The internal mechanism was not inspected.
+
+**Still not tested:**
+- Pending Approval → Draft → Pending Approval done quickly (two possibly overlapping runs), and the effect of concurrency = 1 (queues or drops the second run).
 - Whether a save that sets Pending Approval on a row already Pending Approval counts as a modification and fires the trigger again.
-- Whether a user moving Pending Approval → Draft → Pending Approval quickly produces two overlapping runs, and whether concurrency = 1 queues or drops the second.
 - Whether the platform applies any loop-breaking protection to cloud-flow-triggered updates. Do not rely on it.
-- Whether the trigger evaluates Filter rows against the post-update row (assumed).
 
 **Race condition left open in v1.** If someone moves the contract from Pending Approval back to Draft while an approval is outstanding, the flow still finishes and overwrites the status when the approver responds. Optional hardening: before each *Update a row*, add *Get a row by ID* and a condition that `statuscode` is still `<PENDING_APPROVAL_VALUE>`. Not included in v1 to keep the click-work small.
 
 ---
 
-## 7. Open technical points (not verified)
+## 7. Technical points
 
-- Whether *Update a row* with only Status Reason set also sets State correctly for this custom table (expected: yes, derived from the Status Reason). If not, also set Status (State) explicitly.
-- Whether updating a row into the Inactive state (Rejected) works through the connector as the flow's connection identity.
+**Settled by live testing (2026-10-07):**
+- Power Automate Approvals accept the flow creator as the assigned approver.
+- *Update a row* with only Status Reason set **works for In Force**.
+- *Update a row* with only Status Reason set **does not work for Rejected** without Status (State) = Inactive (error quoted in section 2). Rejected needs State and Status Reason together. Scenarios 2 and 3 ended with the contract Rejected after this was corrected.
+
+**Still open (not verified):**
 - Maximum duration of a flow run waiting on an approval: believed to be 30 days. A run waiting longer would time out and leave the contract in Pending Approval. Needs confirmation and a timeout/escalation design in Phase 2.
 - Approver comments are shown in the approval but **not stored** on the contract in Phase 1 (no column exists).
 - The connection used by the trigger and actions runs as its owner. The owner needs read and update privilege on Contract. Using a personal connection is acceptable for a portfolio dev environment, not for production.
@@ -243,4 +251,4 @@ For every scenario: change Status Reason from Draft to Pending Approval, then ob
 | 3 | Finance Manager rejects | Run ends via Terminate (Succeeded) |
 | Result | | Status Reason = Rejected, State = Inactive. Both approvals exist in the Approvals history (first Approve, second Reject). One run, no re-trigger |
 
-Record deviations (especially extra runs, wrong State, or an approval sent after a rejection) in [verification-checklist.md](verification-checklist.md) under the flow items.
+Record deviations (especially extra runs, wrong State, or an approval sent after a rejection) in [verification-checklist.md](verification-checklist.md) under the flow items. Results of the 2026-10-07 run are recorded there.

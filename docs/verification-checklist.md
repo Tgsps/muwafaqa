@@ -142,7 +142,7 @@ Decision to take from the result: whether an Alternate key can guarantee Contrac
 **Expected result**
 - State follows the Status Reason's parent State (In Force → Active, Rejected → Inactive).
 
-**Actual result**:
+**Actual result** (2026-10-07, from the live flow): *Update a row* with only Status Reason set works for In Force. For Rejected it fails unless Status (State) = Inactive is also set, with the error "2 is not a valid status code for state code mwf_ContractState.Active". With State set to Inactive and Status Reason Rejected, the update succeeds. The expectation "State is always derived from Status Reason" is therefore **only partly true**.
 
 ---
 
@@ -162,7 +162,7 @@ Decision to take from the result: whether an Alternate key can guarantee Contrac
 - Step 4: unknown.
 - Step 5: the flow overwrites the status when the approver responds (known gap, flow spec section 6).
 
-**Actual result**:
+**Actual result** (2026-10-07): step 1 only. 5 runs for 5 contracts, one run per contract, no re-trigger from the flow's own status update. Steps 2 to 5 (unrelated column edit, same-value save, quick Pending → Draft → Pending with concurrency = 1, status change while an approval is outstanding) were **not tested**.
 
 ---
 
@@ -179,3 +179,19 @@ Decision to take from the result: whether an Alternate key can guarantee Contrac
 - If not, all rows import as Draft and statuses are set manually afterwards.
 
 **Actual result**:
+
+---
+
+## Results log
+
+### 2026-10-07 — approval flow (see [flow-approval-v1.md](flow-approval-v1.md) section 9)
+
+| Scenario | Result |
+|---|---|
+| 1. Full approval | **Passed** |
+| 2. Rejection at stage 1 | **Passed** after a correction. The first attempt **failed** because Status (State) was not set: Status Reason Rejected is invalid for State Active. Fixed by setting State = Inactive together with Status Reason = Rejected |
+| 3. Rejection at stage 2 | **Passed** |
+
+Related, covered above: item 6 (partly answered) and item 7 (step 1 only).
+
+**Not tested, still open:** items 1 to 5 and 8 are not recorded here, and the flow's quick Pending → Draft → Pending sequence, concurrency, same-value save, and the outstanding-approval race (flow spec section 6) remain untested.
