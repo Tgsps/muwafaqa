@@ -29,6 +29,10 @@ Forbidden in any file or test data:
 
 If a task approaches violating this, warn the owner before proceeding.
 
+Approver email addresses (they appear inside the exported flow in `src/Workflows/`):
+- **After every `pac solution sync`, run `node scripts/scrub-emails.mjs` before `git add`.** It replaces email addresses under `src/Workflows/` with `<APPROVER_TEST_ACCOUNT>` and prints counts only, never the values. A scrubbed flow is not importable until the approver account is filled in again.
+- A local pre-commit hook (`.git/hooks/pre-commit`) rejects any commit whose staged diff adds an email-like string. **`.git/hooks` is not versioned**, so the hook must be recreated on a fresh clone.
+
 ## Division of labor
 
 - The owner performs all click-work manually in make.powerapps.com and Power Automate.
