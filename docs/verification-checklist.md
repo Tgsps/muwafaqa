@@ -64,7 +64,7 @@ Environment: Base currency TRY, Base language English. Use only fictitious data.
 - **Extra case (not in the item)** KWD `6500.255`: stored **`6500.255`**, so three decimals are kept for KWD. Base amount `975038.25`.
 - Step 5 (USD `100.255`): stored **`100.26`**, rounded to 2 decimals. Base amount `4912.74`, computed from the rounded value.
 - The base amount is returned with 2 decimals.
-- **Not checked (needs the UI):** what the form and the grid display.
+- **Form and grid display:** checked in the app UI, see the Results log entry "UI results" of 2026-10-07 (KWD shows 3 decimals, USD shows 2, the grid shows the same as the form).
 
 Matches the first expectation: the column follows the currency record's precision.
 
@@ -101,7 +101,7 @@ Also confirms the **direction** of the exchange rate convention.
 - Step 6 (Subject edited): unchanged.
 - **Step 7 (Value edited to 367251): the rate was REFRESHED to `0.08` and the base became `4590637.5`.** Editing the Value on an existing row picks up the current currency rate.
 - Step 8: new Contract B (AED 367250): rate `0.08`, base `4590625`.
-- Step 9 (API): a `PATCH` of `exchangerate` to `0.5` returned HTTP 204, and the stored rate stayed `0.08`. The value was accepted without error and **not applied**. Editing it on the form was **not tested** (UI).
+- Step 9 (API): a `PATCH` of `exchangerate` to `0.5` returned HTTP 204, and the stored rate stayed `0.08`. The value was accepted without error and **not applied**. On the form, Exchange Rate is read-only and does not accept typing (owner, app UI, see the Results log).
 - The existing AED rows `TEST-CT-0003` and `TEST-CT-0010` were identical before and after (base, rate, `modifiedon`).
 
 Decision to take from the result: the platform alone does **not** freeze the converted amount, because a later Value edit refreshes the rate. The Phase 2 plugin must freeze the independent USD value, and must decide what happens when the Value is edited after submission.
@@ -113,27 +113,27 @@ Decision to take from the result: the platform alone does **not** freeze the con
 **Steps**
 1. Take a contract in Rejected (State Inactive), e.g. `TEST-CT-0007`.
 2. Open its form. Record whether fields are read-only.
-3. Use the command bar **Reactivate**. Record the Status Reason options offered.
+3. Use the command bar **Activate**. Record the Status Reason options offered.
 4. Select Draft. Record the resulting State and whether the form becomes editable.
 5. Via the flow connector or API, update a Rejected row's Status Reason to Draft directly. Record the result.
 6. Optionally, in the Status Reason column, enable status transitions and restrict allowed transitions. Retest steps 3–5.
 
 **Expected result**
 - Inactive form is read-only.
-- Reactivate offers Draft and the other Active-state options (Pending Approval, In Force). Choosing Draft sets State = Active.
+- Activate offers Draft and the other Active-state options (Pending Approval, In Force). Choosing Draft sets State = Active.
 - Direct API update may be allowed or blocked. Unknown.
-- Restricting transitions could block Reactivate options you want to allow. Unknown.
+- Restricting transitions could block Activate options you want to allow. Unknown.
 
-**Actual result** (2026-10-07, partial, reported by the owner from the app UI): steps 3 and 4 only. `TEST-CT-0010` was Rejected (Inactive). The owner pressed **Reactivate** in the app command bar. The contract became **Draft (Active)**, and **no dialog to choose a Status Reason appeared**. Not recorded in this UI test: step 2 (whether the Rejected form is read-only) and step 6 (status transitions). Step 5 (direct API update) is covered by the API part below. **Not verified:** whether the approval flow started a new run after the Reactivate. Expected: none, because Draft does not match the trigger's Filter rows.
+**Actual result** (2026-10-07, partial, reported by the owner from the app UI): steps 3 and 4 only. `TEST-CT-0010` was Rejected (Inactive). The owner pressed **Activate** in the app command bar. The contract became **Draft (Active)**, and **no dialog to choose a Status Reason appeared**. Step 2 (whether the Rejected form is read-only) was done later, see the Results log entry "UI results". Step 6 (status transitions) was **not executed, by decision**. Step 5 (direct API update) is covered by the API part below. **Not verified:** whether the approval flow started a new run after the Activate. Expected: none, because Draft does not match the trigger's Filter rows.
 
 **API part, step 5 (2026-10-07, temporary `TEST-TMP-REJ` row, deleted afterwards and deletion verified):**
 - A new row was set to Rejected with State Inactive (state 1, status 2).
 - An update of another column (`mwf_name`) on the Inactive row through the API returned **HTTP 204**, so the API does not block edits on an Inactive row (the form behavior is a separate, untested point).
 - Update with **Status Reason only** (`statuscode = 1`): **HTTP 400**, "1 is not a valid status code for state code mwf_ContractState.Inactive on mwf_contract".
 - Update with **State and Status Reason** (`statecode = 0`, `statuscode = 1`): **HTTP 204**. The row became Draft, State Active.
-- Still not tested: step 2 (form read-only, UI) and step 6 (status transitions, UI).
+- Step 2 is recorded in the Results log ("UI results"). Step 6 (status transitions) was **not executed, by decision**.
 
-Decision to take from the result: whether Rejected is final or recoverable in Phase 1, and whether the Reactivate offer of In Force (skipping approval) needs restriction.
+Decision to take from the result: whether Rejected is final or recoverable in Phase 1, and whether the Activate offer of In Force (skipping approval) needs restriction.
 
 ---
 
@@ -151,7 +151,7 @@ Decision to take from the result: whether Rejected is final or recoverable in Ph
 - Multiple empty values: probably allowed, since null is not treated as a value. Unknown.
 - Key creation is asynchronous and fails if existing data already contains duplicates.
 
-**Actual result** (2026-10-07): **not executed.** It cannot be run as a Web API script without guessing the creation request. The Microsoft pages checked name the `CreateEntityKey` message but show no Web API request for it ([Work with alternate keys](https://learn.microsoft.com/en-us/power-apps/developer/data-platform/define-alternate-keys-entity)). The `EntityKeyMetadata` reference lists only GET, PUT and DELETE ([reference](https://learn.microsoft.com/en-us/power-apps/developer/data-platform/webapi/reference/entitykeymetadata)). The reference page for a `CreateEntityKey` action returned 404. The Web API schema sample does not cover keys. So this item needs the UI (Power Apps, table Keys). The current state is recorded: Contract has **no alternate keys** (read on 2026-10-07).
+**Actual result** (2026-10-07, executed in the app UI by the owner; details in the Results log entry "UI results"): steps 1 to 3 done. The key `Contract Number Key` on `mwf_contractnumber` became Active. Two contracts with no number were both saved. A second contract with the number `TEST-TMP-DUP-1` was rejected with a duplicate-key message. **Not done:** step 4 (a key on a table that already has duplicates, it needs a scratch table or a spare environment) and step 5 (Counterparty key, optional). **Not tested:** `GET` and `PATCH` by the key through the API. Earlier the same day, a Web API creation of the key was not attempted because no verified request was found.
 
 Decision to take from the result: whether an Alternate key can guarantee Contract Number uniqueness for the Phase 2 plugin (see [ADR-002](decisions/ADR-002-contract-number.md)).
 
@@ -198,7 +198,7 @@ Decision to take from the result: whether an Alternate key can guarantee Contrac
 | 4. Pending → Draft → Pending quickly, count runs and overlap (concurrency control = 1) | **Not tested** |
 | 5. Move the contract to Draft while an approval is outstanding, then let the approver respond | **Not tested** |
 
-Related and **not verified**: whether the manual Reactivate (Rejected → Draft) on `TEST-CT-0010` started a flow run. It is recorded under item 4, because that test was about Reactivate, not about the loop guard.
+Related and **not verified**: whether the manual Activate (Rejected → Draft) on `TEST-CT-0010` started a flow run. It is recorded under item 4, because that test was about Activate, not about the loop guard.
 
 ---
 
@@ -245,15 +245,15 @@ Related, covered above: item 6 (partly answered) and item 7 (step 1 only).
 
 **Not tested, still open:** items 1 to 5 and 8 are not recorded here, and the flow's quick Pending → Draft → Pending sequence, concurrency, same-value save, and the outstanding-approval race (flow spec section 6) remain untested.
 
-### 2026-10-07 — Reactivate from the app command bar
+### 2026-10-07 — Activate from the app command bar
 
 | Item | Result |
 |---|---|
 | Contract | `TEST-CT-0010`, Rejected (Inactive) before the test |
-| Action | Owner pressed **Reactivate** in the app command bar |
+| Action | Owner pressed **Activate** in the app command bar |
 | Observed | Became **Draft (Active)**. **No dialog** to pick a Status Reason appeared |
 | **Not verified** | Whether the approval flow started a new run (expected: no, Draft does not match Filter rows). The run history was not checked |
-| Not tested | Whether Reactivate can be made to offer In Force or Pending Approval (it did not offer any choice here) |
+| Not tested | Whether Activate can be made to offer In Force or Pending Approval (it did not offer any choice here) |
 
 ### 2026-10-07 — Web API tests (class A items)
 
@@ -329,3 +329,46 @@ Facts read in the same session:
 Across the three attempts, the wizard facts for these files are: lookups need GUIDs (counterparty and currency), `statuscode` is ignored at creation (all rows Draft), and Date Only values shift one day back (10 of 10). The Web API loader (`scripts/load-test-data.mjs`) has none of these problems for the loaded rows (dates 30 of 30 identical). `data/README.md` was updated to say so.
 
 **Cleanup (2026-10-07):** the four imported rows `TEST-TMP-IMP-01` to `04` were deleted through the Web API after checking that exactly those four matched the prefix. `TEST-CT-*` rows (11) were not touched and the count was the same before and after. The read-only `check-clean` run afterwards reported **0 `TEST-TMP` contracts and 0 `TEST-TMP` counterparties**.
+
+### 2026-10-07 — UI results (items 2, 3 step 9, 4 step 2, 5), as seen by the owner in the app
+
+Everything below was observed by the owner in the model-driven app and reported. It was not checked by script, except where stated.
+
+**Item 2 — display of values (form and grid)**
+
+| Case | Form | Value (Base) |
+|---|---|---|
+| KWD, value `6500.255` | `KD6,500.255` (3 decimals) | `₺975,038.25` |
+| USD, value `100.255` | `$100.26` (2 decimals) | `₺4,912.74`, **computed from the rounded value 100.26** |
+| Rejected contract `TEST-CT-0007` (KWD, value `9000`) | `KD9,000.000` | `₺1,350,000.00` |
+
+- The **grid shows the same as the form** in both cases.
+- Tested: display on the form and the grid for KWD and USD, and the form for the rejected KWD contract. **Not reported:** any other currency.
+
+**Item 3 step 9 — Exchange Rate on the form**
+
+- Exchange Rate is a **read-only** field on the form (it does not accept typing). Tested. The API behavior was recorded earlier (accepted, not applied).
+
+**Item 4 step 2 — Rejected contract `TEST-CT-0007`**
+
+- A banner shows "Read-only. This record's status: Inactive". The fields are read-only.
+- The visible commands: **New, Activate, Delete, Refresh**.
+- The button is named **Activate**, not Reactivate. The documents were corrected.
+- **Step 6 (status transitions): not executed, by decision.**
+- Still not verified: whether Activate starts a flow run (see item 4).
+
+**Item 5 — alternate key, done from Solutions > Muwafaqa > Tables > Contract > Keys**
+
+| Step | Result |
+|---|---|
+| State before | The Keys list was empty |
+| 1. Create the key `Contract Number Key` on `mwf_contractnumber` | It was **Pending** at 20:58 and **Active** at 21:06 (Riyadh time). The moment of the change is not known |
+| 2. Two contracts with no Contract Number | **Both saved.** Empty values are accepted |
+| 3. A second contract with the same number `TEST-TMP-DUP-1` | **Rejected**: "Duplicate Record: A record that has the attribute values Contract Number already exists. The entity key Contract Number Key requires that this set of attributes contains unique values." |
+| Cleanup | The three temporary contracts were deleted |
+| Decision | **The key stays** |
+
+- **Tested:** steps 1 to 3 (key creation, empty values, duplicate rejection).
+- **Not done:** step 4 (key on a table that already has duplicates; needs a scratch table or a spare environment) and step 5 (Counterparty key, optional).
+- **Not tested:** `GET` and `PATCH` by the key through the API (the ADR-002 format constraint concerns exactly those calls).
+- Consequence: Contract now has an alternate key. The Phase 2 uniqueness question for the Contract Number is partly answered (duplicates are rejected, empty values are allowed), see ADR-002.
