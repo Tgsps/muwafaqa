@@ -214,8 +214,21 @@ Related and **not verified**: whether the manual Reactivate (Rejected → Draft)
 - If the import accepts `statuscode`, In Force/Draft/Pending Approval rows are Active, Rejected is Inactive.
 - If not, all rows import as Draft and statuses are set manually afterwards.
 
-**Actual result**:
+**Actual result** (2026-10-07, 21:24 Riyadh time, **partial**, reported by the owner from the import wizard, file `TEST-TMP-IMP.csv`, 4 rows): the import **failed**, so the expectation above was **not** tested.
+- Column mapping: 11 columns mapped. `transactioncurrencyid` was not mapped automatically and was mapped manually from the list. The other columns showed **Possible match** with the warning "Mismatched column metadata, but matching row-level data" and were accepted.
+- Result: "Upload completed with some errors". The whole error log was one line: "Demo Partner Holdings Test Inc is not a valid primary id Guid value."
+- **No row** `TEST-TMP-IMP-01` to `04` appeared in Draft, In Force or Rejected. Pending Approval was still being checked when this was reported. A later read-only API check found 0 contracts with a number starting `TEST-TMP`.
+- The approval flow was still Off.
+- Reading of the error (not confirmed): the wizard expected a GUID for the Counterparty lookup, not the counterparty name. The cause was not tested directly yet.
 
+**Not tested** (no row was created): `statuscode` by name, the dates (day shift), KWD precision (`750.125`), and the currency lookup **by name**. Follow-up prepared outside the repo: `TEST-TMP-IMP2.csv` (4 rows, counterparty and currency both as GUID) and `TEST-TMP-IMP3.csv` (1 row, counterparty as GUID and currency by name).
+
+
+**Second attempt (2026-10-07, 21:36, file `TEST-TMP-IMP2.csv`, counterparty and currency as GUID):** the import **succeeded** (Upload complete, no errors, reported by the owner). Details and evidence are in the Results log.
+- **Matched the expectation:** "If not, all rows import as Draft and statuses are set manually afterwards". The four rows are all Draft, so the import did **not** apply `statuscode` at creation.
+- **Does not match:** the Date Only values were stored **one day earlier** than in the file (see the Results log). The expectation "no day shift" failed.
+
+**Third attempt (2026-10-07, 21:43, file `TEST-TMP-IMP3.csv`, 1 row, counterparty as GUID, currency by name):** "Upload completed with some errors". The only error line: " US Dollar is not a valid primary id Guid value." The currency **by name is rejected**, like the counterparty by name. In this wizard every lookup column needs a GUID. A read-only API check found no contract numbered `TEST-TMP-IMP-31`, so no row was created.
 ---
 
 ## Results log
@@ -256,3 +269,63 @@ Script: `scripts/verification-api-tests.mjs` (it runs only with `--confirm-mutat
 State before and after (read): `TEST-CT-*` rows identical including `modifiedon`; currency rates identical (AED restored); status options identical; Contract alternate keys none before and after; `mwf_value` precision source 2 before and after.
 
 **Not executed (class B, need the UI):** item 2 form/grid display, item 3 step 9 on the form, item 4 steps 2 and 6, **item 5 entirely** (no verified Web API request, see its result), item 7 steps 2 to 5 (they start the real flow and create approvals, and reading run history through the API is not confirmed), item 8 (import wizard).
+
+### 2026-10-07 — CSV import with the wizard (item 8, partial)
+
+| Item | Result |
+|---|---|
+| File | `TEST-TMP-IMP.csv`, 4 rows (`TEST-TMP-IMP-01` to `04`), columns named like `data/contracts.csv` |
+| Mapping | 11 columns mapped. `transactioncurrencyid` was mapped by hand. 8 columns were "Possible match" with "Mismatched column metadata, but matching row-level data" and were accepted |
+| Outcome | "Upload completed with some errors". The only error line: " Demo Partner Holdings Test Inc is not a valid primary id Guid value." |
+| Rows created | **None** seen in Draft, In Force or Rejected (Pending Approval was being checked). A read-only API check found 0 `TEST-TMP` contracts |
+| Flow | Still Off |
+| **Not tested** | `statuscode` by name, the dates, KWD precision, the currency lookup by name |
+| Next | Import `TEST-TMP-IMP2.csv` (counterparty and currency as GUID) and `TEST-TMP-IMP3.csv` (counterparty as GUID, currency by name) |
+
+Consequence to handle after the follow-up: `data/README.md` says the Counterparty lookup maps by primary name. This result says the wizard rejected the name for that column. Do not change that file before the follow-up confirms it.
+
+### 2026-10-07 — CSV import, second attempt with GUIDs (item 8)
+
+File: `TEST-TMP-IMP2.csv`, 4 rows, same columns as the first attempt, counterparty and currency as GUID. Import at 21:36: **Upload complete, no errors** (reported by the owner). The flow was Off. The 4 imported rows were read back through the Web API (read only).
+
+| Check | Result | Confirmed how |
+|---|---|---|
+| Counterparty and currency | Mapped correctly when given as GUID | Owner report. Currency also confirmed by API: the stored exchange rates match USD, AED, KWD and SAR for the four rows |
+| Status (`statuscode` in the file: Draft, In Force, Rejected, Draft) | **All four rows are Draft** (status 1, State Active). Rows 02 and 03 were expected In Force and Rejected. The import **did not apply the status at creation** | Read by API |
+| KWD `750.125` (row 03) | Stored as `750.125` (three decimals). Base amount `112518.75` | Read by API |
+| Dates | **Every non-empty date was stored one day earlier than in the file** (table below). The two empty Signed Dates stayed empty | Read by API |
+
+Dates, file value → stored value (all 10 non-empty cells differ by minus one day):
+
+| Row | Signed | Effective | Expiry |
+|---|---|---|---|
+| `TEST-TMP-IMP-01` | 2026-01-31 → 2026-01-30 | 2026-02-01 → 2026-01-31 | 2026-12-31 → 2026-12-30 |
+| `TEST-TMP-IMP-02` | 2026-03-31 → 2026-03-30 | 2026-04-01 → 2026-03-31 | 2027-03-31 → 2027-03-30 |
+| `TEST-TMP-IMP-03` | (empty) → (empty) | 2026-05-15 → 2026-05-14 | 2026-11-30 → 2026-11-29 |
+| `TEST-TMP-IMP-04` | (empty) → (empty) | 2026-06-01 → 2026-05-31 | 2026-12-31 → 2026-12-30 |
+
+Facts read in the same session:
+- **Column definitions:** `mwf_signeddate`, `mwf_effectivedate` and `mwf_expirydate` all have `Format = DateOnly` and `DateTimeBehavior = DateOnly`.
+- **Current user time zone** (`usersettings`, read only): code 92, "(GMT) Coordinated Universal Time", offset 0. Locale and UI language 1033.
+- **Extra check:** the 30 date cells of the `TEST-CT-*` rows loaded by the Web API script are **identical** to `data/contracts.csv` (30 of 30). So dates sent through the API are not shifted.
+
+**Confirmed:** the shift happens on the wizard path only (the API path is exact), the columns are Date Only, the Dataverse user setting is UTC.
+**Not confirmed (hypothesis):** the cause. One possibility is that the wizard interpreted the dates in the owner's browser time zone (the owner is in Riyadh, UTC+3) and converted them to UTC before storing the date. The Dataverse user setting being UTC does not by itself explain a shift, so this needs a test (for example the same file imported from a browser set to UTC).
+
+**Still not tested:** the currency lookup **by name** (`TEST-TMP-IMP3.csv`).
+**State left in the environment:** the four `TEST-TMP-IMP-01` to `04` contracts still exist at the time of the read. They must be deleted by the owner (or by a cleanup run) after the follow-up import.
+
+**Consequences for `data/README.md` (not edited yet):** the import wizard did not apply `statuscode`, shifted Date Only values by one day, and rejected the counterparty by name. The README currently describes none of this.
+
+### 2026-10-07 — CSV import, third attempt: currency by name (item 8)
+
+| Item | Result |
+|---|---|
+| File | `TEST-TMP-IMP3.csv`, one row (`TEST-TMP-IMP-31`), counterparty as GUID, currency **by name** (`US Dollar`) |
+| Outcome (21:43) | "Upload completed with some errors". The only error line: " US Dollar is not a valid primary id Guid value." |
+| Row created | **No.** A read-only API check found 0 contracts numbered `TEST-TMP-IMP-31` |
+| Conclusion | The currency by name is rejected, exactly like the counterparty by name. **Every lookup column in the import wizard needs a GUID.** This answers the question left open by the second attempt |
+
+Across the three attempts, the wizard facts for these files are: lookups need GUIDs (counterparty and currency), `statuscode` is ignored at creation (all rows Draft), and Date Only values shift one day back (10 of 10). The Web API loader (`scripts/load-test-data.mjs`) has none of these problems for the loaded rows (dates 30 of 30 identical). `data/README.md` was updated to say so.
+
+**Cleanup (2026-10-07):** the four imported rows `TEST-TMP-IMP-01` to `04` were deleted through the Web API after checking that exactly those four matched the prefix. `TEST-CT-*` rows (11) were not touched and the count was the same before and after. The read-only `check-clean` run afterwards reported **0 `TEST-TMP` contracts and 0 `TEST-TMP` counterparties**.
