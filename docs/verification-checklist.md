@@ -36,7 +36,11 @@ Environment: Base currency TRY, Base language English. Use only fictitious data.
 - The new row defaults to Draft. (Where the default is set per State is not known, record it.)
 - Deletion of a default option is probably blocked. Record what happens.
 
-**Actual result**:
+**Actual result** (steps 1 to 5, 7, 8 on 2026-10-06 through the Web API scripts, evidence in [data-model-phase1.md](data-model-phase1.md) section 8; step 6 on 2026-10-07):
+- The default options `Active` (1) and `Inactive` (2) were renamed to **Draft** and **Rejected** (undocumented `UpdateOptionValue` on `statuscode`, it worked). **Pending Approval** (867640000) and **In Force** (867640001) were added under State Active with `InsertStatusValue`.
+- A new row defaults to **Draft** (status 1, State Active): contracts created without a status were Draft.
+- Step 6, done on a **spare** option only: `InsertStatusValue` of `TMP spare (delete me)` (value 867640099, State Active) returned HTTP 200. `DeleteOptionValue` on it returned HTTP 204 and the option was gone when read back. Status options before and after the test are identical (1, 2, 867640000, 867640001).
+- **Deleting a default option was NOT attempted** (they are in use), so "Deletion of a default option is probably blocked" is still **not verified**.
 
 ---
 
@@ -54,7 +58,15 @@ Environment: Base currency TRY, Base language English. Use only fictitious data.
 - If the column uses a fixed precision (e.g. 2), `6500.250` is rounded to 2 decimals in KWD as well.
 - `mwf_value_base` may use the base currency precision (2 for TRY).
 
-**Actual result**:
+**Actual result** (2026-10-07, Web API only, temporary `TEST-TMP-*` rows, all deleted afterwards and deletion verified by reading):
+- `mwf_value` has `PrecisionSource = 2` (currency precision). Currency precision: KWD 3, USD 2.
+- Step 3 (KWD `6500.250`): stored `6500.25`. This value alone cannot show the third decimal.
+- **Extra case (not in the item)** KWD `6500.255`: stored **`6500.255`**, so three decimals are kept for KWD. Base amount `975038.25`.
+- Step 5 (USD `100.255`): stored **`100.26`**, rounded to 2 decimals. Base amount `4912.74`, computed from the rounded value.
+- The base amount is returned with 2 decimals.
+- **Not checked (needs the UI):** what the form and the grid display.
+
+Matches the first expectation: the column follows the currency record's precision.
 
 Decision to take from the result: which precision source the Value column should use.
 
@@ -83,9 +95,16 @@ Also confirms the **direction** of the exchange rate convention.
 - Step 8: Contract B takes 3.70.
 - Step 9: `exchangerate` is read-only on forms. API behavior unknown.
 
-**Actual result**:
+**Actual result** (2026-10-07, Web API, `TEST-TMP-*` rows deleted afterwards). The item's numbers use the old convention, so the steps were run with the current one (rate = units of the currency per 1 TRY): AED rate `0.076923076923` was changed to `0.08` and **restored** (read back: equal to the original).
+- Step 2: Contract A (AED 367250): rate `0.076923076923`, base `4774250`. This equals value ÷ rate, so the convention is confirmed again.
+- Step 5 (after the currency rate change): A keeps rate `0.076923076923` and base `4774250`. **Unchanged.**
+- Step 6 (Subject edited): unchanged.
+- **Step 7 (Value edited to 367251): the rate was REFRESHED to `0.08` and the base became `4590637.5`.** Editing the Value on an existing row picks up the current currency rate.
+- Step 8: new Contract B (AED 367250): rate `0.08`, base `4590625`.
+- Step 9 (API): a `PATCH` of `exchangerate` to `0.5` returned HTTP 204, and the stored rate stayed `0.08`. The value was accepted without error and **not applied**. Editing it on the form was **not tested** (UI).
+- The existing AED rows `TEST-CT-0003` and `TEST-CT-0010` were identical before and after (base, rate, `modifiedon`).
 
-Decision to take from the result: how the Phase 2 plugin freezes the independent USD value (the platform base amount is in TRY, not USD).
+Decision to take from the result: the platform alone does **not** freeze the converted amount, because a later Value edit refreshes the rate. The Phase 2 plugin must freeze the independent USD value, and must decide what happens when the Value is edited after submission.
 
 ---
 
@@ -105,7 +124,14 @@ Decision to take from the result: how the Phase 2 plugin freezes the independent
 - Direct API update may be allowed or blocked. Unknown.
 - Restricting transitions could block Reactivate options you want to allow. Unknown.
 
-**Actual result**:
+**Actual result** (2026-10-07, partial, reported by the owner from the app UI): steps 3 and 4 only. `TEST-CT-0010` was Rejected (Inactive). The owner pressed **Reactivate** in the app command bar. The contract became **Draft (Active)**, and **no dialog to choose a Status Reason appeared**. Not recorded in this UI test: step 2 (whether the Rejected form is read-only) and step 6 (status transitions). Step 5 (direct API update) is covered by the API part below. **Not verified:** whether the approval flow started a new run after the Reactivate. Expected: none, because Draft does not match the trigger's Filter rows.
+
+**API part, step 5 (2026-10-07, temporary `TEST-TMP-REJ` row, deleted afterwards and deletion verified):**
+- A new row was set to Rejected with State Inactive (state 1, status 2).
+- An update of another column (`mwf_name`) on the Inactive row through the API returned **HTTP 204**, so the API does not block edits on an Inactive row (the form behavior is a separate, untested point).
+- Update with **Status Reason only** (`statuscode = 1`): **HTTP 400**, "1 is not a valid status code for state code mwf_ContractState.Inactive on mwf_contract".
+- Update with **State and Status Reason** (`statecode = 0`, `statuscode = 1`): **HTTP 204**. The row became Draft, State Active.
+- Still not tested: step 2 (form read-only, UI) and step 6 (status transitions, UI).
 
 Decision to take from the result: whether Rejected is final or recoverable in Phase 1, and whether the Reactivate offer of In Force (skipping approval) needs restriction.
 
@@ -125,7 +151,7 @@ Decision to take from the result: whether Rejected is final or recoverable in Ph
 - Multiple empty values: probably allowed, since null is not treated as a value. Unknown.
 - Key creation is asynchronous and fails if existing data already contains duplicates.
 
-**Actual result**:
+**Actual result** (2026-10-07): **not executed.** It cannot be run as a Web API script without guessing the creation request. The Microsoft pages checked name the `CreateEntityKey` message but show no Web API request for it ([Work with alternate keys](https://learn.microsoft.com/en-us/power-apps/developer/data-platform/define-alternate-keys-entity)). The `EntityKeyMetadata` reference lists only GET, PUT and DELETE ([reference](https://learn.microsoft.com/en-us/power-apps/developer/data-platform/webapi/reference/entitykeymetadata)). The reference page for a `CreateEntityKey` action returned 404. The Web API schema sample does not cover keys. So this item needs the UI (Power Apps, table Keys). The current state is recorded: Contract has **no alternate keys** (read on 2026-10-07).
 
 Decision to take from the result: whether an Alternate key can guarantee Contract Number uniqueness for the Phase 2 plugin (see [ADR-002](decisions/ADR-002-contract-number.md)).
 
@@ -162,7 +188,17 @@ Decision to take from the result: whether an Alternate key can guarantee Contrac
 - Step 4: unknown.
 - Step 5: the flow overwrites the status when the approver responds (known gap, flow spec section 6).
 
-**Actual result** (2026-10-07): step 1 only. 5 runs for 5 contracts, one run per contract, no re-trigger from the flow's own status update. Steps 2 to 5 (unrelated column edit, same-value save, quick Pending → Draft → Pending with concurrency = 1, status change while an approval is outstanding) were **not tested**.
+**Actual result** (2026-10-07), step by step, compared with what was actually recorded:
+
+| Step | Status |
+|---|---|
+| 1. Complete Scenario 1, count runs | **Done.** 5 runs for 5 contracts, one run per contract, no re-trigger from the flow's own status update |
+| 2. Edit an unrelated column on a Pending Approval row, confirm no run | **Not tested** |
+| 3. Save a Pending Approval row again without changing Status Reason | **Not tested** |
+| 4. Pending → Draft → Pending quickly, count runs and overlap (concurrency control = 1) | **Not tested** |
+| 5. Move the contract to Draft while an approval is outstanding, then let the approver respond | **Not tested** |
+
+Related and **not verified**: whether the manual Reactivate (Rejected → Draft) on `TEST-CT-0010` started a flow run. It is recorded under item 4, because that test was about Reactivate, not about the loop guard.
 
 ---
 
@@ -195,3 +231,28 @@ Decision to take from the result: whether an Alternate key can guarantee Contrac
 Related, covered above: item 6 (partly answered) and item 7 (step 1 only).
 
 **Not tested, still open:** items 1 to 5 and 8 are not recorded here, and the flow's quick Pending → Draft → Pending sequence, concurrency, same-value save, and the outstanding-approval race (flow spec section 6) remain untested.
+
+### 2026-10-07 — Reactivate from the app command bar
+
+| Item | Result |
+|---|---|
+| Contract | `TEST-CT-0010`, Rejected (Inactive) before the test |
+| Action | Owner pressed **Reactivate** in the app command bar |
+| Observed | Became **Draft (Active)**. **No dialog** to pick a Status Reason appeared |
+| **Not verified** | Whether the approval flow started a new run (expected: no, Draft does not match Filter rows). The run history was not checked |
+| Not tested | Whether Reactivate can be made to offer In Force or Pending Approval (it did not offer any choice here) |
+
+### 2026-10-07 — Web API tests (class A items)
+
+Script: `scripts/verification-api-tests.mjs` (it runs only with `--confirm-mutates-environment` and an explicit `--env=<url>`, because it changes the environment temporarily and restores it). Only `TEST-TMP-*` rows were written. `TEST-CT-0001` to `0011` were only read. Every temporary row was deleted and the deletion was verified by reading (0 `TEST-TMP` rows left after each test and at the end).
+
+| Item | What ran | Result (read from the responses) | Matched the expectation |
+|---|---|---|---|
+| 1 step 6 | Insert and delete a **spare** Status Reason option | Insert HTTP 200, delete HTTP 204, option gone. Default options not touched | Not applicable: the expectation concerned a **default** option, which was not attempted |
+| 2 | KWD and USD values read back | KWD keeps 3 decimals (`6500.255` stored as is). USD `100.255` becomes `100.26` | Yes: precision follows the currency record |
+| 3 | AED rate changed `0.076923076923 → 0.08` and restored | Old rows unchanged after the rate change. **Editing the Value refreshes the rate** to the current one. API `PATCH` of `exchangerate` accepted but not applied | Step 7 was "unknown": now answered. The other steps matched |
+| 4 step 5 | API update Rejected → Draft | `statuscode` only: HTTP 400. `statecode` + `statuscode`: HTTP 204 | Expectation was "unknown": now answered |
+
+State before and after (read): `TEST-CT-*` rows identical including `modifiedon`; currency rates identical (AED restored); status options identical; Contract alternate keys none before and after; `mwf_value` precision source 2 before and after.
+
+**Not executed (class B, need the UI):** item 2 form/grid display, item 3 step 9 on the form, item 4 steps 2 and 6, **item 5 entirely** (no verified Web API request, see its result), item 7 steps 2 to 5 (they start the real flow and create approvals, and reading run history through the API is not confirmed), item 8 (import wizard).

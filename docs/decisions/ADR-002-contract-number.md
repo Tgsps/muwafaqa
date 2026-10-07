@@ -31,3 +31,4 @@ Dataverse offers a native Autonumber column (e.g. format `CT-{SEQNUM:5}`) that n
 
 - Phase 2 must design the plugin's concurrency strategy and an uniqueness guarantee (e.g. an Alternate key; its behavior with empty values is not verified).
 - Until then, `mwf_contractnumber` is not guaranteed unique.
+- **Format constraint:** the contract number format must **not** contain any of these characters: `/` `<` `>` `*` `%` `&` `:` `\` `?` `+`. If the data in a column used by an alternate key contains one of them, retrieving (`GET`) or updating (`PATCH`) a row by that key does not work. Uniqueness alone still works. Source: Microsoft Learn, [Work with alternate keys](https://learn.microsoft.com/en-us/power-apps/developer/data-platform/define-alternate-keys-entity), constraint "Unicode characters in key value". This applies once an alternate key exists on `mwf_contractnumber`. None exists yet (see verification checklist item 5).

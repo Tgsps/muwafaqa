@@ -187,6 +187,8 @@ Trigger: Contract modified, statuscode = Pending Approval
 - Whether a save that sets Pending Approval on a row already Pending Approval counts as a modification and fires the trigger again.
 - Whether the platform applies any loop-breaking protection to cloud-flow-triggered updates. Do not rely on it.
 
+**Related: manual Reactivate.** Whether a Rejected → Draft Reactivate starts a flow run was **not verified**. The Reactivate test itself is recorded in section 9 and in the verification checklist (item 4).
+
 **Race condition left open in v1.** If someone moves the contract from Pending Approval back to Draft while an approval is outstanding, the flow still finishes and overwrites the status when the approver responds. Optional hardening: before each *Update a row*, add *Get a row by ID* and a condition that `statuscode` is still `<PENDING_APPROVAL_VALUE>`. Not included in v1 to keep the click-work small.
 
 ---
@@ -221,7 +223,7 @@ Trigger: Contract modified, statuscode = Pending Approval
 
 ## 9. Test plan
 
-Prerequisite: test data imported ([data/README.md](../data/README.md)), the flow turned **on** after the import, two test accounts available to act as approvers, and a way to inspect flow run history. Use a contract that is **Draft** (e.g. `TEST-CT-0009`). Note: after Scenario 2 or 3 the contract is Rejected and Inactive. Reactivate (see verification checklist, Rejected → Draft) or use a different Draft contract for the next scenario.
+Prerequisite: test data imported ([data/README.md](../data/README.md)), the flow turned **on** after the import, two test accounts available to act as approvers, and a way to inspect flow run history. Use a contract that is **Draft** (e.g. `TEST-CT-0009`). Note: after Scenario 2 or 3 the contract is Rejected and Inactive. To reuse it, press **Reactivate** in the app command bar: observed on 2026-10-07, it turns the contract into Draft (Active) with no dialog for choosing a status (see verification checklist, item 4 and the Results log). Whether Reactivate starts a flow run was **not verified** (none expected). Otherwise use a different Draft contract for the next scenario.
 
 For every scenario: change Status Reason from Draft to Pending Approval, then observe.
 
