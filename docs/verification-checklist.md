@@ -8,11 +8,11 @@ Environment: Base currency TRY, Base language English. Use only fictitious data.
 
 | # | Item | Affects | Status (as recorded) |
 |---|---|---|---|
-| 1 | Rename default Status Reason options | Data model section 2 | **Done**, except deleting a **default** option (not attempted) |
+| 1 | Rename default Status Reason options | Data model section 2 | **Done**. Deleting a **default** option: skipped by decision, 2026-10-11 (not tested, no value for Phase 2) |
 | 2 | KWD precision | Data model, test data | **Done** (Web API and UI display) |
 | 3 | Exchange rate change and its effect on existing records | Phase 2 independent USD value | **Done** (Web API and form) |
-| 4 | Rejected → Draft transition | Data model section 2, flow test plan | **Done**, except step 6 (status transitions, not executed by decision) |
-| 5 | Alternate key with empty values | Phase 2 Contract Number | **Partial**: steps 1 to 3 done. **Open:** step 4, step 5 (optional), `GET`/`PATCH` by the key |
+| 4 | Rejected → Draft transition | Data model section 2, flow test plan | **Done**. Step 6 (status transitions): skipped by decision, 2026-10-11 (optional in the item, and it would change the solution) |
+| 5 | Alternate key with empty values | Phase 2 Contract Number | **Done**: steps 1 to 3 and the API part (2026-10-11). Steps 4 and 5: skipped by decision, 2026-10-11 (step 4 needs a scratch table or a spare environment, per the item; step 5 is optional, per the item) |
 | 6 | Flow sets Status Reason only: is State derived? | Flow spec section 7 | **Done** |
 | 7 | Flow loop guard and re-trigger behavior | Flow spec section 6 | **Done**: steps 1 to 5 recorded (2026-10-07 and 2026-10-11) |
 | 8 | Import of `statuscode` from CSV | data/README.md | **Done** (three wizard attempts recorded) |
@@ -124,14 +124,14 @@ Decision to take from the result: the platform alone does **not** freeze the con
 - Direct API update may be allowed or blocked. Unknown.
 - Restricting transitions could block Activate options you want to allow. Unknown.
 
-**Actual result** (2026-10-07, partial, reported by the owner from the app UI): steps 3 and 4 only. `TEST-CT-0010` was Rejected (Inactive). The owner pressed **Activate** in the app command bar. The contract became **Draft (Active)**, and **no dialog to choose a Status Reason appeared**. Step 2 (whether the Rejected form is read-only) was done later, see the Results log entry "UI results". Step 6 (status transitions) was **not executed, by decision**. Step 5 (direct API update) is covered by the API part below. **Verified later (2026-10-11):** Activate on an Inactive row gives Draft and starts **no** flow run, because Draft does not match the trigger's Filter rows.
+**Actual result** (2026-10-07, partial, reported by the owner from the app UI): steps 3 and 4 only. `TEST-CT-0010` was Rejected (Inactive). The owner pressed **Activate** in the app command bar. The contract became **Draft (Active)**, and **no dialog to choose a Status Reason appeared**. Step 2 (whether the Rejected form is read-only) was done later, see the Results log entry "UI results". Step 6 (status transitions): **skipped by decision, 2026-10-11**. Step 5 (direct API update) is covered by the API part below. **Verified later (2026-10-11):** Activate on an Inactive row gives Draft and starts **no** flow run, because Draft does not match the trigger's Filter rows.
 
 **API part, step 5 (2026-10-07, temporary `TEST-TMP-REJ` row, deleted afterwards and deletion verified):**
 - A new row was set to Rejected with State Inactive (state 1, status 2).
 - An update of another column (`mwf_name`) on the Inactive row through the API returned **HTTP 204**, so the API does not block edits on an Inactive row (the form behavior is a separate, untested point).
 - Update with **Status Reason only** (`statuscode = 1`): **HTTP 400**, "1 is not a valid status code for state code mwf_ContractState.Inactive on mwf_contract".
 - Update with **State and Status Reason** (`statecode = 0`, `statuscode = 1`): **HTTP 204**. The row became Draft, State Active.
-- Step 2 is recorded in the Results log ("UI results"). Step 6 (status transitions) was **not executed, by decision**.
+- Step 2 is recorded in the Results log ("UI results"). Step 6 (status transitions): **skipped by decision, 2026-10-11**.
 
 Decision to take from the result: whether Rejected is final or recoverable in Phase 1, and whether the Activate offer of In Force (skipping approval) needs restriction.
 
@@ -151,7 +151,7 @@ Decision to take from the result: whether Rejected is final or recoverable in Ph
 - Multiple empty values: probably allowed, since null is not treated as a value. Unknown.
 - Key creation is asynchronous and fails if existing data already contains duplicates.
 
-**Actual result** (2026-10-07, executed in the app UI by the owner; details in the Results log entry "UI results"): steps 1 to 3 done. The key `Contract Number Key` on `mwf_contractnumber` became Active. Two contracts with no number were both saved. A second contract with the number `TEST-TMP-DUP-1` was rejected with a duplicate-key message. **Not done:** step 4 (a key on a table that already has duplicates, it needs a scratch table or a spare environment) and step 5 (Counterparty key, optional). **Not tested:** `GET` and `PATCH` by the key through the API. Earlier the same day, a Web API creation of the key was not attempted because no verified request was found.
+**Actual result** (2026-10-07, executed in the app UI by the owner; details in the Results log entry "UI results"): steps 1 to 3 done. The key `Contract Number Key` on `mwf_contractnumber` became Active. Two contracts with no number were both saved. A second contract with the number `TEST-TMP-DUP-1` was rejected with a duplicate-key message. **Not done:** step 4 (a key on a table that already has duplicates, it needs a scratch table or a spare environment) and step 5 (Counterparty key, optional). **API part (2026-10-11):** tested, see the Results log entry "Alternate key API tests". Earlier, on 2026-10-07, a Web API creation of the key was not attempted because no verified request was found.
 
 Decision to take from the result: whether an Alternate key can guarantee Contract Number uniqueness for the Phase 2 plugin (see [ADR-002](decisions/ADR-002-contract-number.md)).
 
@@ -359,7 +359,7 @@ Everything below was observed by the owner in the model-driven app and reported.
 - A banner shows "Read-only. This record's status: Inactive". The fields are read-only.
 - The visible commands: **New, Activate, Delete, Refresh**.
 - The button is named **Activate**, not Reactivate. The documents were corrected.
-- **Step 6 (status transitions): not executed, by decision.**
+- **Step 6 (status transitions): skipped by decision, 2026-10-11.**
 - Still not verified: whether Activate starts a flow run (see item 4).
 
 **Item 5 — alternate key, done from Solutions > Muwafaqa > Tables > Contract > Keys**
@@ -375,7 +375,7 @@ Everything below was observed by the owner in the model-driven app and reported.
 
 - **Tested:** steps 1 to 3 (key creation, empty values, duplicate rejection).
 - **Not done:** step 4 (key on a table that already has duplicates; needs a scratch table or a spare environment) and step 5 (Counterparty key, optional).
-- **Not tested:** `GET` and `PATCH` by the key through the API (the ADR-002 format constraint concerns exactly those calls).
+- `GET` and `PATCH` by the key through the API were tested later, on 2026-10-11 (see the next entries).
 - Consequence: Contract now has an alternate key. The Phase 2 uniqueness question for the Contract Number is partly answered (duplicates are rejected, empty values are allowed), see ADR-002.
 
 ### 2026-10-11 — approval flow re-trigger and conflicting decisions (item 7, steps 2 to 5)
@@ -397,3 +397,36 @@ Observed on the live environment. Rows used: `TEST-TMP-FLOW-01 edited`, `TEST-TM
 **Cleanup (2026-10-11):** the three rows were deleted through the Web API by exact Subject (each HTTP 204, one match per Subject). The read-only `check-clean` afterwards reported **0 TEST-TMP contracts and 0 TEST-TMP counterparties**. Their final states just before deletion were Rejected (`TEST-TMP-FLOW-01 edited`), In Force (`TEST-TMP-FLOW-02`), Rejected (`TEST-TMP-FLOW-03`).
 
 **Not verified here:** the run history itself was read by the owner. This repository holds the owner's report, not the run records.
+
+### 2026-10-11 — Alternate key API tests (item 5, API part)
+
+Key: `Contract Number Key` on `mwf_contractnumber`. Done through the Web API with `scripts/verification-api-tests.mjs key-tests`. Only `TEST-TMP-KEY-*` rows were written. `TEST-CT-0001` was only read. Every `PATCH` by key carried `If-Match: *`, because a `PATCH` by key is an upsert and this makes it update-only. An upsert by key with an empty value was **not** tried.
+
+| # | Request | HTTP | Message and result |
+|---|---|---|---|
+| 1 | `GET` by key on the seeded `TEST-CT-0001` | **200** | Returned the row (number and status read back) |
+| 2a | Create `TEST-TMP-KEY-01` with number `TMPKEY-01` | 204 | Created |
+| 2b | `PATCH` by key `TMPKEY-01`, Subject only | **204** | Updated |
+| 2c | `GET` by key `TMPKEY-01` | **200** | Subject was the edited one: **change confirmed** |
+| 3a | Create `TEST-TMP-KEY-02` with number `TMP/KEY/02` (contains `/`) | 204 | **Created**: the key does not block the character at creation |
+| 3b | `GET` by key, `/` percent-encoded as `%2F` | **400** | "Bad Request - Error in query syntax." |
+| 3c | `GET` by key, plain `/` | **400** | "Bad Request - Error in query syntax." |
+| 3d | `PATCH` by key, percent-encoded | **400** | "Bad Request - Error in query syntax." |
+| 3e | `PATCH` by key, plain | **400** | "Bad Request - Error in query syntax." |
+| 3f | Subject of the row afterwards | | Unchanged (`TEST-TMP-KEY-02`): no update was applied |
+| 4 | Create another row with number `TMPKEY-01` | **412** | "Entity Key Contract Number Key violated. A record with the same value for Contract Number already exists. A duplicate record cannot be created. Select one or more unique values and try again." |
+| 5 | Create two rows with no number | 204 and 204 | Both created: empty values are accepted through the API too |
+
+**Upsert note:** a `PATCH` by key is an upsert and can create a row unless the request carries `If-Match: *`. All key tests used `If-Match: *`, so they could only update. A duplicate create returns **HTTP 412** with the "Entity Key ... violated" message, which the Phase 2 loader can rely on.
+
+**What this confirms:** for the character `/`, retrieving and updating by key do not work (HTTP 400), in both the plain and the percent-encoded form, which agrees with the Microsoft Learn constraint quoted in ADR-002. **Not tested:** the other characters of that list (`<` `>` `*` `%` `&` `:` `\` `?` `+`), and any upsert by key.
+
+**Cleanup:** the four remaining rows were deleted by Subject prefix (each HTTP 204). `check-clean` afterwards: **PASS** (0 `TEST-TMP` contracts, 0 counterparties).
+
+### Checklist status after 2026-10-11
+
+Nothing is open. Four things were **skipped by decision, 2026-10-11**, and they are not tested:
+- **Item 1, deleting a default Status Reason option:** not tested, no value for Phase 2.
+- **Item 4, step 6 (status transitions):** optional in the item, and it would change the solution.
+- **Item 5, step 4 (key on a table that already has duplicates):** the item itself requires a scratch table or a spare environment.
+- **Item 5, step 5 (Counterparty key):** optional in the item.
