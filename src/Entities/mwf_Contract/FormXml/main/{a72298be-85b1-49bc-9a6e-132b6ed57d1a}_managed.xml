@@ -99,6 +99,14 @@
                         <control id="mwf_value_base" classid="{533B9E00-756B-4312-95A0-DC888637AC78}" datafieldname="mwf_value_base" disabled="true" />
                       </cell>
                     </row>
+                    <row>
+                      <cell id="{a09fcbf8-aa93-441a-84d3-b0e2b642f588}" locklevel="0" colspan="1" rowspan="1">
+                        <labels>
+                          <label description="" languagecode="1033" />
+                        </labels>
+                        <control id="mwf_valueusdfrozen" classid="{C3EFE0C3-0EC6-42BE-8349-CBD9079DFD8E}" datafieldname="mwf_valueusdfrozen" disabled="true" />
+                      </cell>
+                    </row>
                   </rows>
                 </section>
                 <section name="null_section_4" id="651e5c15-3c0e-40d7-bc9c-7af1ee07f38a" IsUserDefined="0" locklevel="0" showlabel="true" showbar="false" layout="varwidth" celllabelalignment="Left" celllabelposition="Left" columns="1" labelwidth="115">
