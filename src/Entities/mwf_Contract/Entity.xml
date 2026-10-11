@@ -1269,6 +1269,20 @@
           </Descriptions>
         </attribute>
       </attributes>
+      <EntityKeys>
+        <EntityKey>
+          <Name>mwf_ContractNumberKey</Name>
+          <LogicalName>mwf_contractnumberkey</LogicalName>
+          <IntroducedVersion>1.0.0.0</IntroducedVersion>
+          <IsCustomizable>0</IsCustomizable>
+          <EntityKeyAttributes>
+            <AttributeName>mwf_contractnumber</AttributeName>
+          </EntityKeyAttributes>
+          <displaynames>
+            <displayname description="Contract Number Key" languagecode="1033" />
+          </displaynames>
+        </EntityKey>
+      </EntityKeys>
       <EntitySetName>mwf_contracts</EntitySetName>
       <IsDuplicateCheckSupported>0</IsDuplicateCheckSupported>
       <IsBusinessProcessEnabled>0</IsBusinessProcessEnabled>
