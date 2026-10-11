@@ -270,7 +270,20 @@ try {
     const SUBJECTS = ['TEST-TMP-FLOW-01 edited', 'TEST-TMP-FLOW-02', 'TEST-TMP-FLOW-03'];
     const noGuid = (t) => (t == null ? t : t.replace(/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g, '<id>'));
     R.results = [];
-    for (const s of SUBJECTS) {
+    // Optional --prefix=TEST-TMP-...: delete every contract whose Subject starts with that prefix (must start with TEST-TMP-, at most 20 rows).
+    const prefix = argOf('prefix');
+    if (prefix) {
+      if (!prefix.startsWith('TEST-TMP-')) throw new Error('--prefix must start with TEST-TMP-. Nothing was deleted.');
+      const f = await must('GET', `mwf_contracts?$select=mwf_name,statecode,statuscode&$filter=${q(`startswith(mwf_name,'${prefix}')`)}&$orderby=mwf_name`);
+      if (f.json.value.length > 20) throw new Error(`more than 20 contracts match the prefix (${f.json.value.length}). Nothing was deleted.`);
+      for (const row of f.json.value) {
+        const d = await observe('DELETE', `mwf_contracts(${row.mwf_contractid})`);
+        R.results.push({ subject: row.mwf_name, found: 1, statuscode: row.statuscode, statecode: row.statecode, deleteHttp: d.status, deleted: d.ok, error: noGuid(d.error) });
+        if (!d.ok) { R.stoppedAt = row.mwf_name; break; }
+      }
+      if (!f.json.value.length) R.results.push({ prefix, found: 0, action: 'nothing to delete' });
+    }
+    for (const s of (prefix ? [] : SUBJECTS)) {
       const f = await must('GET', `mwf_contracts?$select=mwf_name,statecode,statuscode&$filter=${q(`mwf_name eq '${s}'`)}`);
       if (f.json.value.length > 1) throw new Error(`more than one contract has the subject "${s}" (${f.json.value.length}). Nothing was deleted for it.`);
       if (f.json.value.length === 0) { R.results.push({ subject: s, found: 0, action: 'nothing to delete' }); continue; }
@@ -280,6 +293,71 @@ try {
       if (!d.ok) { R.stoppedAt = s; break; }
     }
     R.tmp = await tmpCount();
+  }
+
+  else if (test === 'key-tests') {
+    // Alternate key "Contract Number Key" on mwf_contractnumber. Writes only TEST-TMP-KEY-* rows. Clean up afterwards with
+    //   delete-by-subject --prefix=TEST-TMP-KEY-
+    // PATCH by key is an upsert, so every PATCH here sends If-Match: * (update only, never create).
+    const noGuid = (t) => (t == null ? t : t.replace(/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g, '<id>'));
+    const seen = async (method, path, body, headers) => {
+      const r = await call(method, path, body, headers);
+      return { http: r.status, ok: r.ok, message: r.ok ? null : noGuid(msg(r)), json: r.json };
+    };
+    const NOUPSERT = { 'If-Match': '*' };
+    const cps = await must('GET', `mwf_counterparties?$select=mwf_counterpartyid&$filter=${q("mwf_name eq 'Demo Partner Holdings Test Inc'")}`);
+    if (cps.json.value.length !== 1) throw new Error(`expected 1 counterparty 'Demo Partner Holdings Test Inc', found ${cps.json.value.length}`);
+    const usd = await currency('USD');
+    const base = (subject, number) => {
+      const b = {
+        mwf_name: subject, mwf_contracttype: 867640000, mwf_direction: 867640001, mwf_value: 1,
+        'mwf_counterpartyid@odata.bind': `/mwf_counterparties(${cps.json.value[0].mwf_counterpartyid})`,
+        'transactioncurrencyid@odata.bind': `/transactioncurrencies(${usd.transactioncurrencyid})`,
+      };
+      if (number !== undefined) b.mwf_contractnumber = number;
+      return b;
+    };
+    const pre = await must('GET', `mwf_contracts?$select=mwf_name&$filter=${q("startswith(mwf_name,'TEST-TMP-KEY-')")}`);
+    if (pre.json.value.length) throw new Error(`TEST-TMP-KEY-* rows already exist (${pre.json.value.length}). Clean them first. Nothing was created.`);
+    R.steps = {};
+
+    // 1. GET by key on an existing seeded contract (read only)
+    const g1 = await seen('GET', "mwf_contracts(mwf_contractnumber='TEST-CT-0001')?$select=mwf_name,mwf_contractnumber,statuscode");
+    R.steps['1_get_seeded_TEST-CT-0001'] = { http: g1.http, message: g1.message, returnedNumber: g1.json?.mwf_contractnumber, returnedStatus: g1.json?.statuscode };
+
+    // 2. valid characters: create, PATCH by key, GET by key
+    const c2 = await seen('POST', 'mwf_contracts', base('TEST-TMP-KEY-01', 'TMPKEY-01'));
+    R.steps['2a_create_TMPKEY-01'] = { http: c2.http, message: c2.message };
+    if (!c2.ok) throw new Error(`create TMPKEY-01 failed: HTTP ${c2.http} ${c2.message}`);
+    const p2 = await seen('PATCH', "mwf_contracts(mwf_contractnumber='TMPKEY-01')", { mwf_name: 'TEST-TMP-KEY-01 edited' }, NOUPSERT);
+    R.steps['2b_patch_by_key'] = { http: p2.http, message: p2.message };
+    const g2 = await seen('GET', "mwf_contracts(mwf_contractnumber='TMPKEY-01')?$select=mwf_name");
+    R.steps['2c_get_by_key_after_patch'] = { http: g2.http, message: g2.message, subject: g2.json?.mwf_name, changeConfirmed: g2.json?.mwf_name === 'TEST-TMP-KEY-01 edited' };
+
+    // 3. restricted character "/" in the number
+    const c3 = await seen('POST', 'mwf_contracts', base('TEST-TMP-KEY-02', 'TMP/KEY/02'));
+    R.steps['3a_create_TMP/KEY/02'] = { http: c3.http, message: c3.message };
+    if (c3.ok) {
+      R.steps['3b_get_encoded'] = (({ http, message, json }) => ({ http, message, subject: json?.mwf_name }))(await seen('GET', "mwf_contracts(mwf_contractnumber='TMP%2FKEY%2F02')?$select=mwf_name"));
+      R.steps['3c_get_plain'] = (({ http, message, json }) => ({ http, message, subject: json?.mwf_name }))(await seen('GET', "mwf_contracts(mwf_contractnumber='TMP/KEY/02')?$select=mwf_name"));
+      R.steps['3d_patch_encoded'] = (({ http, message }) => ({ http, message }))(await seen('PATCH', "mwf_contracts(mwf_contractnumber='TMP%2FKEY%2F02')", { mwf_name: 'TEST-TMP-KEY-02 edited' }, NOUPSERT));
+      R.steps['3e_patch_plain'] = (({ http, message }) => ({ http, message }))(await seen('PATCH', "mwf_contracts(mwf_contractnumber='TMP/KEY/02')", { mwf_name: 'TEST-TMP-KEY-02 edited plain' }, NOUPSERT));
+      const after = await must('GET', `mwf_contracts?$select=mwf_name&$filter=${q("startswith(mwf_name,'TEST-TMP-KEY-02')")}`);
+      R.steps['3f_subjects_of_row_02_now'] = after.json.value.map((x) => x.mwf_name);
+    }
+
+    // 4. duplicate number
+    const c4 = await seen('POST', 'mwf_contracts', base('TEST-TMP-KEY-03', 'TMPKEY-01'));
+    R.steps['4_create_duplicate_TMPKEY-01'] = { http: c4.http, message: c4.message };
+
+    // 5. two rows without a number
+    const c5a = await seen('POST', 'mwf_contracts', base('TEST-TMP-KEY-04'));
+    const c5b = await seen('POST', 'mwf_contracts', base('TEST-TMP-KEY-05'));
+    R.steps['5_two_rows_without_number'] = { first: { http: c5a.http, message: c5a.message }, second: { http: c5b.http, message: c5b.message } };
+
+    const left = await must('GET', `mwf_contracts?$select=mwf_name&$filter=${q("startswith(mwf_name,'TEST-TMP-KEY-')")}&$orderby=mwf_name`);
+    R.rowsToDeleteNow = left.json.value.map((x) => x.mwf_name);
+    R.note = 'TEST-TMP-KEY-* rows were left in place. Delete them with: delete-by-subject --prefix=TEST-TMP-KEY-';
   }
 
   else if (test === 'check-clean') R.tmp = await tmpCount();
