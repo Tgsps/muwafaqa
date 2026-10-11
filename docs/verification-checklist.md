@@ -6,16 +6,16 @@ The expected results are **hypotheses** based on understanding of Dataverse, not
 
 Environment: Base currency TRY, Base language English. Use only fictitious data.
 
-| # | Item | Affects |
-|---|---|---|
-| 1 | Rename default Status Reason options | Data model section 2 |
-| 2 | KWD precision | Data model, test data |
-| 3 | Exchange rate change and its effect on existing records | Phase 2 independent USD value |
-| 4 | Rejected → Draft transition | Data model section 2, flow test plan |
-| 5 | Alternate key with empty values | Phase 2 Contract Number |
-| 6 | Flow sets Status Reason only: is State derived? | Flow spec section 7 |
-| 7 | Flow loop guard and re-trigger behavior | Flow spec section 6 |
-| 8 | Import of `statuscode` from CSV | data/README.md |
+| # | Item | Affects | Status (as recorded) |
+|---|---|---|---|
+| 1 | Rename default Status Reason options | Data model section 2 | **Done**, except deleting a **default** option (not attempted) |
+| 2 | KWD precision | Data model, test data | **Done** (Web API and UI display) |
+| 3 | Exchange rate change and its effect on existing records | Phase 2 independent USD value | **Done** (Web API and form) |
+| 4 | Rejected → Draft transition | Data model section 2, flow test plan | **Done**, except step 6 (status transitions, not executed by decision) |
+| 5 | Alternate key with empty values | Phase 2 Contract Number | **Partial**: steps 1 to 3 done. **Open:** step 4, step 5 (optional), `GET`/`PATCH` by the key |
+| 6 | Flow sets Status Reason only: is State derived? | Flow spec section 7 | **Done** |
+| 7 | Flow loop guard and re-trigger behavior | Flow spec section 6 | **Done**: steps 1 to 5 recorded (2026-10-07 and 2026-10-11) |
+| 8 | Import of `statuscode` from CSV | data/README.md | **Done** (three wizard attempts recorded) |
 
 ---
 
@@ -124,7 +124,7 @@ Decision to take from the result: the platform alone does **not** freeze the con
 - Direct API update may be allowed or blocked. Unknown.
 - Restricting transitions could block Activate options you want to allow. Unknown.
 
-**Actual result** (2026-10-07, partial, reported by the owner from the app UI): steps 3 and 4 only. `TEST-CT-0010` was Rejected (Inactive). The owner pressed **Activate** in the app command bar. The contract became **Draft (Active)**, and **no dialog to choose a Status Reason appeared**. Step 2 (whether the Rejected form is read-only) was done later, see the Results log entry "UI results". Step 6 (status transitions) was **not executed, by decision**. Step 5 (direct API update) is covered by the API part below. **Not verified:** whether the approval flow started a new run after the Activate. Expected: none, because Draft does not match the trigger's Filter rows.
+**Actual result** (2026-10-07, partial, reported by the owner from the app UI): steps 3 and 4 only. `TEST-CT-0010` was Rejected (Inactive). The owner pressed **Activate** in the app command bar. The contract became **Draft (Active)**, and **no dialog to choose a Status Reason appeared**. Step 2 (whether the Rejected form is read-only) was done later, see the Results log entry "UI results". Step 6 (status transitions) was **not executed, by decision**. Step 5 (direct API update) is covered by the API part below. **Verified later (2026-10-11):** Activate on an Inactive row gives Draft and starts **no** flow run, because Draft does not match the trigger's Filter rows.
 
 **API part, step 5 (2026-10-07, temporary `TEST-TMP-REJ` row, deleted afterwards and deletion verified):**
 - A new row was set to Rejected with State Inactive (state 1, status 2).
@@ -178,7 +178,7 @@ Decision to take from the result: whether an Alternate key can guarantee Contrac
 1. Complete flow Scenario 1 (full approval). Open run history. Count runs for that contract.
 2. Edit an unrelated column on a Pending Approval row (e.g. Subject). Confirm no run starts.
 3. Save a Pending Approval row again without changing Status Reason. Confirm whether a run starts.
-4. Set Pending Approval → Draft → Pending Approval quickly. Count runs and whether they overlap, with concurrency control = 1.
+4. Set Pending Approval → Draft → Pending Approval quickly. Count runs and whether they overlap. (Concurrency control was **never enabled**: see flow spec section 1.)
 5. While an approval is outstanding, move the contract to Draft, then let the approver respond. Record what the flow does.
 
 **Expected result**
@@ -188,18 +188,23 @@ Decision to take from the result: whether an Alternate key can guarantee Contrac
 - Step 4: unknown.
 - Step 5: the flow overwrites the status when the approver responds (known gap, flow spec section 6).
 
-**Actual result** (2026-10-07), step by step, compared with what was actually recorded:
+**Actual result** (2026-10-07 and 2026-10-11, all observed on the live environment), step by step:
 
-| Step | Status |
-|---|---|
-| 1. Complete Scenario 1, count runs | **Done.** 5 runs for 5 contracts, one run per contract, no re-trigger from the flow's own status update |
-| 2. Edit an unrelated column on a Pending Approval row, confirm no run | **Not tested** |
-| 3. Save a Pending Approval row again without changing Status Reason | **Not tested** |
-| 4. Pending → Draft → Pending quickly, count runs and overlap (concurrency control = 1) | **Not tested** |
-| 5. Move the contract to Draft while an approval is outstanding, then let the approver respond | **Not tested** |
+| Step | Result | Matched the expectation |
+|---|---|---|
+| 1. Complete Scenario 1, count runs | 5 runs for 5 contracts, one run per contract. The flow's own status update did not start another run (2026-10-07) | Yes |
+| 2. Edit an unrelated column on a Pending Approval row | Editing the Subject while Pending Approval started **no new run** (2026-10-11) | Yes |
+| 3. Save a Pending Approval row again without changing Status Reason | Starts a **new run and a duplicate approval chain** (two runs, two pending approvals). Via the API the save was accepted (HTTP 204) and `modifiedon` changed (2026-10-11 19:29:10 Riyadh time) | **No**: was "unknown", and a same-value save is treated as a change |
+| 4. Pending → Draft → Pending quickly | Starts a **new run and a duplicate approval chain** again. The UI quick toggle was **inconclusive** (one run, and the saves could not be verified). Redone through the API on `TEST-TMP-FLOW-03`: three requests in about 1.4 seconds (19:46:31 to 19:46:32 Riyadh time) gave **two runs**. Overlap is possible because no concurrency setting exists in the exported flow | **No**: was "unknown" |
+| 5. Move to Draft while an approval is outstanding, then let the approver respond | On `TEST-TMP-FLOW-02`: Draft was saved and confirmed in the UI, then both stages were approved. The run finished **Succeeded** and the row ended **In Force**. The flow **overwrote the user's Draft** | Yes (the known gap in the flow spec section 6), now observed |
 
-Related and **not verified**: whether the manual Activate (Rejected → Draft) on `TEST-CT-0010` started a flow run. It is recorded under item 4, because that test was about Activate, not about the loop guard.
+**Additional findings from the same tests:**
+- **Conflicting decisions** (`TEST-TMP-FLOW-03`, two runs): run 1 was rejected and the row became Inactive / Rejected. Run 2 approved both stages, then its last *Update a row* (In Force) **failed** with BadRequest: "867640001 is not a valid status code for state code mwf_ContractState.Inactive". Final state: Rejected. The rejection survived **only because of the platform's State / Status Reason constraint**, not because of any flow logic.
+- Observed on `TEST-TMP-FLOW-01`: a duplicate reject on an already Rejected row did not fail; both runs ended Succeeded.
+- The UI **Activate** button on an Inactive row gives **Draft** and starts **no run** (Draft does not match the trigger's Filter rows). This closes the "not verified" point recorded under item 4.
+- The exported flow contains **no** `runtimeConfiguration`, concurrency or `triggerConditions` (read from `src/Workflows/` on 2026-10-11).
 
+The decision on concurrency and the Phase 2 consequences are in [flow-approval-v1.md](flow-approval-v1.md) sections 1, 10 and 11.
 ---
 
 ## 8. Import of `statuscode` from CSV
@@ -372,3 +377,23 @@ Everything below was observed by the owner in the model-driven app and reported.
 - **Not done:** step 4 (key on a table that already has duplicates; needs a scratch table or a spare environment) and step 5 (Counterparty key, optional).
 - **Not tested:** `GET` and `PATCH` by the key through the API (the ADR-002 format constraint concerns exactly those calls).
 - Consequence: Contract now has an alternate key. The Phase 2 uniqueness question for the Contract Number is partly answered (duplicates are rejected, empty values are allowed), see ADR-002.
+
+### 2026-10-11 — approval flow re-trigger and conflicting decisions (item 7, steps 2 to 5)
+
+Observed on the live environment. Rows used: `TEST-TMP-FLOW-01 edited`, `TEST-TMP-FLOW-02`, `TEST-TMP-FLOW-03`.
+
+| Test | Row | Result |
+|---|---|---|
+| Edit Subject while Pending Approval | `TEST-TMP-FLOW-01 edited` | No new run |
+| Save again with the same Status Reason (item 7 step 3) | `TEST-TMP-FLOW-01 edited` | New run and a duplicate approval chain. Via the API: HTTP 204, `modifiedon` changed (19:29:10 Riyadh) |
+| Pending → Draft → Pending quickly (item 7 step 4), UI | not recorded | Inconclusive: one run, saves not verifiable |
+| Same, through the API | `TEST-TMP-FLOW-03` | Three requests in about 1.4 s (19:46:31 to 19:46:32 Riyadh): **two runs**, two pending approvals |
+| Conflicting decisions | `TEST-TMP-FLOW-03` | Run 1 rejected the row (Inactive / Rejected). Run 2 approved both stages, then its In Force write failed: "867640001 is not a valid status code for state code mwf_ContractState.Inactive". Final: Rejected |
+| Change to Draft while approval pending (item 7 step 5) | `TEST-TMP-FLOW-02` | Draft confirmed in the UI, both stages approved, run Succeeded, row ended In Force. The flow overwrote the Draft |
+| Activate on an Inactive row | not recorded | Draft, no run started |
+
+**Superseded:** the earlier lines "Activate ... not verified" (2026-10-07 entries) are answered by the last row.
+
+**Cleanup (2026-10-11):** the three rows were deleted through the Web API by exact Subject (each HTTP 204, one match per Subject). The read-only `check-clean` afterwards reported **0 TEST-TMP contracts and 0 TEST-TMP counterparties**. Their final states just before deletion were Rejected (`TEST-TMP-FLOW-01 edited`), In Force (`TEST-TMP-FLOW-02`), Rejected (`TEST-TMP-FLOW-03`).
+
+**Not verified here:** the run history itself was read by the owner. This repository holds the owner's report, not the run records.

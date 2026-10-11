@@ -49,7 +49,7 @@ Notes:
 @equals(triggerOutputs()?['body/statuscode'], <PENDING_APPROVAL_VALUE>)
 ```
 
-Settings for the trigger: **Concurrency control = On, degree of parallelism = 1** (**not verified** that this fully prevents overlapping runs on the same row; see section 6).
+**Concurrency control is NOT enabled, by decision.** An earlier version of this spec said "Concurrency control = On, degree of parallelism = 1". That was never applied: the exported flow contains no `runtimeConfiguration`, concurrency or `triggerConditions` (read on 2026-10-11). Reasons for not enabling it, from Microsoft Learn (verified 2026-10-11): concurrency control is off by default; turning it on can't be undone; the waiting runs limit is 10 plus the degree of parallelism; additional triggers beyond that might be retried by the connector and might not succeed; and Microsoft recommends leaving it off so that all triggers result in runs. Sources: [Limits of automated, scheduled, and instant flows](https://learn.microsoft.com/power-automate/limits-and-config#concurrency,-looping,-and-debatching-limits) and [Optimize Power Automate triggers](https://learn.microsoft.com/power-automate/guidance/coding-guidelines/optimize-power-automate-triggers) (concurrency control is irreversible; the best practice is to leave the default). Duplicate runs are handled in Phase 2 instead (section 11).
 
 ---
 
@@ -182,14 +182,14 @@ Trigger: Contract modified, statuscode = Pending Approval
 
 **Tested live (2026-10-07):** 5 runs for 5 contracts, **one run per contract**. The flow's own update of the contract status did not start another run. The observed behavior is consistent with Filter rows being evaluated against the post-update row. The internal mechanism was not inspected.
 
+**Re-trigger tested live (2026-10-11):** the loop guard holds for the flow's own updates, but the trigger fires again for any save that targets Pending Approval, including a save with the **same** value, and for Pending → Draft → Pending. Each starts a new run and a duplicate approval chain. Editing another column (Subject) while Pending starts no run. Details in section 10.
+
 **Still not tested:**
-- Pending Approval → Draft → Pending Approval done quickly (two possibly overlapping runs), and the effect of concurrency = 1 (queues or drops the second run).
-- Whether a save that sets Pending Approval on a row already Pending Approval counts as a modification and fires the trigger again.
 - Whether the platform applies any loop-breaking protection to cloud-flow-triggered updates. Do not rely on it.
 
-**Related: manual Activate.** Whether a Rejected → Draft Activate starts a flow run was **not verified**. The Activate test itself is recorded in section 9 and in the verification checklist (item 4).
+**Activate (Inactive → Draft).** Verified on 2026-10-11: Activate in the app turns an Inactive row into Draft and starts no run (Draft does not match Filter rows).
 
-**Race condition left open in v1.** If someone moves the contract from Pending Approval back to Draft while an approval is outstanding, the flow still finishes and overwrites the status when the approver responds. Optional hardening: before each *Update a row*, add *Get a row by ID* and a condition that `statuscode` is still `<PENDING_APPROVAL_VALUE>`. Not included in v1 to keep the click-work small.
+**Race condition, now observed (section 10).** If someone moves the contract from Pending Approval back to Draft while an approval is outstanding, the flow still finishes and overwrites the status when the approver responds. The hardening (re-read the row before writing) is a Phase 2 item (section 11).
 
 ---
 
@@ -217,13 +217,13 @@ Trigger: Contract modified, statuscode = Pending Approval
 | Filter rows + Filter columns on trigger | Server-side, cheap, breaks the loop | Hard-coded numeric value in the flow. A rebuilt environment with different Choice values breaks it (mitigation: environment variable, or read the value in a Phase 2 design) |
 | Status changed by the flow | Single source of truth for state is the contract row | The flow's connection identity appears as the modifier on the row |
 | Terminate with Succeeded on reject | Run history is clean, rejection is not an error | Run history alone does not show a rejection. The contract's status does |
-| No hardening against concurrent status changes (v1) | Fewer actions | Race condition described in section 6 |
+| No hardening against concurrent status changes (v1), no concurrency control | Fewer actions, no queue to manage | Duplicate runs and the overwrite of a user's Draft, observed in section 10 |
 
 ---
 
 ## 9. Test plan
 
-Prerequisite: test data imported ([data/README.md](../data/README.md)), the flow turned **on** after the import, two test accounts available to act as approvers, and a way to inspect flow run history. Use a contract that is **Draft** (e.g. `TEST-CT-0009`). Note: after Scenario 2 or 3 the contract is Rejected and Inactive. To reuse it, press **Activate** in the app command bar: observed on 2026-10-07, it turns the contract into Draft (Active) with no dialog for choosing a status (see verification checklist, item 4 and the Results log). Whether Activate starts a flow run was **not verified** (none expected). Otherwise use a different Draft contract for the next scenario.
+Prerequisite: test data imported ([data/README.md](../data/README.md)), the flow turned **on** after the import, two test accounts available to act as approvers, and a way to inspect flow run history. Use a contract that is **Draft** (e.g. `TEST-CT-0009`). Note: after Scenario 2 or 3 the contract is Rejected and Inactive. To reuse it, press **Activate** in the app command bar: observed on 2026-10-07, it turns the contract into Draft (Active) with no dialog for choosing a status (see verification checklist, item 4 and the Results log). Activate starts no flow run (verified 2026-10-11). Otherwise use a different Draft contract for the next scenario.
 
 For every scenario: change Status Reason from Draft to Pending Approval, then observe.
 
@@ -254,3 +254,35 @@ For every scenario: change Status Reason from Draft to Pending Approval, then ob
 | Result | | Status Reason = Rejected, State = Inactive. Both approvals exist in the Approvals history (first Approve, second Reject). One run, no re-trigger |
 
 Record deviations (especially extra runs, wrong State, or an approval sent after a rejection) in [verification-checklist.md](verification-checklist.md) under the flow items. Results of the 2026-10-07 run are recorded there.
+
+---
+
+## 10. Findings of 2026-10-11: re-trigger and conflicting decisions
+
+All observed on the live environment (rows `TEST-TMP-FLOW-01 edited`, `-02`, `-03`, deleted afterwards).
+
+| # | Test | Result |
+|---|---|---|
+| a | Edit Subject while Pending Approval | No new run |
+| b | Save a Pending row again with the same value, or Pending → Draft → Pending | Each starts a **new run and a duplicate approval chain** (two runs, two pending approvals). The UI quick toggle was inconclusive (one run, saves not verifiable). Redone through the API on `TEST-TMP-FLOW-03`: two runs |
+| c | Conflicting decisions on `TEST-TMP-FLOW-03` (two runs) | Run 1 rejected: row Inactive / Rejected. Run 2 approved both stages, then its final *Update a row 3* (In Force) **failed** with BadRequest: "867640001 is not a valid status code for state code mwf_ContractState.Inactive". Final state: Rejected |
+| d | Change to Draft while an approval is pending (`TEST-TMP-FLOW-02`) | Draft saved and confirmed in the UI, then both stages approved: the run finished Succeeded and the row ended **In Force**. The flow overwrote the user's Draft (Draft is in State Active, so the write is valid) |
+| e | Duplicate reject on an already Rejected row | Observed on `TEST-TMP-FLOW-01`: a duplicate reject on an already Rejected row did not fail; both runs ended Succeeded |
+| f | UI **Activate** on an Inactive row | Draft, no run started (Draft does not match the trigger filter) |
+| g | Exported flow JSON | No `runtimeConfiguration`, concurrency or `triggerConditions` |
+
+**What this means:**
+- In (c) the rejection survived **only because of the platform's State / Status Reason constraint**, not because of flow logic.
+- In (d) the flow does **not** check the row's current status before writing its decision, so a legitimate user change is lost.
+- Two runs for one contract create two approval chains, which can contradict each other.
+
+---
+
+## 11. Phase 2 implications
+
+1. **Guard against duplicate runs:** for example an "approval in progress" marker column on the contract, checked at the start of the flow (and cleared when it ends).
+2. **Re-read before writing:** before writing In Force or Rejected, re-read the row and proceed only if `statuscode` is still Pending Approval.
+3. **Server-side enforcement of allowed status transitions** in a plugin (no direct Draft → In Force).
+4. **The plugin freezes the exchange rate at submission** (see ADR-001 and verification checklist item 3).
+
+Each item has a trade-off to state when it is designed (extra column and flow logic against the extra read and the plugin to maintain). They are not designed yet.
