@@ -106,7 +106,7 @@ Trade-off of Restrict: a counterparty cannot be deleted while it has contracts. 
 
 | Item | Reason for deferral | Phase |
 |---|---|---|
-| ApprovalMatrix | Needs a stable status model first, plus the approval flow design | 2 |
+| ApprovalMatrix | Needs a stable status model first, plus the approval flow design. **The table and fictional seed data exist since 2026-10-11** (see "ApprovalMatrix table" below). The flow that uses it is still Phase 2 | 2 |
 | USD value, frozen at submission | The base amount is in TRY, but the approval authority threshold is in USD. A plugin computes an independent USD value (from the base amount and a USD rate) and freezes it when the contract is submitted, without recalculating | 2 |
 | Value Type | Changes the meaning of the Value column. Settle the base first | 2 |
 | Type/Direction combination rule (plugin) | Independent columns allow illogical combinations (decision D10) | 2 |
@@ -118,6 +118,34 @@ Trade-off of Restrict: a counterparty cannot be deleted while it has contracts. 
 | Annexure | Out of plan. Option after Phase 6 | Out of plan |
 | RateCard | Out of plan. Option after Phase 6 | Out of plan |
 | Legal Entity / Site | Out of plan. Option after Phase 6 | Out of plan |
+
+---
+
+### ApprovalMatrix table (created ahead of Phase 2)
+
+The table exists in the solution and holds **fictional** seed rows. It is not used by any flow yet. This section is the only place the table is described, until the Phase 2 data model is written.
+
+| Property | Value |
+|---|---|
+| Logical name | `mwf_approvalmatrix` |
+| Entity set name (Web API) | `mwf_approvalmatrixes` (read from the metadata, **verified** 2026-10-11) |
+| Ownership | Organization-owned |
+| Primary name | `mwf_rulename` (Rule Name) |
+
+| Logical name | Type | RequiredLevel read from the API (2026-10-11) | Choice values / note |
+|---|---|---|---|
+| `mwf_rulename` | Text (primary name) | ApplicationRequired | Format `<Type> - <Direction> - Band <n> - Step <k>` |
+| `mwf_contracttype` | Choice (local) | ApplicationRequired | Maintenance 867640000, Procurement …01, Insurance …02, Sales …03, Services …04 |
+| `mwf_contractdirection` | Choice (local) | ApplicationRequired | Income 867640000, Expense 867640001 |
+| `mwf_minvalueusd` | Decimal, 2 decimals | ApplicationRequired | Exclusive lower bound, in USD |
+| `mwf_maxvalueusd` | Decimal, 2 decimals | **None** (optional) | Inclusive upper bound, in USD. Empty means unbounded |
+| `mwf_steporder` | Whole number | ApplicationRequired | Step within a band, 1..n |
+| `mwf_approverrole` | Choice (local) | ApplicationRequired | Department Head 867640000, Finance Manager …01, General Manager …02, Regional Office …03, Owner …04 |
+| `mwf_actiontype` | Choice (local) | ApplicationRequired | Approve 867640000, Inform 867640001 |
+
+**Convention:** Min is **exclusive**, Max is **inclusive**, an empty Max means **unbounded**, and a value of exactly 0 matches no band. The seeded bands (0 to 10,000, 10,000 to 50,000, 50,000 to 100,000, above 100,000) are **fictional** and must be replaced when the real thresholds are known. Details and the validation result: [data/README.md](../data/README.md), section "Approval matrix".
+
+The Min and Max are in USD while the platform base amount is TRY (see ADR-001). They are meant to be compared with the independent USD value computed in Phase 2. That is a design intention, not implemented.
 
 ---
 

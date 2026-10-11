@@ -1,0 +1,111 @@
+mwf_rulename,mwf_contracttype,mwf_contractdirection,mwf_minvalueusd,mwf_maxvalueusd,mwf_steporder,mwf_approverrole,mwf_actiontype
+Maintenance - Income - Band 1 - Step 1,Maintenance,Income,0,10000,1,Department Head,Approve
+Maintenance - Income - Band 2 - Step 1,Maintenance,Income,10000,50000,1,Department Head,Approve
+Maintenance - Income - Band 2 - Step 2,Maintenance,Income,10000,50000,2,Finance Manager,Approve
+Maintenance - Income - Band 3 - Step 1,Maintenance,Income,50000,100000,1,Department Head,Approve
+Maintenance - Income - Band 3 - Step 2,Maintenance,Income,50000,100000,2,Finance Manager,Approve
+Maintenance - Income - Band 3 - Step 3,Maintenance,Income,50000,100000,3,General Manager,Approve
+Maintenance - Income - Band 4 - Step 1,Maintenance,Income,100000,,1,Department Head,Approve
+Maintenance - Income - Band 4 - Step 2,Maintenance,Income,100000,,2,Finance Manager,Approve
+Maintenance - Income - Band 4 - Step 3,Maintenance,Income,100000,,3,General Manager,Approve
+Maintenance - Income - Band 4 - Step 4,Maintenance,Income,100000,,4,Regional Office,Approve
+Maintenance - Income - Band 4 - Step 5,Maintenance,Income,100000,,5,Owner,Inform
+Maintenance - Expense - Band 1 - Step 1,Maintenance,Expense,0,10000,1,Department Head,Approve
+Maintenance - Expense - Band 2 - Step 1,Maintenance,Expense,10000,50000,1,Department Head,Approve
+Maintenance - Expense - Band 2 - Step 2,Maintenance,Expense,10000,50000,2,Finance Manager,Approve
+Maintenance - Expense - Band 3 - Step 1,Maintenance,Expense,50000,100000,1,Department Head,Approve
+Maintenance - Expense - Band 3 - Step 2,Maintenance,Expense,50000,100000,2,Finance Manager,Approve
+Maintenance - Expense - Band 3 - Step 3,Maintenance,Expense,50000,100000,3,General Manager,Approve
+Maintenance - Expense - Band 4 - Step 1,Maintenance,Expense,100000,,1,Department Head,Approve
+Maintenance - Expense - Band 4 - Step 2,Maintenance,Expense,100000,,2,Finance Manager,Approve
+Maintenance - Expense - Band 4 - Step 3,Maintenance,Expense,100000,,3,General Manager,Approve
+Maintenance - Expense - Band 4 - Step 4,Maintenance,Expense,100000,,4,Regional Office,Approve
+Maintenance - Expense - Band 4 - Step 5,Maintenance,Expense,100000,,5,Owner,Inform
+Procurement - Income - Band 1 - Step 1,Procurement,Income,0,10000,1,Department Head,Approve
+Procurement - Income - Band 2 - Step 1,Procurement,Income,10000,50000,1,Department Head,Approve
+Procurement - Income - Band 2 - Step 2,Procurement,Income,10000,50000,2,Finance Manager,Approve
+Procurement - Income - Band 3 - Step 1,Procurement,Income,50000,100000,1,Department Head,Approve
+Procurement - Income - Band 3 - Step 2,Procurement,Income,50000,100000,2,Finance Manager,Approve
+Procurement - Income - Band 3 - Step 3,Procurement,Income,50000,100000,3,General Manager,Approve
+Procurement - Income - Band 4 - Step 1,Procurement,Income,100000,,1,Department Head,Approve
+Procurement - Income - Band 4 - Step 2,Procurement,Income,100000,,2,Finance Manager,Approve
+Procurement - Income - Band 4 - Step 3,Procurement,Income,100000,,3,General Manager,Approve
+Procurement - Income - Band 4 - Step 4,Procurement,Income,100000,,4,Regional Office,Approve
+Procurement - Income - Band 4 - Step 5,Procurement,Income,100000,,5,Owner,Inform
+Procurement - Expense - Band 1 - Step 1,Procurement,Expense,0,10000,1,Department Head,Approve
+Procurement - Expense - Band 2 - Step 1,Procurement,Expense,10000,50000,1,Department Head,Approve
+Procurement - Expense - Band 2 - Step 2,Procurement,Expense,10000,50000,2,Finance Manager,Approve
+Procurement - Expense - Band 3 - Step 1,Procurement,Expense,50000,100000,1,Department Head,Approve
+Procurement - Expense - Band 3 - Step 2,Procurement,Expense,50000,100000,2,Finance Manager,Approve
+Procurement - Expense - Band 3 - Step 3,Procurement,Expense,50000,100000,3,General Manager,Approve
+Procurement - Expense - Band 4 - Step 1,Procurement,Expense,100000,,1,Department Head,Approve
+Procurement - Expense - Band 4 - Step 2,Procurement,Expense,100000,,2,Finance Manager,Approve
+Procurement - Expense - Band 4 - Step 3,Procurement,Expense,100000,,3,General Manager,Approve
+Procurement - Expense - Band 4 - Step 4,Procurement,Expense,100000,,4,Regional Office,Approve
+Procurement - Expense - Band 4 - Step 5,Procurement,Expense,100000,,5,Owner,Inform
+Insurance - Income - Band 1 - Step 1,Insurance,Income,0,10000,1,Department Head,Approve
+Insurance - Income - Band 2 - Step 1,Insurance,Income,10000,50000,1,Department Head,Approve
+Insurance - Income - Band 2 - Step 2,Insurance,Income,10000,50000,2,Finance Manager,Approve
+Insurance - Income - Band 3 - Step 1,Insurance,Income,50000,100000,1,Department Head,Approve
+Insurance - Income - Band 3 - Step 2,Insurance,Income,50000,100000,2,Finance Manager,Approve
+Insurance - Income - Band 3 - Step 3,Insurance,Income,50000,100000,3,General Manager,Approve
+Insurance - Income - Band 4 - Step 1,Insurance,Income,100000,,1,Department Head,Approve
+Insurance - Income - Band 4 - Step 2,Insurance,Income,100000,,2,Finance Manager,Approve
+Insurance - Income - Band 4 - Step 3,Insurance,Income,100000,,3,General Manager,Approve
+Insurance - Income - Band 4 - Step 4,Insurance,Income,100000,,4,Regional Office,Approve
+Insurance - Income - Band 4 - Step 5,Insurance,Income,100000,,5,Owner,Inform
+Insurance - Expense - Band 1 - Step 1,Insurance,Expense,0,10000,1,Department Head,Approve
+Insurance - Expense - Band 2 - Step 1,Insurance,Expense,10000,50000,1,Department Head,Approve
+Insurance - Expense - Band 2 - Step 2,Insurance,Expense,10000,50000,2,Finance Manager,Approve
+Insurance - Expense - Band 3 - Step 1,Insurance,Expense,50000,100000,1,Department Head,Approve
+Insurance - Expense - Band 3 - Step 2,Insurance,Expense,50000,100000,2,Finance Manager,Approve
+Insurance - Expense - Band 3 - Step 3,Insurance,Expense,50000,100000,3,General Manager,Approve
+Insurance - Expense - Band 4 - Step 1,Insurance,Expense,100000,,1,Department Head,Approve
+Insurance - Expense - Band 4 - Step 2,Insurance,Expense,100000,,2,Finance Manager,Approve
+Insurance - Expense - Band 4 - Step 3,Insurance,Expense,100000,,3,General Manager,Approve
+Insurance - Expense - Band 4 - Step 4,Insurance,Expense,100000,,4,Regional Office,Approve
+Insurance - Expense - Band 4 - Step 5,Insurance,Expense,100000,,5,Owner,Inform
+Sales - Income - Band 1 - Step 1,Sales,Income,0,10000,1,Department Head,Approve
+Sales - Income - Band 2 - Step 1,Sales,Income,10000,50000,1,Department Head,Approve
+Sales - Income - Band 2 - Step 2,Sales,Income,10000,50000,2,Finance Manager,Approve
+Sales - Income - Band 3 - Step 1,Sales,Income,50000,100000,1,Department Head,Approve
+Sales - Income - Band 3 - Step 2,Sales,Income,50000,100000,2,Finance Manager,Approve
+Sales - Income - Band 3 - Step 3,Sales,Income,50000,100000,3,General Manager,Approve
+Sales - Income - Band 4 - Step 1,Sales,Income,100000,,1,Department Head,Approve
+Sales - Income - Band 4 - Step 2,Sales,Income,100000,,2,Finance Manager,Approve
+Sales - Income - Band 4 - Step 3,Sales,Income,100000,,3,General Manager,Approve
+Sales - Income - Band 4 - Step 4,Sales,Income,100000,,4,Regional Office,Approve
+Sales - Income - Band 4 - Step 5,Sales,Income,100000,,5,Owner,Inform
+Sales - Expense - Band 1 - Step 1,Sales,Expense,0,10000,1,Department Head,Approve
+Sales - Expense - Band 2 - Step 1,Sales,Expense,10000,50000,1,Department Head,Approve
+Sales - Expense - Band 2 - Step 2,Sales,Expense,10000,50000,2,Finance Manager,Approve
+Sales - Expense - Band 3 - Step 1,Sales,Expense,50000,100000,1,Department Head,Approve
+Sales - Expense - Band 3 - Step 2,Sales,Expense,50000,100000,2,Finance Manager,Approve
+Sales - Expense - Band 3 - Step 3,Sales,Expense,50000,100000,3,General Manager,Approve
+Sales - Expense - Band 4 - Step 1,Sales,Expense,100000,,1,Department Head,Approve
+Sales - Expense - Band 4 - Step 2,Sales,Expense,100000,,2,Finance Manager,Approve
+Sales - Expense - Band 4 - Step 3,Sales,Expense,100000,,3,General Manager,Approve
+Sales - Expense - Band 4 - Step 4,Sales,Expense,100000,,4,Regional Office,Approve
+Sales - Expense - Band 4 - Step 5,Sales,Expense,100000,,5,Owner,Inform
+Services - Income - Band 1 - Step 1,Services,Income,0,10000,1,Department Head,Approve
+Services - Income - Band 2 - Step 1,Services,Income,10000,50000,1,Department Head,Approve
+Services - Income - Band 2 - Step 2,Services,Income,10000,50000,2,Finance Manager,Approve
+Services - Income - Band 3 - Step 1,Services,Income,50000,100000,1,Department Head,Approve
+Services - Income - Band 3 - Step 2,Services,Income,50000,100000,2,Finance Manager,Approve
+Services - Income - Band 3 - Step 3,Services,Income,50000,100000,3,General Manager,Approve
+Services - Income - Band 4 - Step 1,Services,Income,100000,,1,Department Head,Approve
+Services - Income - Band 4 - Step 2,Services,Income,100000,,2,Finance Manager,Approve
+Services - Income - Band 4 - Step 3,Services,Income,100000,,3,General Manager,Approve
+Services - Income - Band 4 - Step 4,Services,Income,100000,,4,Regional Office,Approve
+Services - Income - Band 4 - Step 5,Services,Income,100000,,5,Owner,Inform
+Services - Expense - Band 1 - Step 1,Services,Expense,0,10000,1,Department Head,Approve
+Services - Expense - Band 2 - Step 1,Services,Expense,10000,50000,1,Department Head,Approve
+Services - Expense - Band 2 - Step 2,Services,Expense,10000,50000,2,Finance Manager,Approve
+Services - Expense - Band 3 - Step 1,Services,Expense,50000,100000,1,Department Head,Approve
+Services - Expense - Band 3 - Step 2,Services,Expense,50000,100000,2,Finance Manager,Approve
+Services - Expense - Band 3 - Step 3,Services,Expense,50000,100000,3,General Manager,Approve
+Services - Expense - Band 4 - Step 1,Services,Expense,100000,,1,Department Head,Approve
+Services - Expense - Band 4 - Step 2,Services,Expense,100000,,2,Finance Manager,Approve
+Services - Expense - Band 4 - Step 3,Services,Expense,100000,,3,General Manager,Approve
+Services - Expense - Band 4 - Step 4,Services,Expense,100000,,4,Regional Office,Approve
+Services - Expense - Band 4 - Step 5,Services,Expense,100000,,5,Owner,Inform
