@@ -16,6 +16,9 @@
  *   t2           item 2: KWD / USD precision, read back through the Web API (form and grid display need the UI)
  *   t3           item 3: exchange rate change and its effect on existing records (AED rate is changed and restored)
  *   t4           item 4 step 5: update a Rejected row back to Draft through the API
+ *   same-status-save  item 7 step 3: PATCH one existing row (subject "TEST-TMP-FLOW-01 edited") with its CURRENT Status Reason only
+ *   quick-toggle item 7 step 4: create TEST-TMP-FLOW-03, then Pending -> Draft -> Pending with no wait. The row is kept for reading run history
+ *   delete-by-subject  deletes only the contracts with the subjects "TEST-TMP-FLOW-01 edited", "TEST-TMP-FLOW-02", "TEST-TMP-FLOW-03"
  *   check-clean  read-only: no TEST-TMP rows remain
  *
  * Rules: the access token comes from `az` and is kept in memory only, never printed. Only TEST-TMP-* rows are written or
@@ -203,6 +206,80 @@ try {
       R.steps.step5b_stateAndStatus_to_Draft = await observe('PATCH', `mwf_contracts(${id})`, { statecode: 0, statuscode: 1 });
       R.steps.step5b_after = await readContract(id);
     } finally { R.cleanup = await cleanup(ids, cp); }
+  }
+
+  else if (test === 'same-status-save') {
+    // item 7 step 3: save a Pending Approval row again with the SAME Status Reason. Touches exactly one row, found by its Subject.
+    const SUBJECT = 'TEST-TMP-FLOW-01 edited';
+    const PENDING = 867640000;
+    const find = await must('GET', `mwf_contracts?$select=mwf_name,statuscode,statecode,modifiedon&$filter=${q(`mwf_name eq '${SUBJECT}'`)}`);
+    if (find.json.value.length !== 1) throw new Error(`expected exactly 1 contract with the subject "${SUBJECT}", found ${find.json.value.length}. Nothing was sent.`);
+    const row = find.json.value[0];
+    R.before = { statuscode: row.statuscode, statecode: row.statecode, modifiedon: row.modifiedon };
+    if (row.statuscode !== PENDING) throw new Error(`the row is not Pending Approval (statuscode ${row.statuscode}). Nothing was sent.`);
+    const riyadh = (d) => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Riyadh', dateStyle: 'short', timeStyle: 'medium' }).format(d);
+    const sentAt = new Date();
+    R.patchSentAt = { riyadh: riyadh(sentAt), utc: sentAt.toISOString() };
+    console.log(`Sending PATCH (statuscode only, same value) at ${R.patchSentAt.riyadh} Riyadh time (${R.patchSentAt.utc} UTC)`);
+    R.patch = await observe('PATCH', `mwf_contracts(${row.mwf_contractid})`, { statuscode: PENDING });
+    const again = await must('GET', `mwf_contracts(${row.mwf_contractid})?$select=statuscode,statecode,modifiedon`);
+    R.after = { statuscode: again.json.statuscode, statecode: again.json.statecode, modifiedon: again.json.modifiedon };
+    R.modifiedonChanged = R.before.modifiedon !== R.after.modifiedon;
+    R.note = 'Only this row was written. Whether a flow run started must be read from the flow run history.';
+  }
+
+  else if (test === 'quick-toggle') {
+    // item 7 step 4: Pending -> Draft -> Pending with no wait between the three requests, on ONE new row.
+    // The row is NOT deleted here: the flow run history has to be read first. Delete it afterwards on purpose.
+    const SUBJECT = 'TEST-TMP-FLOW-03';
+    const dup = await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`mwf_name eq '${SUBJECT}'`)}`);
+    if (dup.json.value.length) throw new Error(`a contract with the subject "${SUBJECT}" already exists (${dup.json.value.length}). Nothing was created.`);
+    const cps = await must('GET', `mwf_counterparties?$select=mwf_counterpartyid&$filter=${q("mwf_name eq 'Demo Partner Holdings Test Inc'")}`);
+    if (cps.json.value.length !== 1) throw new Error(`expected 1 counterparty 'Demo Partner Holdings Test Inc', found ${cps.json.value.length}`);
+    const usd = await currency('USD');
+    const stamp = (d) => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Riyadh', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 }).format(d);
+    R.timesAre = 'Riyadh time (UTC+3), with milliseconds';
+
+    const created = await call('POST', 'mwf_contracts', {
+      mwf_name: SUBJECT, mwf_contracttype: 867640000, mwf_direction: 867640001, mwf_value: 1,
+      'mwf_counterpartyid@odata.bind': `/mwf_counterparties(${cps.json.value[0].mwf_counterpartyid})`,
+      'transactioncurrencyid@odata.bind': `/transactioncurrencies(${usd.transactioncurrencyid})`,
+    });
+    R.create = { http: created.status, ok: created.ok, error: created.ok ? null : msg(created) };
+    console.log('1. create:', R.create.http);
+    if (!created.ok) throw new Error(`create failed: HTTP ${created.status} ${msg(created)}`);
+    const id = idOf(created.entityId);
+
+    const steps = [['a', { statuscode: 867640000 }], ['b', { statuscode: 1, statecode: 0 }], ['c', { statuscode: 867640000 }]];
+    R.requests = [];
+    for (const [k, body] of steps) {
+      const sent = new Date();
+      const r = await call('PATCH', `mwf_contracts(${id})`, body);
+      const received = new Date();
+      const row = { step: k, body, http: r.status, sentAt: stamp(sent), receivedAt: stamp(received), error: r.ok ? null : msg(r) };
+      R.requests.push(row);
+      console.log(`2${k}. PATCH ${JSON.stringify(body)} -> HTTP ${row.http}, sent ${row.sentAt}, received ${row.receivedAt}`);
+    }
+    const fin = await must('GET', `mwf_contracts(${id})?$select=statuscode,statecode,modifiedon`);
+    R.final = { statuscode: fin.json.statuscode, statecode: fin.json.statecode, modifiedon: fin.json.modifiedon };
+    R.note = 'The row TEST-TMP-FLOW-03 was left in place for reading the flow run history. Only this row was written.';
+  }
+
+  else if (test === 'delete-by-subject') {
+    // Deletes ONLY the three flow-test contracts below, found by their exact Subject. Anything else is untouched.
+    const SUBJECTS = ['TEST-TMP-FLOW-01 edited', 'TEST-TMP-FLOW-02', 'TEST-TMP-FLOW-03'];
+    const noGuid = (t) => (t == null ? t : t.replace(/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g, '<id>'));
+    R.results = [];
+    for (const s of SUBJECTS) {
+      const f = await must('GET', `mwf_contracts?$select=mwf_name,statecode,statuscode&$filter=${q(`mwf_name eq '${s}'`)}`);
+      if (f.json.value.length > 1) throw new Error(`more than one contract has the subject "${s}" (${f.json.value.length}). Nothing was deleted for it.`);
+      if (f.json.value.length === 0) { R.results.push({ subject: s, found: 0, action: 'nothing to delete' }); continue; }
+      const row = f.json.value[0];
+      const d = await observe('DELETE', `mwf_contracts(${row.mwf_contractid})`);
+      R.results.push({ subject: s, found: 1, statuscode: row.statuscode, statecode: row.statecode, deleteHttp: d.status, deleted: d.ok, error: noGuid(d.error) });
+      if (!d.ok) { R.stoppedAt = s; break; }
+    }
+    R.tmp = await tmpCount();
   }
 
   else if (test === 'check-clean') R.tmp = await tmpCount();
