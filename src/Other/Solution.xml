@@ -1,5 +1,5 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<ImportExportXml version="9.2.26091.158" SolutionPackageVersion="9.2" languagecode="1033" generatedBy="CrmLive" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" OrganizationVersion="9.2.26091.158" OrganizationSchemaType="Standard" CRMServerServiceabilityVersion="9.2.26091.00158">
+<ImportExportXml version="9.2.26092.157" SolutionPackageVersion="9.2" languagecode="1033" generatedBy="CrmLive" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" OrganizationVersion="9.2.26092.157" OrganizationSchemaType="Standard" CRMServerServiceabilityVersion="9.2.26092.00157">
   <SolutionManifest>
     <UniqueName>Muwafaqa</UniqueName>
     <LocalizedNames>
@@ -78,6 +78,7 @@
       </Addresses>
     </Publisher>
     <RootComponents>
+      <RootComponent type="1" schemaName="mwf_approvalmatrix" behavior="0" />
       <RootComponent type="1" schemaName="mwf_contract" behavior="0" />
       <RootComponent type="1" schemaName="mwf_counterparty" behavior="0" />
       <RootComponent type="29" id="{cbedcc8c-6fc2-f111-aaad-000d3ab4ceb3}" behavior="0" />
@@ -98,7 +99,7 @@
       </MissingDependency>
       <MissingDependency>
         <Required type="SettingDefinition" displayName="AppChannel" solution="msdyn_AppFrameworkInfraExtensions (1.0.0.20)" id.uniquename="AppChannel">
-          <package appName="PowerAppsAppFramework Package" version="1.0.0.25">PowerAppsAppFramework_Anchor (1.0.0.25)</package>
+          <package appName="PowerAppsAppFramework Package" version="1.0.0.26">PowerAppsAppFramework_Anchor (1.0.0.26)</package>
         </Required>
         <Dependent type="AppSetting" displayName="parentappmoduleid.uniquename=mwf_MuwafaqaContracts,settingdefinitionid.uniquename=AppChannel" id.parentappmoduleid.uniquename="mwf_MuwafaqaContracts" id.settingdefinitionid.uniquename="AppChannel" />
       </MissingDependency>

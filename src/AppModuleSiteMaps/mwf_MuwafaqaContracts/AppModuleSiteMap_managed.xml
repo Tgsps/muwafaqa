@@ -6,29 +6,30 @@
   <ShowPinned>True</ShowPinned>
   <ShowRecents>True</ShowRecents>
   <SiteMap IntroducedVersion="7.0.0.0">
-    <Area Id="area_0" ShowGroups="true" ResourceId="SitemapDesigner.NewTitle" DescriptionResourceId="SitemapDesigner.NewTitle" IntroducedVersion="7.0.0.0">
+    <Area Id="area_0" ResourceId="SitemapDesigner.NewTitle" DescriptionResourceId="SitemapDesigner.NewTitle" ShowGroups="true" IntroducedVersion="7.0.0.0">
       <Titles>
         <Title LCID="1033" Title="Muwafaqa" />
       </Titles>
-      <Group Id="group_0_0" ResourceId="SitemapDesigner.NewGroup" DescriptionResourceId="SitemapDesigner.NewGroup" ToolTipResourseId="SitemapDesigner.Unknown" IntroducedVersion="7.0.0.0" IsProfile="false">
+      <Group Id="group_0_0" ResourceId="SitemapDesigner.NewGroup" DescriptionResourceId="SitemapDesigner.NewGroup" IntroducedVersion="7.0.0.0" IsProfile="false" ToolTipResourseId="SitemapDesigner.Unknown">
         <Titles>
           <Title LCID="1033" Title="Contracts" />
         </Titles>
-        <SubArea Id="sub_0_0_0" Entity="mwf_contract" ResourceId="SitemapDesigner.NewSubArea" Client="All,Outlook,OutlookLaptopClient,OutlookWorkstationClient,Web" Sku="All,OnPremise,Live,SPLA" AvailableOffline="true" PassParams="false">
+        <SubArea Id="sub_0_0_0" ResourceId="SitemapDesigner.NewSubArea" Entity="mwf_contract" Client="All,Outlook,OutlookLaptopClient,OutlookWorkstationClient,Web" AvailableOffline="true" PassParams="false" Sku="All,OnPremise,Live,SPLA">
           <Titles>
             <Title LCID="1033" Title="Contracts" />
           </Titles>
         </SubArea>
       </Group>
-      <Group Id="group_0_1" ResourceId="SitemapDesigner.NewGroup" DescriptionResourceId="SitemapDesigner.NewGroup" ToolTipResourseId="SitemapDesigner.Unknown" IntroducedVersion="7.0.0.0" IsProfile="false">
+      <Group Id="group_0_1" ResourceId="SitemapDesigner.NewGroup" DescriptionResourceId="SitemapDesigner.NewGroup" IntroducedVersion="7.0.0.0" IsProfile="false" ToolTipResourseId="SitemapDesigner.Unknown">
         <Titles>
           <Title LCID="1033" Title="Reference data" />
         </Titles>
-        <SubArea Id="sub_0_1_0" Entity="mwf_counterparty" ResourceId="SitemapDesigner.NewSubArea" Client="All,Outlook,OutlookLaptopClient,OutlookWorkstationClient,Web" Sku="All,OnPremise,Live,SPLA" AvailableOffline="true" PassParams="false">
+        <SubArea Id="sub_0_1_0" ResourceId="SitemapDesigner.NewSubArea" Entity="mwf_counterparty" Client="All,Outlook,OutlookLaptopClient,OutlookWorkstationClient,Web" AvailableOffline="true" PassParams="false" Sku="All,OnPremise,Live,SPLA">
           <Titles>
             <Title LCID="1033" Title="Counterparties" />
           </Titles>
         </SubArea>
+        <SubArea Id="subarea_05add781" Icon="/_imgs/imagestrips/transparent_spacer.gif" Entity="mwf_approvalmatrix" Client="All,Outlook,OutlookLaptopClient,OutlookWorkstationClient,Web" AvailableOffline="true" PassParams="false" Sku="All,OnPremise,Live,SPLA" />
       </Group>
     </Area>
   </SiteMap>

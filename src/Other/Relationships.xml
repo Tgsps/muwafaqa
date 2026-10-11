@@ -1,11 +1,14 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <EntityRelationships xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <EntityRelationship Name="business_unit_mwf_contract" />
+  <EntityRelationship Name="lk_mwf_approvalmatrix_createdby" />
+  <EntityRelationship Name="lk_mwf_approvalmatrix_modifiedby" />
   <EntityRelationship Name="lk_mwf_contract_createdby" />
   <EntityRelationship Name="lk_mwf_contract_modifiedby" />
   <EntityRelationship Name="lk_mwf_counterparty_createdby" />
   <EntityRelationship Name="lk_mwf_counterparty_modifiedby" />
   <EntityRelationship Name="mwf_counterparty_mwf_contract" />
+  <EntityRelationship Name="organization_mwf_approvalmatrix" />
   <EntityRelationship Name="organization_mwf_counterparty" />
   <EntityRelationship Name="owner_mwf_contract" />
   <EntityRelationship Name="team_mwf_contract" />

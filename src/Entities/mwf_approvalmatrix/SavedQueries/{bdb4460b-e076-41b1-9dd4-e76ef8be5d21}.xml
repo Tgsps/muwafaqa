@@ -1,0 +1,49 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<savedqueries xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <savedquery>
+    <IsCustomizable>1</IsCustomizable>
+    <CanBeDeleted>0</CanBeDeleted>
+    <isquickfindquery>0</isquickfindquery>
+    <isprivate>0</isprivate>
+    <isdefault>1</isdefault>
+    <savedqueryid>{bdb4460b-e076-41b1-9dd4-e76ef8be5d21}</savedqueryid>
+    <layoutxml>
+      <grid name="resultset" jump="mwf_rulename" select="1" icon="1" preview="1">
+        <row name="result" id="mwf_approvalmatrixid">
+          <cell name="mwf_rulename" width="300" />
+          <cell name="mwf_contracttype" width="120" />
+          <cell name="mwf_contractdirection" width="145" />
+          <cell name="mwf_minvalueusd" width="140" />
+          <cell name="mwf_maxvalueusd" width="142" />
+          <cell name="mwf_steporder" width="102" />
+          <cell name="mwf_approverrole" width="124" />
+          <cell name="mwf_actiontype" width="110" />
+        </row>
+      </grid>
+    </layoutxml>
+    <querytype>0</querytype>
+    <fetchxml>
+      <fetch version="1.0" mapping="logical">
+        <entity name="mwf_approvalmatrix">
+          <attribute name="mwf_approvalmatrixid" />
+          <attribute name="mwf_rulename" />
+          <order attribute="mwf_rulename" descending="false" />
+          <filter type="and">
+            <condition attribute="statecode" operator="eq" value="0" />
+          </filter>
+          <attribute name="mwf_contracttype" />
+          <attribute name="mwf_contractdirection" />
+          <attribute name="mwf_minvalueusd" />
+          <attribute name="mwf_maxvalueusd" />
+          <attribute name="mwf_steporder" />
+          <attribute name="mwf_approverrole" />
+          <attribute name="mwf_actiontype" />
+        </entity>
+      </fetch>
+    </fetchxml>
+    <IntroducedVersion>1.0</IntroducedVersion>
+    <LocalizedNames>
+      <LocalizedName description="Active Approval Matrices" languagecode="1033" />
+    </LocalizedNames>
+  </savedquery>
+</savedqueries>

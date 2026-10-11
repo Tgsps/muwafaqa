@@ -1,0 +1,156 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<forms xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <systemform>
+    <formid>{43e7da42-55d8-4f07-b17e-6e71d14e6713}</formid>
+    <IntroducedVersion>1.0</IntroducedVersion>
+    <FormPresentation>1</FormPresentation>
+    <FormActivationState>1</FormActivationState>
+    <form headerdensity="HighWithControls">
+      <tabs>
+        <tab verticallayout="true" id="{6afb5267-a83d-4d87-b486-bd0435840cb1}" IsUserDefined="1">
+          <labels>
+            <label description="General" languagecode="1033" />
+          </labels>
+          <columns>
+            <column width="100%">
+              <sections>
+                <section showlabel="false" showbar="false" IsUserDefined="0" id="{1ee07167-ff10-4747-86d3-24379b6a393f}">
+                  <labels>
+                    <label description="General" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{fa24a874-e688-4fb7-a42e-f4fdc4e2452e}">
+                        <labels>
+                          <label description="" languagecode="1033" />
+                        </labels>
+                        <control id="mwf_rulename" classid="{4273EDBD-AC1D-40d3-9FB2-095C621B552D}" datafieldname="mwf_rulename" />
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+                <section name="Rule" id="dbad9436-91dd-4b8b-b720-e11f3a52fd07" IsUserDefined="0" locklevel="0" showlabel="true" showbar="false" layout="varwidth" celllabelalignment="Left" celllabelposition="Left" columns="1" labelwidth="115">
+                  <labels>
+                    <label description="Rule" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row />
+                    <row>
+                      <cell id="{ee2744e8-4985-4f4b-9ae3-552e73f5a602}" locklevel="0" colspan="1" rowspan="1">
+                        <labels>
+                          <label description="" languagecode="1033" />
+                        </labels>
+                        <control id="mwf_contracttype" classid="{3EF39988-22BB-4F0B-BBBE-64B5A3748AEE}" datafieldname="mwf_contracttype" disabled="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{2cac26e9-fb2b-4feb-bfa4-6962e86aed3e}" locklevel="0" colspan="1" rowspan="1">
+                        <labels>
+                          <label description="" languagecode="1033" />
+                        </labels>
+                        <control id="mwf_contractdirection" classid="{3EF39988-22BB-4F0B-BBBE-64B5A3748AEE}" datafieldname="mwf_contractdirection" disabled="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{e45d6aa7-f7a6-4ead-85ab-32b292c816b6}" locklevel="0" colspan="1" rowspan="1">
+                        <labels>
+                          <label description="" languagecode="1033" />
+                        </labels>
+                        <control id="mwf_minvalueusd" classid="{C3EFE0C3-0EC6-42BE-8349-CBD9079DFD8E}" datafieldname="mwf_minvalueusd" disabled="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{a746d17a-4f98-41f0-a930-d0dc2a88fba3}" locklevel="0" colspan="1" rowspan="1">
+                        <labels>
+                          <label description="" languagecode="1033" />
+                        </labels>
+                        <control id="mwf_maxvalueusd" classid="{C3EFE0C3-0EC6-42BE-8349-CBD9079DFD8E}" datafieldname="mwf_maxvalueusd" disabled="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{59591d9e-a3fb-4baf-98e4-1a6bae950288}" locklevel="0" colspan="1" rowspan="1">
+                        <labels>
+                          <label description="" languagecode="1033" />
+                        </labels>
+                        <control id="mwf_steporder" classid="{C6D124CA-7EDA-4A60-AEA9-7FB8D318B68F}" datafieldname="mwf_steporder" disabled="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{841eb538-06ec-493b-a810-df6ddfaa6101}" locklevel="0" colspan="1" rowspan="1">
+                        <labels>
+                          <label description="" languagecode="1033" />
+                        </labels>
+                        <control id="mwf_approverrole" classid="{3EF39988-22BB-4F0B-BBBE-64B5A3748AEE}" datafieldname="mwf_approverrole" disabled="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{fbe994f0-c9ad-4431-a905-8e9424bc08c6}" locklevel="0" colspan="1" rowspan="1">
+                        <labels>
+                          <label description="" languagecode="1033" />
+                        </labels>
+                        <control id="mwf_actiontype" classid="{3EF39988-22BB-4F0B-BBBE-64B5A3748AEE}" datafieldname="mwf_actiontype" disabled="false" />
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+              </sections>
+            </column>
+          </columns>
+        </tab>
+      </tabs>
+      <header id="{d8518f4d-7995-4b8c-8324-614f48c69e73}" celllabelposition="Top" columns="111" labelwidth="115" celllabelalignment="Left">
+        <rows>
+          <row>
+            <cell id="{6dceec69-7150-497a-a3a3-0f7d3f30f866}" showlabel="false">
+              <labels>
+                <label description="" languagecode="1033" />
+              </labels>
+            </cell>
+            <cell id="{290ff1ec-3fe0-4e09-bf13-f371560e00d3}" showlabel="false">
+              <labels>
+                <label description="" languagecode="1033" />
+              </labels>
+            </cell>
+            <cell id="{662e2e87-56b8-4a11-82d0-7c4f03ea5cb5}" showlabel="false">
+              <labels>
+                <label description="" languagecode="1033" />
+              </labels>
+            </cell>
+          </row>
+        </rows>
+      </header>
+      <footer id="{685f1c6d-6139-4c9a-9768-7d8a0b56135f}" celllabelposition="Top" columns="111" labelwidth="115" celllabelalignment="Left">
+        <rows>
+          <row>
+            <cell id="{4dfa1f2e-f0db-4065-8f2e-ebc016a805f0}" showlabel="false">
+              <labels>
+                <label description="" languagecode="1033" />
+              </labels>
+            </cell>
+            <cell id="{9ee516f9-1a22-4663-a183-f323d66d0c81}" showlabel="false">
+              <labels>
+                <label description="" languagecode="1033" />
+              </labels>
+            </cell>
+            <cell id="{8e09c519-c7a2-43a4-9048-490b69c02feb}" showlabel="false">
+              <labels>
+                <label description="" languagecode="1033" />
+              </labels>
+            </cell>
+          </row>
+        </rows>
+      </footer>
+      <DisplayConditions Order="0" FallbackForm="true">
+        <Everyone />
+      </DisplayConditions>
+    </form>
+    <IsCustomizable>1</IsCustomizable>
+    <CanBeDeleted>1</CanBeDeleted>
+    <LocalizedNames>
+      <LocalizedName description="Information" languagecode="1033" />
+    </LocalizedNames>
+    <Descriptions>
+      <Description description="A form for this entity." languagecode="1033" />
+    </Descriptions>
+  </systemform>
+</forms>

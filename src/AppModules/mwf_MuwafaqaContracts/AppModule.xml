@@ -10,6 +10,7 @@
   <ClientType>4</ClientType>
   <NavigationType>0</NavigationType>
   <AppModuleComponents>
+    <AppModuleComponent type="1" schemaName="mwf_approvalmatrix" />
     <AppModuleComponent type="1" schemaName="mwf_contract" />
     <AppModuleComponent type="1" schemaName="mwf_counterparty" />
     <AppModuleComponent type="26" id="{21fc3229-e8f5-4e9c-be4c-247461e7390d}" />
