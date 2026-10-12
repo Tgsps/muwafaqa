@@ -9,6 +9,15 @@
  *                    attribute statuscode) and its PreImage "pre" (statuscode, mwf_value, transactioncurrencyid), with the
  *                    solution header. Idempotent by step name. Reads both back and reports counts and pass/fail.
  *   --mode=steps-create  MUTATES. Creates the Create step (PreOperation 20, synchronous, rank 1, no filtering, no image).
+ *   --mode=package-update  MUTATES. PATCHes the content of the EXISTING pluginpackage row with --nupkg (name and version
+ *                    are not sent), then reads back the package, the assembly version and the plug-in types.
+ *   --mode=steps-guard  MUTATES. Creates the three ContractStateGuard steps on mwf_contract (PreValidation 10, synchronous,
+ *                    rank 1): Update (filtering attributes + PreImage "pre"), Create, Delete (PreImage "pre" with statuscode).
+ *                    Idempotent by step name. Solution header at creation.
+ *   --mode=phase-a   MUTATES. package-update, then steps-guard, then the full read back table.
+ *   --mode=readback  READ ONLY. The read back of phase-a (package, assembly, types, plug-in 1 steps, guard steps).
+ *   --mode=steps-disable / --mode=steps-enable  MUTATES. Disables or enables ONLY the three ContractStateGuard steps
+ *                    (PATCH statecode of the step rows). Rollback if the guard blocks everything by mistake.
  *   --mode=package   MUTATES the environment (needs --confirm-mutates-environment). Runs the preliminaries first and stops
  *                    if one fails. Then creates the pluginpackage (unless it exists) with the solution header, verifies that
  *                    the plug-in assembly and plug-in type were created, and creates the type only if it is missing.
@@ -36,16 +45,16 @@ const PACKAGE_VERSION = '1.0.0';
 const TYPE_NAME = 'Muwafaqa.Plugins.Contract.FreezeUsdValueOnSubmission';
 const CLIENT_ID = '04b07795-8ddb-461a-bbee-02f9e1bf7b46'; // public Azure CLI client id, same as the other scripts
 
-if (!['prelim', 'package', 'steps-update', 'steps-create'].includes(MODE)) { console.error('Missing or invalid --mode=prelim|package|steps-update|steps-create. Nothing was run.'); process.exit(2); }
+if (!['prelim', 'package', 'steps-update', 'steps-create', 'package-update', 'steps-guard', 'phase-a', 'readback', 'steps-disable', 'steps-enable'].includes(MODE)) { console.error('Missing or invalid --mode. Nothing was run.'); process.exit(2); }
 if (!/^https:\/\/[^/]+$/.test(ENV)) { console.error('Missing or invalid --env=https://<org>.crm4.dynamics.com. Nothing was run.'); process.exit(2); }
 if (!['device', 'az'].includes(AUTH)) { console.error('Invalid --auth=device|az. Nothing was run.'); process.exit(2); }
-if (MODE !== 'prelim') {
+if (MODE !== 'prelim' && MODE !== 'readback') {
   if (!process.argv.includes('--confirm-mutates-environment')) {
     console.error(`WARNING: --mode=${MODE} creates records in the environment. Add --confirm-mutates-environment to run it on purpose. Nothing was run.`);
     process.exit(2);
   }
 }
-if (MODE === 'package') {
+if (MODE === 'package' || MODE === 'package-update' || MODE === 'phase-a') {
   if (!NUPKG) { console.error('--mode=package needs --nupkg=<path to the .nupkg>. Nothing was run.'); process.exit(2); }
 }
 
@@ -92,6 +101,12 @@ async function post(path, body, extra = {}) {
   if (!r.ok) throw new Stop(`POST ${path} failed HTTP ${r.status}\n${noGuid(t).slice(0, 1200)}`);
   const m = /\(([0-9a-fA-F-]{36})\)/.exec(r.headers.get('OData-EntityId') || '');
   return { id: m ? m[1] : null };
+}
+
+async function patchRow(path, body) {
+  const r = await fetch(`${API}/${path}`, { method: 'PATCH', headers: hdr({ 'If-Match': '*' }), body: JSON.stringify(body) });
+  const t = await r.text();
+  if (!r.ok) throw new Stop(`PATCH ${noGuid(path).slice(0, 60)} failed HTTP ${r.status}\n${noGuid(t).slice(0, 1200)}`);
 }
 
 const results = [];
@@ -269,11 +284,179 @@ async function stepsStep(message) {
   check(`${message} step is a component of the solution`, sc.length >= 1, `count=${sc.length}${sc[0] ? `, componenttype ${sc[0].componenttype}` : ''}`);
 }
 
+// ---------------------------------------------------------------- guard release (ADR-004)
+const GUARD_TYPE = 'Muwafaqa.Plugins.Contract.ContractStateGuard';
+const GUARD_UPDATE_COLUMNS = 'statuscode,statecode,mwf_value,transactioncurrencyid,mwf_contracttype,mwf_direction,mwf_counterpartyid,mwf_contractnumber,mwf_valueusdfrozen';
+const SORT = (csv) => csv.split(',').map((x) => x.trim()).sort().join(',');
+const EXPECTED_ASSEMBLY_VERSION = '1.0.1.0';
+
+async function getPackage() {
+  const pk = (await get(`pluginpackages?$filter=uniquename eq '${PACKAGE_UNIQUE}'&$select=name,uniquename,version`)).value;
+  if (pk.length !== 1) throw new Stop(`plug-in package: expected 1, found ${pk.length}`, 3);
+  return pk[0];
+}
+async function getAssembly(pkgId) {
+  const as = (await get(`pluginassemblies?$filter=_packageid_value eq ${pkgId}&$select=name,version`)).value;
+  if (as.length !== 1) throw new Stop(`plug-in assembly: expected 1, found ${as.length}`, 3);
+  return as[0];
+}
+async function getTypes(asmId) {
+  return (await get(`plugintypes?$filter=_pluginassemblyid_value eq ${asmId}&$select=typename`)).value;
+}
+
+async function packageUpdate() {
+  console.log('\n--- package update (PATCH content of the existing package)');
+  const bytes = readFileSync(NUPKG);
+  console.log(`INFO  nupkg size ${statSync(NUPKG).size} bytes, SHA-256 ${createHash('sha256').update(bytes).digest('hex')}`);
+  const pk = await getPackage();
+  const before = await getAssembly(pk.pluginpackageid);
+  console.log(`INFO  before: package ${pk.uniquename} version ${pk.version}; assembly ${before.name} version ${before.version}`);
+  await patchRow(`pluginpackages(${pk.pluginpackageid})`, { content: bytes.toString('base64') });
+  check('PATCH pluginpackages accepted (content only)', true, '');
+  let asm = null;
+  for (let i = 0; i < 20; i++) {
+    asm = await getAssembly(pk.pluginpackageid);
+    if (asm.version === EXPECTED_ASSEMBLY_VERSION) break;
+    await sleep(3000);
+  }
+  const pk2 = await getPackage();
+  check('package name and version unchanged', pk2.uniquename === PACKAGE_UNIQUE && pk2.version === pk.version, `${pk2.uniquename} ${pk2.version}`);
+  check(`assembly version is ${EXPECTED_ASSEMBLY_VERSION}`, asm.version === EXPECTED_ASSEMBLY_VERSION, `${asm.name} ${asm.version}`);
+  const types = (await getTypes(asm.pluginassemblyid)).map((t) => t.typename).sort();
+  console.log(`INFO  plug-in types: ${types.join(', ')}`);
+  check('type FreezeUsdValueOnSubmission present', types.includes(TYPE_NAME), '');
+  check('type ContractStateGuard present', types.includes(GUARD_TYPE), '');
+}
+
+async function guardLookups(message) {
+  const L = await stepLookups(message);          // also checks package, assembly and the Freeze type
+  const pk = await getPackage();
+  const asm = await getAssembly(pk.pluginpackageid);
+  const ty = (await get(`plugintypes?$filter=_pluginassemblyid_value eq ${asm.pluginassemblyid} and typename eq '${GUARD_TYPE}'&$select=typename`)).value;
+  if (ty.length !== 1) throw new Stop(`plug-in type ${GUARD_TYPE}: expected 1, found ${ty.length}`, 3);
+  return { ...L, guardTypeId: ty[0].plugintypeid };
+}
+
+async function stepsGuard() {
+  console.log('\n--- register the three ContractStateGuard steps');
+  for (const message of ['Update', 'Create', 'Delete']) {
+    const L = await guardLookups(message);
+    const stepName = `${GUARD_TYPE}: ${message} of mwf_contract`;
+    const ex = (await get(`sdkmessageprocessingsteps?$filter=name eq '${stepName}'&$select=name`)).value;
+    let stepId = ex[0]?.sdkmessageprocessingstepid;
+    if (stepId) {
+      console.log(`SKIP  ${message} step already exists (idempotent)`);
+    } else {
+      const body = {
+        name: stepName,
+        description: `Contract State Guard (ADR-004): ${message} of mwf_contract, PreValidation.`,
+        stage: 10, mode: 0, rank: 1, supporteddeployment: 0, asyncautodelete: false,
+        'sdkmessageid@odata.bind': `/sdkmessages(${L.messageId})`,
+        'sdkmessagefilterid@odata.bind': `/sdkmessagefilters(${L.filterId})`,
+        'eventhandler_plugintype@odata.bind': `/plugintypes(${L.guardTypeId})`,
+      };
+      if (message === 'Update') body.filteringattributes = GUARD_UPDATE_COLUMNS;
+      stepId = (await post('sdkmessageprocessingsteps', body, { 'MSCRM.SolutionUniqueName': SOLUTION })).id;
+      check(`POST ${message} guard step accepted (solution header set)`, !!stepId, '');
+    }
+    if (message === 'Update' || message === 'Delete') {
+      const im = (await get(`sdkmessageprocessingstepimages?$filter=_sdkmessageprocessingstepid_value eq ${stepId}&$select=name`)).value;
+      if (im.length) {
+        console.log(`SKIP  ${message} image already exists (count=${im.length})`);
+      } else {
+        const r = await post('sdkmessageprocessingstepimages', {
+          name: 'pre', entityalias: 'pre', imagetype: 0, messagepropertyname: 'Target',
+          attributes: message === 'Update' ? GUARD_UPDATE_COLUMNS : 'statuscode',
+          'sdkmessageprocessingstepid@odata.bind': `/sdkmessageprocessingsteps(${stepId})`,
+        });
+        check(`POST ${message} PreImage accepted`, !!r.id, '');
+      }
+    }
+  }
+}
+
+async function readbackAll() {
+  console.log('\n--- read back');
+  const pk = await getPackage();
+  const asm = await getAssembly(pk.pluginpackageid);
+  const types = await getTypes(asm.pluginassemblyid);
+  console.log(`package   : ${pk.name} | unique ${pk.uniquename} | version ${pk.version}`);
+  console.log(`assembly  : ${asm.name} | version ${asm.version}`);
+  console.log(`types     : ${types.map((t) => t.typename).sort().join(', ')}`);
+  check('assembly version 1.0.1.0', asm.version === EXPECTED_ASSEMBLY_VERSION, asm.version);
+  const freeze = types.find((t) => t.typename === TYPE_NAME);
+  const guard = types.find((t) => t.typename === GUARD_TYPE);
+  check('both plug-in types exist in the assembly', !!freeze && !!guard, '');
+  const sol = (await get(`solutions?$filter=uniquename eq '${SOLUTION}'&$select=solutionid`)).value[0];
+
+  const rows = [];
+  const names = [
+    ['plug-in 1', `${TYPE_NAME}: Update of mwf_contract`, freeze], ['plug-in 1', `${TYPE_NAME}: Create of mwf_contract`, freeze],
+    ['guard', `${GUARD_TYPE}: Update of mwf_contract`, guard], ['guard', `${GUARD_TYPE}: Create of mwf_contract`, guard],
+    ['guard', `${GUARD_TYPE}: Delete of mwf_contract`, guard],
+  ];
+  for (const [owner, name, type] of names) {
+    const st = (await get(`sdkmessageprocessingsteps?$filter=name eq '${name}'&$select=name,stage,mode,rank,filteringattributes,statecode,supporteddeployment,_eventhandler_value`)).value;
+    if (st.length !== 1) { check(`${name} exists once`, false, `count=${st.length}`); continue; }
+    const s0 = st[0];
+    const im = (await get(`sdkmessageprocessingstepimages?$filter=_sdkmessageprocessingstepid_value eq ${s0.sdkmessageprocessingstepid}&$select=entityalias,imagetype,messagepropertyname,attributes`)).value;
+    const sc = sol ? (await get(`solutioncomponents?$filter=_solutionid_value eq ${sol.solutionid} and objectid eq ${s0.sdkmessageprocessingstepid}&$select=componenttype`)).value : [];
+    rows.push({
+      owner, step: name.split(': ')[1], stage: s0.stage, mode: s0.mode, rank: s0.rank,
+      state: s0.statecode === 0 ? 'Enabled' : 'Disabled', deployment: s0.supporteddeployment,
+      filter: s0.filteringattributes ? 'yes (' + s0.filteringattributes.split(',').length + ')' : 'none',
+      image: im.length ? `${im[0].entityalias}/${im[0].imagetype === 0 ? 'Pre' : im[0].imagetype}/${im[0].messagepropertyname} (${im[0].attributes.split(',').length})` : 'none',
+      inSolution: sc.length ? 'yes' : 'NO',
+      pointsTo: s0._eventhandler_value === type?.plugintypeid ? 'assembly type ok' : 'MISMATCH',
+      _filter: s0.filteringattributes || '', _im: im[0]?.attributes || '',
+    });
+  }
+  console.log('\nowner      step    stage mode rank state    deploy filter    image                          solution  handler');
+  for (const r of rows) {
+    console.log(`${r.owner.padEnd(10)} ${r.step.padEnd(7)} ${String(r.stage).padEnd(5)} ${String(r.mode).padEnd(4)} ${String(r.rank).padEnd(4)} ${r.state.padEnd(8)} ${String(r.deployment).padEnd(6)} ${r.filter.padEnd(9)} ${r.image.padEnd(30)} ${r.inSolution.padEnd(9)} ${r.pointsTo}`);
+  }
+  const g = (m) => rows.find((r) => r.owner === 'guard' && r.step.startsWith(m));
+  check('plug-in 1 steps (Update, Create): Enabled, stage 20, pointing to the assembly',
+    rows.filter((r) => r.owner === 'plug-in 1').length === 2 && rows.filter((r) => r.owner === 'plug-in 1').every((r) => r.state === 'Enabled' && r.stage === 20 && r.pointsTo === 'assembly type ok'), '');
+  const gu = g('Update'), gc = g('Create'), gd = g('Delete');
+  check('guard Update: stage 10, sync, rank 1, filtering and PreImage = the 9 columns', !!gu && gu.stage === 10 && gu.mode === 0 && gu.rank === 1
+    && SORT(gu._filter) === SORT(GUARD_UPDATE_COLUMNS) && SORT(gu._im) === SORT(GUARD_UPDATE_COLUMNS), '');
+  check('guard Create: stage 10, sync, rank 1, no filtering, no image', !!gc && gc.stage === 10 && gc.mode === 0 && gc.rank === 1 && gc.filter === 'none' && gc.image === 'none', '');
+  check('guard Delete: stage 10, sync, rank 1, PreImage = statuscode only', !!gd && gd.stage === 10 && gd.mode === 0 && gd.rank === 1 && gd._im === 'statuscode', '');
+  check('all five steps are solution components', rows.length === 5 && rows.every((r) => r.inSolution === 'yes'), '');
+  check('guard steps point to the ContractStateGuard type', ['Update', 'Create', 'Delete'].every((m) => g(m)?.pointsTo === 'assembly type ok'), '');
+}
+
+async function setGuardState(enable) {
+  console.log(`\n--- ${enable ? 'enable' : 'disable'} the ContractStateGuard steps only`);
+  for (const message of ['Update', 'Create', 'Delete']) {
+    const name = `${GUARD_TYPE}: ${message} of mwf_contract`;
+    const st = (await get(`sdkmessageprocessingsteps?$filter=name eq '${name}'&$select=name,statecode`)).value;
+    if (st.length !== 1) throw new Stop(`${name}: expected 1, found ${st.length}`, 3);
+    const want = enable ? 0 : 1;
+    if (st[0].statecode !== want) {
+      await patchRow(`sdkmessageprocessingsteps(${st[0].sdkmessageprocessingstepid})`, enable ? { statecode: 0, statuscode: 1 } : { statecode: 1, statuscode: 2 });
+    }
+    const after = (await get(`sdkmessageprocessingsteps(${st[0].sdkmessageprocessingstepid})?$select=statecode`)).statecode;
+    check(`${message} guard step is ${enable ? 'Enabled' : 'Disabled'}`, after === want, '');
+  }
+}
+
 (async () => {
   try {
     TOKEN = AUTH === 'az'
       ? execSync(`az account get-access-token --resource ${ENV} --query accessToken -o tsv`, { encoding: 'utf8', shell: true }).trim()
       : await deviceToken();
+    if (['package-update', 'steps-guard', 'phase-a', 'readback', 'steps-disable', 'steps-enable'].includes(MODE)) {
+      if (MODE === 'package-update' || MODE === 'phase-a') await packageUpdate();
+      if (MODE === 'steps-guard' || MODE === 'phase-a') await stepsGuard();
+      if (MODE === 'steps-disable') await setGuardState(false);
+      if (MODE === 'steps-enable') await setGuardState(true);
+      if (['steps-guard', 'phase-a', 'readback', 'package-update'].includes(MODE)) await readbackAll();
+      const badP = results.filter((r) => !r.pass).length;
+      console.log(`\nSUMMARY: ${results.length - badP} passed, ${badP} failed.`);
+      process.exit(badP ? 1 : 0);
+    }
     if (MODE === 'steps-update' || MODE === 'steps-create') {
       await stepsStep(MODE === 'steps-update' ? 'Update' : 'Create');
       const badS = results.filter((r) => !r.pass).length;

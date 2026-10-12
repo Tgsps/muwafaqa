@@ -6,6 +6,9 @@
  * Modes:
  *   --mode=update-cases  cases 1, 2, 4, 5, 6, 6b, 6c, 7, 8, 10 (the Update path). Needs the Update step registered.
  *   --mode=create-case   case 3: create a contract directly as Pending Approval without a currency. Needs the Create step.
+ *   --mode=guard-smoke   smoke test of the Contract State Guard (ADR-004), no Pending and no In Force row is created:
+ *                        create a Draft, PATCH it to In Force (must fail with the guard message), PATCH the Subject,
+ *                        PATCH Value, DELETE it. Cleans up and runs check-clean.
  *   --mode=flow-case     case 9: creates ONE row (Draft, USD 1000) and moves it to Pending Approval, then reads it back.
  *                        The row (and its counterparty) is KEPT so the approval flow run can be checked by hand.
  *   --mode=cleanup       deletes every TEST-TMP row (contracts, then the counterparty) and verifies it.
@@ -28,7 +31,7 @@ const AUTH = argOf('auth') || 'device';
 const CLIENT_ID = '04b07795-8ddb-461a-bbee-02f9e1bf7b46'; // public Azure CLI client id, same as the other scripts
 const PREFIX = 'TEST-TMP-USD';
 
-if (!['update-cases', 'create-case', 'flow-case', 'cleanup', 'check-clean'].includes(MODE)) { console.error('Missing or invalid --mode=update-cases|create-case|flow-case|cleanup|check-clean. Nothing was run.'); process.exit(2); }
+if (!['update-cases', 'create-case', 'flow-case', 'guard-smoke', 'cleanup', 'check-clean'].includes(MODE)) { console.error('Missing or invalid --mode=update-cases|create-case|flow-case|guard-smoke|cleanup|check-clean. Nothing was run.'); process.exit(2); }
 if (!/^https:\/\/[^/]+$/.test(ENV)) { console.error('Missing or invalid --env=https://<org>.crm4.dynamics.com. Nothing was run.'); process.exit(2); }
 if (!['device', 'az'].includes(AUTH)) { console.error('Invalid --auth=device|az. Nothing was run.'); process.exit(2); }
 if (MODE !== 'check-clean' && !process.argv.includes('--confirm-mutates-environment')) {
@@ -233,6 +236,38 @@ async function updateCases() {
   }
 }
 
+async function guardSmoke() {
+  const msgOf = (r) => noGuid(r.j?.error?.message || r.text || '').slice(0, 400);
+  // a) create a Draft with Value, currency and Contract Number
+  const c = await contract({ key: 'G1', iso: 'USD', value: 1000 });
+  report('smoke a', 'POST a Draft contract (USD, Value 1000, Contract Number set, no status)',
+    'HTTP 204 (the Create step ran without error)', `HTTP ${c.status}${c.ok ? '' : `; ${msgOf(c)}`}`, c.ok && c.status === 204);
+  const id = c.id;
+  const d0 = await read(id);
+  // b) Draft -> In Force must fail with the guard message and leave the row Draft
+  const b = await patch(id, { statuscode: 867640001 });
+  const d1 = await read(id);
+  const bm = msgOf(b);
+  report('smoke b', 'PATCH {statuscode: In Force} on the Draft',
+    'HTTP 400 with "Cannot change the contract status from Draft to In Force."; the row stays Draft',
+    `HTTP ${b.status}; message: ${bm}; row statuscode ${d1.statuscode}`,
+    b.status === 400 && /Cannot change the contract status from Draft to In Force\./.test(bm) && d1.statuscode === 1 && d0.statuscode === 1);
+  // c) Subject only
+  const cc = await patch(id, { mwf_name: `${PREFIX} G1 renamed` });
+  report('smoke c', 'PATCH {mwf_name} only', 'HTTP 204', `HTTP ${cc.status}${cc.ok ? '' : `; ${msgOf(cc)}`}`, cc.status === 204);
+  // d) Value in Draft
+  const dd = await patch(id, { mwf_value: 2000 });
+  const d2 = await read(id);
+  report('smoke d', 'PATCH {mwf_value: 2000} on the Draft', 'HTTP 204 and Value 2000 (Draft is editable)',
+    `HTTP ${dd.status}${dd.ok ? '' : `; ${msgOf(dd)}`}; mwf_value ${d2.mwf_value}`, dd.status === 204 && Number(d2.mwf_value) === 2000);
+  // e) delete
+  const e = await call('DELETE', `mwf_contracts(${id})`);
+  const gone = await call('GET', `mwf_contracts(${id})?$select=mwf_contractid`);
+  report('smoke e', 'DELETE the Draft (the Delete step with the PreImage ran)', 'HTTP 204 and the row is gone (GET returns 404)',
+    `HTTP ${e.status}${e.ok ? '' : `; ${msgOf(e)}`}; GET after delete: HTTP ${gone.status}`, e.status === 204 && gone.status === 404);
+  FX.ids = FX.ids.filter((x) => x !== id);
+}
+
 async function flowCase() {
   const c = await contract({ key: 'C9-FLOW', iso: 'USD', value: 1000 });
   if (!c.ok) throw new Error(`create failed HTTP ${c.status}\n${noGuid(c.text).slice(0, 500)}`);
@@ -289,6 +324,7 @@ async function createCase() {
     await setup();
     if (MODE === 'update-cases') await updateCases();
     else if (MODE === 'flow-case') await flowCase();
+    else if (MODE === 'guard-smoke') await guardSmoke();
     else await createCase();
     console.log(`\nSUMMARY: ${log.filter((l) => l.pass).length} passed, ${log.filter((l) => !l.pass).length} failed.`);
   } catch (e) {
