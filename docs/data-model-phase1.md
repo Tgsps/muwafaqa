@@ -108,7 +108,7 @@ Trade-off of Restrict: a counterparty cannot be deleted while it has contracts. 
 | Item | Reason for deferral | Phase |
 |---|---|---|
 | ApprovalMatrix | Needs a stable status model first, plus the approval flow design. **The table and fictional seed data exist since 2026-10-11** (see "ApprovalMatrix table" below). The flow that uses it is still Phase 2 | 2 |
-| USD value, frozen at submission | The base amount is in TRY, but the approval authority threshold is in USD. A plugin computes an independent USD value and freezes it when the contract enters Pending Approval. **The column exists** (`mwf_valueusdfrozen`). The plugin is written and unit tested, registration is in progress (see "Value (USD, Frozen)" below and [ADR-003](decisions/ADR-003-usd-value-at-submission.md)) | 2 |
+| USD value, frozen at submission | The base amount is in TRY, but the approval authority threshold is in USD. A plugin computes an independent USD value and freezes it when the contract enters Pending Approval. **The column exists** (`mwf_valueusdfrozen`). The plugin is registered and integration tested (see "Value (USD, Frozen)" below and [ADR-003](decisions/ADR-003-usd-value-at-submission.md)) | 2 |
 | Value Type | Changes the meaning of the Value column. Settle the base first | 2 |
 | Type/Direction combination rule (plugin) | Independent columns allow illogical combinations (decision D10) | 2 |
 | Estimated Annual Value | Derived from value and dates. Depends on Value Type | 2 |
@@ -167,11 +167,12 @@ The Min and Max are in USD while the platform base amount is TRY (see ADR-001). 
 - The column keeps its **last value** after the contract returns to Draft or is Rejected. Nothing clears it.
 - It is **authoritative only while the contract is Pending Approval or In Force**. In Draft and Rejected it may be empty, or hold the value of an earlier submission that no longer matches the current Value or currency.
 - It is recomputed every time the contract enters Pending Approval again. A save that keeps the status at Pending Approval does not recompute it.
-- Editing Value or the currency while the contract is Pending Approval does not change it (by design: frozen).
+- Editing Value or the currency while the contract is Pending Approval does not change it (by design: frozen). Value and the frozen USD value can then differ. Blocking that edit is the next plugin, "prevent edit of a contract in Pending/In Force" (not started).
+- A contract created directly as Pending Approval without a currency gets the base currency TRY from the platform before the plugin runs, so the value is computed as a TRY contract (observed 2026-10-12).
 
 **Read-only on the form is not enforcement.** `disabled` only affects the form. Any API call, import or flow can still write the column. Preventing that needs a separate plugin step or a column security profile. This is out of scope here.
 
-**Status of this section.** The column exists in the solution. The plugin is written and unit tested (32 tests). It is **not registered yet**, so no contract has a frozen value. This section is updated after the integration tests.
+**Status of this section.** The column exists in the solution. The plugin is registered (package `mwf_muwafaqaplugins`, an Update step and a Create step, both PreOperation and synchronous) and was integration tested on 2026-10-12: Update path 10 of 10 cases, Create path 1 case, and the existing approval flow (the row held the frozen value, the owner rejected the stage 1 approval and the value was unchanged). All passed. Results: `docs/plugin-registration-log.md`.
 
 ---
 

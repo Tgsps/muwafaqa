@@ -1,6 +1,6 @@
 # ADR-003 — USD value frozen at submission: current rate, fail loudly
 
-- **Status:** Accepted (plugin written and unit tested; not yet registered or integration tested)
+- **Status:** Accepted. Registered and integration tested on the Update path, the Create path and with the existing approval flow (2026-10-12). All cases passed.
 - **Date:** 2026-10-12
 
 ## Context
@@ -46,9 +46,17 @@ A plugin writes `mwf_valueusdfrozen` (Decimal, 2 decimals) on `mwf_contract` whe
 - The value in Draft or Rejected may be stale or empty (see above).
 - The same-value save (Pending to Pending) does not recompute, but it still starts a new approval flow run (documented in `docs/flow-approval-v1.md`).
 - **Read-only on the form is not enforcement.** Any API call can write the column outside the plugin. Enforcement needs another step or a column security profile (out of scope).
-- A request that changes status and other columns together runs Update plug-ins twice in the platform (Learn, "Behavior of specialized update operations"). The step is filtered on `statuscode`, so only the status pass reaches it. **Not yet verified:** whether the PreImage in that pass already reflects the Value edited in the same request, and whether a column written in the status pass is persisted. Both are integration test cases before this ADR is considered closed.
+- A request that changes status and other columns together runs Update plug-ins twice in the platform (Learn, "Behavior of specialized update operations"). The step is filtered on `statuscode`, so only the status pass reaches it. **Verified on 2026-10-12 (case 1):** the PreImage in that pass already reflects the Value edited in the same request, and the column written in the status pass is persisted. A PATCH from Rejected to Pending with `statecode` and `statuscode` together also runs the step (case 2).
 
 ## Not verified
 
-- Behavior of `POST /pluginpackages` with `content`, and automatic creation of plug-in types (registration step, results recorded in `docs/plugin-registration-log.md`).
+- Zero Value (`0.00` written) was not run as an integration case. It is covered by a unit test.
+
+## Verified on the server (2026-10-12)
+
+- `POST /pluginpackages` with the base64 package in `content` and the `MSCRM.SolutionUniqueName` header works. The assembly and the plug-in type are created automatically. Results are in `docs/plugin-registration-log.md`.
+- Create directly as Pending Approval without a currency: the platform fills the base currency (TRY) **before** PreOperation, so the plug-in does not fail with "no currency" (case 3). The USD value is computed from that currency.
+- A Draft contract with no Value cannot be submitted: HTTP 400, status stays Draft, nothing is written (case 10).
+- The existing approval flow still starts for a contract that enters Pending Approval, and the row holds the frozen value (case 9). The owner checked the run and rejected the stage 1 approval. The row ended Rejected and Inactive with the frozen value unchanged.
+- Editing Value while the contract is Pending Approval does not change the frozen value (case 8). Value and the frozen USD value can then differ. Blocking the edit is the next plug-in, "prevent edit of a contract in Pending/In Force" (not started).
 - The default read privilege on the currency table for users without a custom role (not documented in Learn). Not needed with the System context.
