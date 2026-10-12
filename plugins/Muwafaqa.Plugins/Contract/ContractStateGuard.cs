@@ -1,0 +1,172 @@
+using System;
+using System.Collections.Generic;
+using Microsoft.Xrm.Sdk;
+
+namespace Muwafaqa.Plugins.Contract
+{
+    /// <summary>
+    /// Contract State Guard (ADR-004). Rejects status changes the business does not allow, edits of locked columns,
+    /// and deletes of contracts that are Pending Approval or In Force.
+    ///
+    /// Registered later as THREE steps of this one class on mwf_contract, all PreValidation (stage 10), synchronous:
+    ///
+    ///   Update  filtering attributes: statuscode, statecode, mwf_value, transactioncurrencyid, mwf_contracttype,
+    ///           mwf_direction, mwf_counterpartyid, mwf_contractnumber, mwf_valueusdfrozen
+    ///           PreImage "pre": the same columns (statuscode and statecode included)
+    ///   Create  no filtering attributes, no image
+    ///   Delete  PreImage "pre": statuscode
+    ///
+    /// The status BEFORE the request is always read from the PreImage "pre", in every pass of a request.
+    /// If the PreImage is missing where it is required (Update, Delete) the plug-in throws a configuration error
+    /// (fail closed), the same way FreezeUsdValueOnSubmission does.
+    /// </summary>
+    public class ContractStateGuard : PluginBase
+    {
+        private const int PreValidationStage = 10;
+        private const int SynchronousMode = 0;
+
+        public ContractStateGuard(string unsecureConfiguration, string secureConfiguration)
+            : base(typeof(ContractStateGuard))
+        {
+        }
+
+        protected override void ExecuteDataversePlugin(ILocalPluginContext localPluginContext)
+        {
+            if (localPluginContext == null)
+            {
+                throw new ArgumentNullException(nameof(localPluginContext));
+            }
+
+            var context = localPluginContext.PluginExecutionContext;
+            var trace = localPluginContext.TracingService;
+
+            if (!string.Equals(context.PrimaryEntityName, ContractColumns.EntityName, StringComparison.Ordinal))
+            {
+                return;
+            }
+            if (context.Stage != PreValidationStage || context.Mode != SynchronousMode)
+            {
+                throw new InvalidPluginExecutionException(
+                    "ContractStateGuard must be registered as a synchronous PreValidation step.");
+            }
+
+            Entity pre = null;
+            if (context.PreEntityImages.Contains(ContractColumns.PreImageName))
+            {
+                pre = context.PreEntityImages[ContractColumns.PreImageName];
+            }
+
+            PolicyResult verdict;
+            switch (context.MessageName)
+            {
+                case "Create":
+                    verdict = EvaluateCreate(context);
+                    break;
+                case "Update":
+                    verdict = EvaluateUpdate(context, pre);
+                    break;
+                case "Delete":
+                    verdict = EvaluateDelete(pre);
+                    break;
+                default:
+                    return;
+            }
+
+            if (!verdict.Allowed)
+            {
+                trace.Trace("Guard rejected " + context.MessageName + ".");
+                throw new InvalidPluginExecutionException(verdict.Message);
+            }
+            trace.Trace("Guard allowed " + context.MessageName + ".");
+        }
+
+        private static PolicyResult EvaluateCreate(IPluginExecutionContext context)
+        {
+            var target = TargetOf(context);
+            if (target == null) return PolicyResult.Allow;
+            return GuardEvaluator.EvaluateCreate(StatusOf(target), StateOf(target), GuardedValues(target));
+        }
+
+        private static PolicyResult EvaluateUpdate(IPluginExecutionContext context, Entity pre)
+        {
+            var target = TargetOf(context);
+            if (target == null) return PolicyResult.Allow;
+            var preStatus = RequirePreStatus(pre, "Update");
+            return GuardEvaluator.EvaluateUpdate(
+                preStatus, StatusOf(target), StateOf(target), GuardedValues(target), GuardedValues(pre));
+        }
+
+        private static PolicyResult EvaluateDelete(Entity pre)
+        {
+            return GuardEvaluator.EvaluateDelete(RequirePreStatus(pre, "Delete"));
+        }
+
+        private static int RequirePreStatus(Entity pre, string message)
+        {
+            if (pre == null)
+            {
+                throw new InvalidPluginExecutionException(
+                    "ContractStateGuard needs a PreImage named '" + ContractColumns.PreImageName + "' on " + message + ".");
+            }
+            var status = StatusOf(pre);
+            if (!status.HasValue)
+            {
+                throw new InvalidPluginExecutionException(
+                    "ContractStateGuard needs the column '" + ContractColumns.StatusCode + "' in the PreImage on " + message + ".");
+            }
+            return status.Value;
+        }
+
+        private static Entity TargetOf(IPluginExecutionContext context)
+        {
+            return context.InputParameters.Contains("Target") ? context.InputParameters["Target"] as Entity : null;
+        }
+
+        private static int? StatusOf(Entity entity)
+        {
+            return entity.GetAttributeValue<OptionSetValue>(ContractColumns.StatusCode)?.Value;
+        }
+
+        private static int? StateOf(Entity entity)
+        {
+            return entity.GetAttributeValue<OptionSetValue>(ContractColumns.StateCode)?.Value;
+        }
+
+        /// <summary>The guarded columns present in the entity, reduced to comparable values.</summary>
+        private static IDictionary<string, ColumnValue> GuardedValues(Entity entity)
+        {
+            var map = new Dictionary<string, ColumnValue>(StringComparer.Ordinal);
+            foreach (var col in LockedColumnsPolicy.Columns)
+            {
+                if (entity.Contains(col.LogicalName))
+                {
+                    map[col.LogicalName] = ToColumnValue(entity[col.LogicalName]);
+                }
+            }
+            return map;
+        }
+
+        private static ColumnValue ToColumnValue(object raw)
+        {
+            if (raw == null) return ColumnValue.Null;
+
+            var money = raw as Money;
+            if (money != null) return ColumnValue.FromDecimal(money.Value);
+
+            var option = raw as OptionSetValue;
+            if (option != null) return ColumnValue.FromInt(option.Value);
+
+            var reference = raw as EntityReference;
+            if (reference != null) return ColumnValue.FromReference(reference.LogicalName, reference.Id);
+
+            if (raw is decimal) return ColumnValue.FromDecimal((decimal)raw);
+            if (raw is int) return ColumnValue.FromInt((int)raw);
+
+            var text = raw as string;
+            if (text != null) return ColumnValue.FromText(text);
+
+            // An unexpected type: compare by type and text so that any difference counts as a change (fail closed).
+            return ColumnValue.FromText(raw.GetType().FullName + ":" + raw);
+        }
+    }
+}

@@ -13,6 +13,13 @@
     <!-- Only the pure classes are compiled into the tests, so no Dataverse SDK or PowerApps targets are involved. -->
     <Compile Include="..\Muwafaqa.Plugins\Contract\UsdValueCalculator.cs" Link="Linked\UsdValueCalculator.cs" />
     <Compile Include="..\Muwafaqa.Plugins\Contract\SubmissionDetector.cs" Link="Linked\SubmissionDetector.cs" />
+    <Compile Include="..\Muwafaqa.Plugins\Contract\ContractColumns.cs" Link="Linked\ContractColumns.cs" />
+    <Compile Include="..\Muwafaqa.Plugins\Contract\ContractStatus.cs" Link="Linked\ContractStatus.cs" />
+    <Compile Include="..\Muwafaqa.Plugins\Contract\ColumnValue.cs" Link="Linked\ColumnValue.cs" />
+    <Compile Include="..\Muwafaqa.Plugins\Contract\TransitionPolicy.cs" Link="Linked\TransitionPolicy.cs" />
+    <Compile Include="..\Muwafaqa.Plugins\Contract\LockedColumnsPolicy.cs" Link="Linked\LockedColumnsPolicy.cs" />
+    <Compile Include="..\Muwafaqa.Plugins\Contract\DeletePolicy.cs" Link="Linked\DeletePolicy.cs" />
+    <Compile Include="..\Muwafaqa.Plugins\Contract\GuardEvaluator.cs" Link="Linked\GuardEvaluator.cs" />
   </ItemGroup>
 
   <ItemGroup>
