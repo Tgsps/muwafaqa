@@ -143,3 +143,111 @@ Effect on the approval flow runs: every entry into Pending Approval starts one r
 ## Status
 
 All integration cases passed: Update path 10 of 10, case 3 (Create), case 9 (flow). Nothing is open for the plug-in itself.
+
+## Phase A, guard release (2026-10-12): package update, three guard steps, smoke test
+
+### Build identity
+
+| Item | Value |
+|---|---|
+| Source commit | `203aac7cd6c6e5adfca1854df973877f0d68baa5` (chore(plugins): bump assembly version to 1.0.1.0), on top of the guard commit `672566db73f6e0791c0617532fa79ad0447f7dd0` |
+| Version | AssemblyVersion and FileVersion 1.0.1.0. PackageId `mwf_muwafaqaplugins` and package Version 1.0.0 unchanged |
+| Build | Clean Release, `net462`, 0 warnings, 0 errors. Tests: 233 passed, 0 failed |
+| Assembly SHA-256 | `147ad2fe9a794a329c3ba5e366a233bb5519a3e32e81d93a31c74f4ad2092f0a` |
+| Package SHA-256 (the file uploaded), 13,231 bytes | `600da03d4cbc9aeaa4b244af4b0b8044ec7f80bc2ae183f2f5a543f3cd957031` |
+
+### Package update (`register-plugin-package.mjs --mode=phase-a`, device code, guard flags set)
+
+Result: **18 passed, 0 failed.**
+- `PATCH /pluginpackages(<id>)` with the new content only (no name, no version): accepted. `pac plugin push` was not used.
+- Package after the update: name and unique name `mwf_muwafaqaplugins`, version `1.0.0` (unchanged).
+- Assembly after the update: `Muwafaqa.Plugins`, version **1.0.1.0** (was 1.0.0.0). The same assembly row was updated (one assembly in the package).
+- Plug-in types in the assembly: `Muwafaqa.Plugins.Contract.FreezeUsdValueOnSubmission` and `Muwafaqa.Plugins.Contract.ContractStateGuard`.
+- The two plug-in 1 steps (Update, Create) are still **Enabled**, stage 20, and point to the type of the assembly.
+
+### Guard steps (all on `mwf_contract`, PreValidation, synchronous, rank 1, deployment Server only, solution header set)
+
+| Step | Stage | Mode | Rank | State | Filtering attributes | Image | In solution |
+|---|---|---|---|---|---|---|---|
+| ContractStateGuard: Update | 10 | 0 (sync) | 1 | Enabled | 9 columns: `statuscode, statecode, mwf_value, transactioncurrencyid, mwf_contracttype, mwf_direction, mwf_counterpartyid, mwf_contractnumber, mwf_valueusdfrozen` | `pre`, PreImage, Target, the same 9 columns | yes |
+| ContractStateGuard: Create | 10 | 0 (sync) | 1 | Enabled | none | none | yes |
+| ContractStateGuard: Delete | 10 | 0 (sync) | 1 | Enabled | not applicable | `pre`, PreImage, Target, `statuscode` only | yes |
+
+All three read back as expected and point to the `ContractStateGuard` type.
+
+### Smoke test (`test-usd-freeze.mjs --mode=guard-smoke`), no Pending and no In Force row
+
+Result: **5 passed, 0 failed.** Cleanup removed 1 row (the TEST-TMP counterparty). check-clean: 0 TEST-TMP rows, total contracts 11.
+
+| Step | Request | HTTP | Observation |
+|---|---|---|---|
+| a | POST a Draft (USD, Value 1000, Contract Number set) | 204 | Create step ran without error |
+| b | PATCH {statuscode: In Force} on the Draft | **400** | "Cannot change the contract status from Draft to In Force. Allowed next status: Pending Approval." The row stayed Draft (status 1) |
+| c | PATCH {mwf_name} only | 204 | Subject is editable |
+| d | PATCH {mwf_value: 2000} on the Draft | 204 | Value read back 2000 (Draft is editable) |
+| e | DELETE the Draft | 204 | The row is gone (GET returned 404). The Delete step with the PreImage ran without error |
+
+### Not tested in this phase
+
+Everything that needs a Pending or In Force row (locked columns, Pending delete, the transitions from Pending), the Activate and Deactivate buttons (SetState path), the empty string against null, and the bypass by step id. The guard is **live** (all three steps Enabled) in the environment.
+
+### Rollback
+
+`register-plugin-package.mjs --mode=steps-disable` disables only the three ContractStateGuard steps (PATCH of the step state) and `--mode=steps-enable` enables them again. Plug-in 1 steps are not touched.
+
+## Phase B, guard release (2026-10-12): full integration tests of the Contract State Guard
+
+Script: `scripts/test-state-guard.mjs --mode=integration` (device code sign-in, guard flags set). The approval flow was OFF. All rows had the prefix `TEST-TMP-GUARD`, with two fictional counterparties. After every rejected PATCH the row was read back and compared with its state before the request.
+
+**Result: 89 PASS, 0 FAIL, 7 observations.**
+
+| Group | PASS | FAIL | OBS | What it covers |
+|---|---|---|---|---|
+| 1 transitions | 17 | 0 | 1 | Every allowed and every rejected status change by PATCH, same-status save, state-only requests |
+| 2 create | 6 | 0 | 1 | Draft, Pending (frozen value written by plug-in 1), In Force and Rejected rejected, non-null frozen column rejected |
+| 3 locked columns | 50 | 0 | 0 | 6 columns x Pending, In Force, Rejected (different value 400 and unchanged, identical value 204), frozen column, Subject; Draft editable |
+| 4 combined requests | 3 | 0 | 0 | One PATCH {Value, Pending} from Draft allowed with the new frozen value; one PATCH {Value, Draft} from Pending rejected, row unchanged |
+| 5 delete | 5 | 0 | 0 | Draft and Rejected deleted; Pending and In Force rejected and the row still exists; Pending withdrawn to Draft then deleted |
+| 6 plug-in 1 regression | 7 | 0 | 0 | Cases 1, 7, 8 and the old case 2 behind the guard |
+| 7 observations | 0 | 0 | 2 | Empty string against null |
+| 8 bypass | 1 | 0 | 0 | Delete of an In Force row with the bypass header |
+| UI rows | 0 | 0 | 3 | Three rows left for the manual test |
+
+### Observations
+
+- **Activate-like request.** A Rejected row with `{statecode: 0}` alone: HTTP **204**, the row became **Draft** (statecode 0, statuscode 1). The platform applied the default status of the state and the guard allowed it (Rejected to Draft). The full form `{statecode: 0, statuscode: 1}` was also allowed on another row.
+- **Create with `{statecode: 1}` and no statuscode.** HTTP **204** and the row was created as **Draft** (statecode 0, statuscode 1). The platform ignored `statecode` on create, so the guard had nothing to reject. No Rejected row can be created this way.
+- **Empty string against null, Pending row with a null Contract Number.** `PATCH {mwf_contractnumber: ""}` returned HTTP **400** ("Cannot change Contract Number while the contract status is Pending Approval. Return the contract to Draft first."). The strict comparison of ADR-004 decision 2 is confirmed on the server: the guard treats `""` as a change.
+- **Empty string against null, Draft row.** HTTP **204**, and the Contract Number read back as **null**: the platform stores `""` as null. So the strict rule is a harmless false positive in a locked status (a write that would not change the stored value is still rejected).
+- **The platform did not block writes on Rejected rows.** Identical-value PATCH of the six columns and the Subject PATCH on a Rejected row all returned 204.
+
+### Bypass
+
+`DELETE` of an In Force row with the header `MSCRM.BypassBusinessLogicExecutionStepIds` set to the id of the guard Delete step: HTTP **204**, the row is gone. **The bypass works with the account used here.** The guard cannot stop a caller that sends this header, and the account has the privilege that allows it. The In Force TEST rows were deleted with it during cleanup.
+
+### UI checks by the owner (2026-10-12, approval flow OFF)
+
+Three fictional rows were left for the owner after the API run:
+
+| Row (Subject) | State before | Action in the app | Result |
+|---|---|---|---|
+| TEST-TMP-GUARD-UI A Draft deactivate me | Draft | Deactivate | **Blocked** with "Cannot change the contract status from Draft to Rejected. Allowed next status: Pending Approval." The row stayed Draft |
+| TEST-TMP-GUARD-UI B Rejected activate me | Rejected | Activate | **Succeeded**. The row is now Draft (the dialog sent Status Reason = Draft) |
+| TEST-TMP-GUARD-UI C Pending edit me | Pending Approval | Edit Value and save | **Blocked** with "Cannot change Value while the contract status is Pending Approval. Return the contract to Draft first." The row stayed Pending |
+| TEST-TMP-GUARD-UI C Pending edit me | Pending Approval | Delete | **Blocked** with "Cannot delete a contract whose status is Pending Approval." The row still exists. The owner closed the form without saving |
+
+4 UI checks, no failure. They close the "SetState path" question for the Deactivate and Activate buttons: the Update step ran for Deactivate (the guard message came from it), and Activate gave Draft. No step on the SetState message is needed, at least for those two buttons.
+
+### Cleanup of the UI rows
+
+`test-state-guard.mjs --mode=cleanup --include-ui` (device code sign-in, guard flags set). Only rows with the prefix `TEST-TMP-GUARD`. The Pending row was withdrawn to Draft first, then deleted. Result: removed 4 (three contracts and the last fictional counterparty), none left. Remaining rows with the prefix: 0. Total contracts: **11** (the number before the guard tests).
+
+### Not tested
+
+- The guard with the approval flow ON, end to end (next phase).
+- Assign (change of owner) and bulk messages such as `UpdateMultiple`.
+- Whether the platform runs the guard once or twice for a combined request at PreValidation. The combined requests behave correctly either way.
+
+### Risk recorded
+
+The bypass works for the administrator account used in the tests (a DELETE of an In Force row with the step id of the guard Delete step returned 204). Only the System Administrator role holds the privilege by default. It must not be granted to any other role (ADR-004).
