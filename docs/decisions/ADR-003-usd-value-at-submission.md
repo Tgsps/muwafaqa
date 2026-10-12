@@ -18,7 +18,8 @@ A plugin writes `mwf_valueusdfrozen` (Decimal, 2 decimals) on `mwf_contract` whe
 - **Fail loudly.** If the active USD currency record is missing or ambiguous, a needed rate is null or not greater than zero, or the contract has no Value or no currency, the plugin throws `InvalidPluginExecutionException` with an English message and writes nothing. The status change is rolled back.
 - **Value 0** writes `0.00`. **A negative Value** is an error. **An inactive contract currency** is not checked (its rate is still used).
 - **Reading the rates** uses the System user (`CreateOrganizationService(null)`, which Microsoft Learn documents as the SYSTEM user in a plug-in), so a user without read access to the currency table can still submit. Only the currency table is read this way.
-- **Packaging.** Unsigned plug-in package `mwf_muwafaqaplugins`, version fixed at 1.0.0, target .NET Framework 4.8, namespace `Muwafaqa.Plugins`. The package name and version cannot be changed on the server after creation (Learn), so the assembly version is the one that moves.
+- **Packaging.** Unsigned plug-in package `mwf_muwafaqaplugins`, version fixed at 1.0.0, target .NET Framework **4.6.2 (`net462`)**, namespace `Muwafaqa.Plugins`. The package name and version cannot be changed on the server after creation (Learn), so the assembly version is the one that moves.
+  - **Why net462 and not 4.8.** The plug-in package upload accepts only `net462` and `net471` (server error `0x80040265`, "No supported target framework folder found in package"). The 4.8 recommendation in Learn applies to loose assemblies, not to packages. This is **observed on the server on 2026-10-12, not documented**. A first attempt with a `net48` package was rejected with that error and nothing was created.
 
 ## What happens to the value after the contract leaves Pending Approval
 
