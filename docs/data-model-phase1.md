@@ -61,6 +61,7 @@ Status: native `statecode` / `statuscode` (Active / Inactive) with defaults. No 
 | Currency | `transactioncurrencyid` | Lookup → `transactioncurrency` (native) | **Optional (observed)** | n/a | Added automatically with the first Currency column (**verified** via the Web API). Replaces a custom Choice (decision D1). Observed Required level is `None`, not Business Required as intended. Not modified: open decision, see section 8. |
 | Exchange Rate | `exchangerate` | Decimal (native) | System | n/a | Copied from the currency record on create. Read-only. |
 | Value (Base) | `mwf_value_base` | Currency (system-calculated) | System | n/a | Value converted to the base currency (TRY): value ÷ exchange rate. Calculated by the platform. It is not a USD value. |
+| Value (USD, Frozen) | `mwf_valueusdfrozen` | Decimal, 2 decimals (**not** Currency) | Optional | n/a | Contract value in USD, written by a plugin when the contract enters Pending Approval. Read-only on the form, which is not enforcement. See the section "Value (USD, Frozen)" below and [ADR-003](decisions/ADR-003-usd-value-at-submission.md). |
 | Signed Date | `mwf_signeddate` | Date and Time, Format = Date Only, Behavior = Date Only | Optional | n/a | Empty while Draft. |
 | Effective Date | `mwf_effectivedate` | Date and Time, Format = Date Only, Behavior = Date Only | Business Recommended | n/a | May differ from the signed date. |
 | Expiry Date | `mwf_expirydate` | Date and Time, Format = Date Only, Behavior = Date Only | Business Recommended | n/a | Basis for expiry alerts in later phases. |
@@ -107,7 +108,7 @@ Trade-off of Restrict: a counterparty cannot be deleted while it has contracts. 
 | Item | Reason for deferral | Phase |
 |---|---|---|
 | ApprovalMatrix | Needs a stable status model first, plus the approval flow design. **The table and fictional seed data exist since 2026-10-11** (see "ApprovalMatrix table" below). The flow that uses it is still Phase 2 | 2 |
-| USD value, frozen at submission | The base amount is in TRY, but the approval authority threshold is in USD. A plugin computes an independent USD value (from the base amount and a USD rate) and freezes it when the contract is submitted, without recalculating | 2 |
+| USD value, frozen at submission | The base amount is in TRY, but the approval authority threshold is in USD. A plugin computes an independent USD value and freezes it when the contract enters Pending Approval. **The column exists** (`mwf_valueusdfrozen`). The plugin is written and unit tested, registration is in progress (see "Value (USD, Frozen)" below and [ADR-003](decisions/ADR-003-usd-value-at-submission.md)) | 2 |
 | Value Type | Changes the meaning of the Value column. Settle the base first | 2 |
 | Type/Direction combination rule (plugin) | Independent columns allow illogical combinations (decision D10) | 2 |
 | Estimated Annual Value | Derived from value and dates. Depends on Value Type | 2 |
@@ -146,6 +147,31 @@ The table exists in the solution and holds **fictional** seed rows. It is not us
 **Convention:** Min is **exclusive**, Max is **inclusive**, an empty Max means **unbounded**, and a value of exactly 0 matches no band. The seeded bands (0 to 10,000, 10,000 to 50,000, 50,000 to 100,000, above 100,000) are **fictional** and must be replaced when the real thresholds are known. Details and the validation result: [data/README.md](../data/README.md), section "Approval matrix".
 
 The Min and Max are in USD while the platform base amount is TRY (see ADR-001). They are meant to be compared with the independent USD value computed in Phase 2. That is a design intention, not implemented.
+
+### Value (USD, Frozen) (`mwf_valueusdfrozen`)
+
+| Property | Value |
+|---|---|
+| Table | Contract (`mwf_contract`) |
+| Type | Decimal, 2 decimals (`Accuracy` 2 in the solution XML) |
+| Required level | None |
+| Form | Read-only (`disabled` on the main form control) |
+
+**Purpose.** The approval authority threshold is in USD, while the platform base amount (`mwf_value_base`) is in TRY. This column holds the contract value in USD at the moment the contract was submitted. The ApprovalMatrix bands are meant to be compared with it (Phase 2).
+
+**Why Decimal and not Currency (Money).** A Currency column on this table is interpreted in the contract currency and the platform adds a base-currency amount computed with the record exchange rate (verified for `mwf_value`). A USD amount stored in such a column would be labeled with the contract currency and converted again. A plain Decimal is a number with a fixed meaning (USD) and nothing is calculated from it by the platform.
+
+**Who writes it.** A plugin step (PreOperation, synchronous) writes the column when the contract ENTERS Pending Approval: on Create with status Pending Approval, or on Update where the status changes to Pending Approval. Formula: `USD = Value * rate(USD) / rate(contract currency)`, using the **current** rates of the currency table at that moment (not the exchange rate stored on the contract), rounded to 2 decimals, away from zero. The design and trade-offs are in [ADR-003](decisions/ADR-003-usd-value-at-submission.md).
+
+**Lifecycle (authoritative value).**
+- The column keeps its **last value** after the contract returns to Draft or is Rejected. Nothing clears it.
+- It is **authoritative only while the contract is Pending Approval or In Force**. In Draft and Rejected it may be empty, or hold the value of an earlier submission that no longer matches the current Value or currency.
+- It is recomputed every time the contract enters Pending Approval again. A save that keeps the status at Pending Approval does not recompute it.
+- Editing Value or the currency while the contract is Pending Approval does not change it (by design: frozen).
+
+**Read-only on the form is not enforcement.** `disabled` only affects the form. Any API call, import or flow can still write the column. Preventing that needs a separate plugin step or a column security profile. This is out of scope here.
+
+**Status of this section.** The column exists in the solution. The plugin is written and unit tested (32 tests). It is **not registered yet**, so no contract has a frozen value. This section is updated after the integration tests.
 
 ---
 

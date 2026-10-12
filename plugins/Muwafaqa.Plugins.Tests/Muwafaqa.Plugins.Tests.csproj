@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <AssemblyName>Muwafaqa.Plugins.Tests</AssemblyName>
+    <RootNamespace>Muwafaqa.Plugins.Tests</RootNamespace>
+    <Deterministic>true</Deterministic>
+    <PathMap>$(MSBuildProjectDirectory)=/_/Muwafaqa.Plugins.Tests</PathMap>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Only the pure classes are compiled into the tests, so no Dataverse SDK or PowerApps targets are involved. -->
+    <Compile Include="..\Muwafaqa.Plugins\Contract\UsdValueCalculator.cs" Link="Linked\UsdValueCalculator.cs" />
+    <Compile Include="..\Muwafaqa.Plugins\Contract\SubmissionDetector.cs" Link="Linked\SubmissionDetector.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="All" />
+  </ItemGroup>
+
+</Project>
