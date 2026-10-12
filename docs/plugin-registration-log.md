@@ -128,6 +128,8 @@ Script: `scripts/test-usd-freeze.mjs --mode=flow-case`, then `--mode=cleanup`. O
 | Flow run | Checked by the **owner** (not read by the script): the run started for the row and the stage 1 approval request arrived. The owner **rejected** it |
 | Read after the rejection | state 1 (Inactive), status 2 (Rejected), `mwf_valueusdfrozen` **1000.00** (unchanged by the rejection, as designed) |
 
+Run history (source: the owner's run-history screenshot, not the script): exactly **one** flow run for `TEST-TMP-USD C9-FLOW`, started at 07:44 PM, with no duplicate run.
+
 Cleanup: contract deleted first, then the TEST-TMP counterparty (2 rows). check-clean: 0 TEST-TMP rows, total contracts 11.
 
 Effect on the approval flow runs: every entry into Pending Approval starts one run, as before. The plug-in does not change the number of runs. A rejected request leaves the frozen value in place.
