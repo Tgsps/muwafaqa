@@ -18,6 +18,7 @@
  * The token stays in memory and is never printed. No id, address or token is printed or stored.
  */
 import { execSync } from 'node:child_process';
+import { deleteContract } from './lib/contract-cleanup.mjs';
 
 const argOf = (n) => (process.argv.find((a) => a.startsWith(`--${n}=`)) || '').slice(n.length + 3);
 const MODE = argOf('mode');
@@ -151,11 +152,18 @@ async function part2() {
   console.log('\n--- g. cleanup');
   const step = (await must('GET', `sdkmessageprocessingsteps?$filter=name eq '${GUARD_DELETE_STEP}'&$select=name`)).j.value;
   if (step.length !== 1) throw new Stop(`guard Delete step: expected 1, found ${step.length}`);
-  const d1 = await call('DELETE', `mwf_contracts(${f1.mwf_contractid})`, undefined, { 'MSCRM.BypassBusinessLogicExecutionStepIds': step[0].sdkmessageprocessingstepid });
-  console.log(`delete FLOW1 (In Force, bypass of the guard Delete step only): HTTP ${d1.status}`);
-  const d2 = await call('DELETE', `mwf_contracts(${f2.mwf_contractid})`);
-  console.log(`delete FLOW2 (Draft): HTTP ${d2.status}`);
-  if (!d1.ok || !d2.ok) throw new Stop(`A delete failed: ${noGuid(d1.ok ? d2.j?.error?.message || d2.text : d1.j?.error?.message || d1.text).slice(0, 300)}`);
+  // shared helper (scripts/lib/contract-cleanup.mjs): In Force -> bypass of the guard Delete step only; Draft -> delete
+  const m = (r) => noGuid(r.j?.error?.message || (r.ok ? '' : r.text) || '').slice(0, 300);
+  const io = {
+    get: async (p) => { const r = await call('GET', p); return { ok: r.ok, status: r.status, json: r.j, message: m(r) }; },
+    patch: async (p, b) => { const r = await call('PATCH', p, b, { 'If-Match': '*' }); return { ok: r.ok, status: r.status, message: m(r) }; },
+    del: async (p, h) => { const r = await call('DELETE', p, undefined, h || {}); return { ok: r.ok, status: r.status, message: m(r) }; },
+  };
+  const d1 = await deleteContract(io, f1.mwf_contractid, { bypassStepId: step[0].sdkmessageprocessingstepid });
+  console.log(`delete FLOW1 (${d1.how}): HTTP ${d1.status}`);
+  const d2 = await deleteContract(io, f2.mwf_contractid, { bypassStepId: step[0].sdkmessageprocessingstepid });
+  console.log(`delete FLOW2 (${d2.how}): HTTP ${d2.status}`);
+  if (!d1.deleted || !d2.deleted) throw new Stop(`A delete failed: ${(d1.deleted ? d2.message : d1.message) || (d1.deleted ? d2.how : d1.how)}`);
   const cps = (await must('GET', `mwf_counterparties?$select=mwf_name&$filter=${q(`startswith(mwf_name,'${PREFIX}')`)}`)).j.value;
   for (const c of cps) {
     const used = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=_mwf_counterpartyid_value eq ${c.mwf_counterpartyid}&$top=1`)).j.value.length;

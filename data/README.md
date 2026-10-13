@@ -15,7 +15,7 @@ CSV headers match the schema names in [docs/data-model-phase1.md](../docs/data-m
 Use [`scripts/load-test-data.mjs`](../scripts/load-test-data.mjs). It uses the Dataverse Web API and the device code sign-in (it prints a URL and a code; the token stays in memory).
 
 ```
-node scripts/load-test-data.mjs --env=https://<org>.crm4.dynamics.com [--skip-pending]
+node scripts/load-test-data.mjs --env=https://<org>.crm4.dynamics.com --confirm-mutates-environment [--skip-pending]
 ```
 
 What the script does (read from the script):

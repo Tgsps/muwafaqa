@@ -295,3 +295,43 @@ Script: `scripts/test-guard-flow.mjs` (`--mode=part1`, then `--mode=part2`), dev
 - **The guard's rejection of the flow's write is proven by the message** in the failed run, **not by the script**, which does not read the run history. The script read only the final rows.
 - Nothing is known about approvals that wait longer than about 20 hours.
 - The flow has no deliberate handling of the failed action (flow step 4, open).
+
+## Script updates for the guard (2026-10-13)
+
+The old scripts were changed so that they only use transitions the Contract State Guard allows (ADR-004, follow-up 1). The approval flow was OFF for every run below (each script that moves a contract to Pending Approval reads the flow state first and stops if it is ON).
+
+### What changed
+
+- **New shared helper `scripts/lib/contract-cleanup.mjs`.** Cleanup of contract rows: Pending is withdrawn to Draft and then deleted; Draft and Rejected are deleted; In Force is deleted with the bypass of the guard **Delete step alone** (no step is disabled). It also reads the approval flow state (read only). Every script that deletes contract rows uses it.
+- **`test-usd-freeze.mjs`.** Case 2 (Rejected to Pending) is now a **negative** test (the row reaches Rejected by Draft to Pending to Rejected, the guard returns 400, the row is unchanged). Case 8 expects the Value edit while Pending to be rejected.
+- **`verification-api-tests.mjs`.** t4 reaches Rejected through Pending. `delete-by-subject` and the cleanup use the helper.
+- **`load-test-data.mjs`.** In Force and Rejected are reached by Draft to Pending Approval to the status. It now needs `--confirm-mutates-environment` (same behavior and wording as the other mutating scripts) and it checks that the approval flow is OFF. Idempotency (alternate key on Contract Number) and the loaded data are unchanged.
+- **`test-state-guard.mjs`.** Cleanup uses the helper; the flow state is checked; `--skip-ui-rows` skips the three rows for the manual UI test.
+- **`test-guard-flow.mjs`.** Part 2 deletes through the helper.
+
+### What was run on the server (2026-10-13)
+
+| Script | Result |
+|---|---|
+| `test-usd-freeze.mjs --mode=update-cases` | **10 passed, 0 failed** (11 rows cleaned, Pending rows withdrawn first) |
+| `test-usd-freeze.mjs --mode=create-case` | 1 passed, 0 failed |
+| `test-usd-freeze.mjs --mode=guard-smoke` | 5 passed, 0 failed |
+| `verification-api-tests.mjs` | **Partial:** `snapshot`, `t2`, `t4`, `key-tests`, `quick-toggle`, `delete-by-subject` (default subjects and `--prefix=TEST-TMP-KEY-`) and `check-clean` completed. The Pending row left by `quick-toggle` was withdrawn to Draft and deleted (HTTP 204) |
+| `test-state-guard.mjs --mode=integration --skip-ui-rows` | **89 passed, 0 failed, 4 observations.** Cleanup removed 16 rows (contracts and both counterparties). The UI rows were **skipped** (they need the owner's clicks) |
+| check-clean after the runs | TEST-TMP contracts **0**, TEST-TMP counterparties **0**, total contracts **11** |
+
+Note on the first run of case 2: it failed because the expected message in the script said "to Pending." while the guard says "to Pending Approval.". The behavior was correct; the expected text was corrected and the whole run repeated (10 of 10). No assertion was weakened.
+
+### What was NOT run
+
+- **`load-test-data.mjs`.** Not run against the server (it would touch the 11 baseline contracts). Verified by `node --check`, by reading the code, and by checking that it refuses to run without `--confirm-mutates-environment` (exit code 2, nothing sent).
+- **`test-guard-flow.mjs` part 2.** Not run: it needs the approval flow ON. It only changed to use the shared helper for its deletes.
+- **`verification-api-tests.mjs` t1 and t3.** Not run. They change metadata (a spare Status Reason option) and a currency rate temporarily, and the guard does not touch what they do.
+
+### Known gap
+
+`verification-api-tests.mjs same-status-save` depends on a row (`TEST-TMP-FLOW-01 edited`) that no longer exists. It stops by design with "expected exactly 1 contract ... found 0. Nothing was sent." It needs a new row to be useful.
+
+### New side effect to know about
+
+Rows loaded to Pending Approval, In Force or Rejected by `load-test-data.mjs` now get a **frozen USD value** from plug-in 1 (`mwf_valueusdfrozen`), because they pass through Pending Approval. This did not happen before the plug-in and the guard. It does not change the CSV data that is loaded.

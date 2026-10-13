@@ -21,12 +21,18 @@
  *   delete-by-subject  deletes only the contracts with the subjects "TEST-TMP-FLOW-01 edited", "TEST-TMP-FLOW-02", "TEST-TMP-FLOW-03"
  *   check-clean  read-only: no TEST-TMP rows remain
  *
+ * Contract State Guard (ADR-004): t4 reaches Rejected by allowed transitions (Draft -> Pending -> Rejected) and therefore needs the
+ * approval flow OFF (it reads the flow state and stops if it is ON; add --flow-off-confirmed if it cannot be read). Every delete
+ * goes through scripts/lib/contract-cleanup.mjs: Pending rows are withdrawn to Draft first, In Force rows (none are created
+ * here) would need the bypass of the guard Delete step alone.
+ *
  * Rules: the access token comes from `az` and is kept in memory only, never printed. Only TEST-TMP-* rows are written or
  * deleted. TEST-CT-* rows are only read. Temporary rows are deleted after each test and the deletion is verified by reading.
  * An unexpected error in setup or cleanup stops the script. Errors that ARE the observation are recorded as results.
  */
 import { execSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
+import { deleteContract, deleteContracts, findGuardDeleteStepId, requireFlowOff } from './lib/contract-cleanup.mjs';
 
 const argOf = (name) => (process.argv.find((a) => a.startsWith(`--${name}=`)) || '').slice(name.length + 3);
 if (!process.argv.includes('--confirm-mutates-environment')) {
@@ -65,6 +71,12 @@ async function call(method, path, body, headers = {}) {
   let json = null; try { json = text ? JSON.parse(text) : null; } catch { /* not json */ }
   return { status: r.status, ok: r.ok, text, json, entityId: r.headers.get('OData-EntityId') };
 }
+// adapter for the shared helper (scripts/lib/contract-cleanup.mjs)
+const io = {
+  get: async (p) => { const r = await call('GET', p); return { ok: r.ok, status: r.status, json: r.json, message: r.ok ? '' : msg(r) }; },
+  patch: async (p, b) => { const r = await call('PATCH', p, b, { 'If-Match': '*' }); return { ok: r.ok, status: r.status, message: r.ok ? '' : msg(r) }; },
+  del: async (p, h) => { const r = await call('DELETE', p, undefined, h || {}); return { ok: r.ok, status: r.status, message: r.ok ? '' : msg(r) }; },
+};
 // For setup and cleanup: any non-2xx stops the script with the full error.
 async function must(method, path, body, headers) {
   const r = await call(method, path, body, headers);
@@ -103,7 +115,8 @@ async function tmpCount() {
   return { contracts: a.json.value.length, counterparties: b.json.value.length };
 }
 async function cleanup(contractIds, cp) {
-  for (const id of contractIds) await must('DELETE', `mwf_contracts(${id})`);
+  const res = await deleteContracts(io, contractIds);
+  if (res.failed.length) throw new Error(`cleanup FAILED, ${res.failed.length} contract row(s) were not deleted: ${JSON.stringify(res.failed)}`);
   if (cp) await must('DELETE', `mwf_counterparties(${cp})`);
   const left = await tmpCount();
   if (left.contracts || left.counterparties) throw new Error(`cleanup verification FAILED, TEST-TMP rows remain: ${JSON.stringify(left)}`);
@@ -195,10 +208,15 @@ try {
   }
 
   else if (test === 't4') {
+    // The guard (ADR-004) rejects Draft -> Rejected, so the row reaches Rejected by allowed transitions: Draft -> Pending -> Rejected.
+    // Moving to Pending starts a flow run when the flow is ON, so the flow must be OFF.
+    await requireFlowOff(io, { confirmedByUser: process.argv.includes('--flow-off-confirmed') });
     const cp = await tmpCounterparty(); const ids = [];
     try {
       const id = await tmpContract(cp, { number: 'TEST-TMP-REJ', name: 'TEST-TMP rejected', value: 1000, iso: 'USD' }); ids.push(id);
-      await must('PATCH', `mwf_contracts(${id})`, { statecode: 1, statuscode: 2 });
+      await must('PATCH', `mwf_contracts(${id})`, { statuscode: 867640000 }, { 'If-Match': '*' });
+      R.steps.step0_afterPending = await readContract(id);
+      await must('PATCH', `mwf_contracts(${id})`, { statecode: 1, statuscode: 2 }, { 'If-Match': '*' });
       R.steps.step1_afterReject = await readContract(id);
       R.steps.extra_updateOtherColumnOnInactiveRow = await observe('PATCH', `mwf_contracts(${id})`, { mwf_name: 'TEST-TMP rejected renamed' });
       R.steps.step5a_statuscodeOnly_to_Draft = await observe('PATCH', `mwf_contracts(${id})`, { statuscode: 1 });
@@ -270,6 +288,16 @@ try {
     const SUBJECTS = ['TEST-TMP-FLOW-01 edited', 'TEST-TMP-FLOW-02', 'TEST-TMP-FLOW-03'];
     const noGuid = (t) => (t == null ? t : t.replace(/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g, '<id>'));
     R.results = [];
+    // the shared helper: Pending rows are withdrawn to Draft first; In Force rows need the bypass of the guard Delete step alone
+    let guardStepId;
+    const deleteRow = async (id) => {
+      let r = await deleteContract(io, id, { bypassStepId: guardStepId ?? null });
+      if (!r.deleted && r.statuscode === 867640001 && guardStepId === undefined) {
+        guardStepId = await findGuardDeleteStepId(io);
+        if (guardStepId) r = await deleteContract(io, id, { bypassStepId: guardStepId });
+      }
+      return { ok: r.deleted, status: r.status ?? (r.deleted ? 204 : 0), error: r.deleted ? null : (r.message || r.how) };
+    };
     // Optional --prefix=TEST-TMP-...: delete every contract whose Subject starts with that prefix (must start with TEST-TMP-, at most 20 rows).
     const prefix = argOf('prefix');
     if (prefix) {
@@ -277,7 +305,7 @@ try {
       const f = await must('GET', `mwf_contracts?$select=mwf_name,statecode,statuscode&$filter=${q(`startswith(mwf_name,'${prefix}')`)}&$orderby=mwf_name`);
       if (f.json.value.length > 20) throw new Error(`more than 20 contracts match the prefix (${f.json.value.length}). Nothing was deleted.`);
       for (const row of f.json.value) {
-        const d = await observe('DELETE', `mwf_contracts(${row.mwf_contractid})`);
+        const d = await deleteRow(row.mwf_contractid);
         R.results.push({ subject: row.mwf_name, found: 1, statuscode: row.statuscode, statecode: row.statecode, deleteHttp: d.status, deleted: d.ok, error: noGuid(d.error) });
         if (!d.ok) { R.stoppedAt = row.mwf_name; break; }
       }
@@ -288,7 +316,7 @@ try {
       if (f.json.value.length > 1) throw new Error(`more than one contract has the subject "${s}" (${f.json.value.length}). Nothing was deleted for it.`);
       if (f.json.value.length === 0) { R.results.push({ subject: s, found: 0, action: 'nothing to delete' }); continue; }
       const row = f.json.value[0];
-      const d = await observe('DELETE', `mwf_contracts(${row.mwf_contractid})`);
+      const d = await deleteRow(row.mwf_contractid);
       R.results.push({ subject: s, found: 1, statuscode: row.statuscode, statecode: row.statecode, deleteHttp: d.status, deleted: d.ok, error: noGuid(d.error) });
       if (!d.ok) { R.stoppedAt = s; break; }
     }

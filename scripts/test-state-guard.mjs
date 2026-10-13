@@ -6,6 +6,9 @@
  * Modes:
  *   --mode=integration  groups 1 to 8, then three rows for the user to try in the app (TEST-TMP-GUARD-UI A/B/C),
  *                       then the cleanup of every other TEST-TMP-GUARD row. Needs --confirm-mutates-environment.
+ *                       Add --skip-ui-rows to create no UI rows (then everything is cleaned, counterparties included).
+ *                       The approval flow must be OFF: the state is read first and the run stops if it is ON
+ *                       (or cannot be read; after checking by hand add --flow-off-confirmed).
  *   --mode=cleanup      removes TEST-TMP-GUARD rows. Add --include-ui to remove the UI rows too.
  *   --mode=check-clean  read only. Lists what remains with the prefix.
  *
@@ -16,12 +19,15 @@
  * The token stays in memory and is never printed. No id, address or token is printed or stored.
  */
 import { execSync } from 'node:child_process';
+import { deleteContract, requireFlowOff } from './lib/contract-cleanup.mjs';
 
 const argOf = (n) => (process.argv.find((a) => a.startsWith(`--${n}=`)) || '').slice(n.length + 3);
 const MODE = argOf('mode');
 const ENV = argOf('env').replace(/\/+$/, '');
 const AUTH = argOf('auth') || 'device';
 const INCLUDE_UI = process.argv.includes('--include-ui');
+const SKIP_UI_ROWS = process.argv.includes('--skip-ui-rows');
+const FLOW_OFF_CONFIRMED = process.argv.includes('--flow-off-confirmed');
 const CLIENT_ID = '04b07795-8ddb-461a-bbee-02f9e1bf7b46'; // public Azure CLI client id, same as the other scripts
 const PREFIX = 'TEST-TMP-GUARD';
 const UI_PREFIX = 'TEST-TMP-GUARD-UI';
@@ -379,17 +385,21 @@ async function uiRows() {
 }
 
 // ------------------------------------------------------------------ cleanup
+// adapter for the shared helper (scripts/lib/contract-cleanup.mjs)
+const io = {
+  get: async (p) => { const r = await call('GET', p); return { ok: r.ok, status: r.status, json: r.j, message: msgOf(r) }; },
+  patch: async (p, b) => { const r = await patch(p.replace(/^mwf_contracts\(([^)]+)\)$/, '$1'), b); return { ok: r.ok, status: r.status, message: msgOf(r) }; },
+  del: async (p, h) => { const r = await call('DELETE', p, undefined, h || {}); return { ok: r.ok, status: r.status, message: msgOf(r) }; },
+};
 async function cleanup({ includeUi, bypass }) {
   const rows = (await must('GET', `mwf_contracts?$select=mwf_name,statuscode&$filter=${q(`startswith(mwf_name,'${PREFIX}')`)}&$top=500`)).j.value;
   const left = [];
   let removed = 0;
   for (const r of rows) {
     if (r.mwf_name.startsWith(UI_PREFIX) && !includeUi) continue;
-    const id = r.mwf_contractid;
-    if (r.statuscode === ST.Pending) await patch(id, { statuscode: ST.Draft });
-    const headers = r.statuscode === ST.InForce && bypass ? { 'MSCRM.BypassBusinessLogicExecutionStepIds': FX.stepId } : {};
-    const d = await call('DELETE', `mwf_contracts(${id})`, undefined, headers);
-    if (d.ok) removed++; else left.push(`${r.mwf_name} (${NAME[r.statuscode] || r.statuscode}) HTTP ${d.status}`);
+    // shared helper: Pending -> withdraw to Draft then delete; Draft/Rejected -> delete; In Force -> bypass of the guard Delete step only
+    const d = await deleteContract(io, r.mwf_contractid, { bypassStepId: bypass ? FX.stepId : null });
+    if (d.deleted) removed++; else left.push(`${r.mwf_name} (${NAME[r.statuscode] || r.statuscode}) ${d.how}${d.status ? ` HTTP ${d.status}` : ''}`);
   }
   const cps = (await must('GET', `mwf_counterparties?$select=mwf_name&$filter=${q(`startswith(mwf_name,'${PREFIX}')`)}`)).j.value;
   for (const c of cps) {
@@ -430,12 +440,13 @@ async function remaining() {
       process.exit(c.left.length ? 1 : 0);
     }
 
+    await requireFlowOff(io, { confirmedByUser: FLOW_OFF_CONFIRMED });
     const before = await remaining();
     console.log(`before: rows with the prefix ${before.rows.length}, counterparties ${before.cps.length}; total contracts ${before.total}`);
     if (before.rows.length || before.cps.length) throw new Unexpected('Rows with the TEST-TMP-GUARD prefix already exist. Run --mode=cleanup --include-ui first.');
     await setup();
-    for (const f of [g1, g2, g3, g4, g5, g6, g7, g8, uiRows]) await f();
-    console.log('\n=== cleanup of every TEST-TMP-GUARD row except the UI rows A, B, C');
+    for (const f of [g1, g2, g3, g4, g5, g6, g7, g8, ...(SKIP_UI_ROWS ? [] : [uiRows])]) await f();
+    console.log(SKIP_UI_ROWS ? '\n=== cleanup of every TEST-TMP-GUARD row (UI rows skipped)' : '\n=== cleanup of every TEST-TMP-GUARD row except the UI rows A, B, C');
     const c = await cleanup({ includeUi: false, bypass: FX.bypassWorks });
     console.log(`cleanup: removed ${c.removed}; left (not removable): ${c.left.length ? '' : 'none'}`);
     for (const l of c.left) console.log(`  ${l}`);

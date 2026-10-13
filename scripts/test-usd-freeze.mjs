@@ -18,11 +18,18 @@
  *   node scripts/test-usd-freeze.mjs --mode=update-cases --env=https://<org>.crm4.dynamics.com --confirm-mutates-environment [--auth=device|az]
  *
  * PRECONDITION: the approval flow must be OFF while these cases run (every entry into Pending Approval starts a run).
+ * The modes update-cases, create-case and guard-smoke READ the flow state first and stop if it is ON (or cannot be read;
+ * after checking by hand, add --flow-off-confirmed). The mode flow-case is meant for the flow ON and does not check.
+ *
+ * Contract State Guard (ADR-004): every status is reached by an allowed transition (Draft -> Pending -> Rejected),
+ * Rejected to Pending is a NEGATIVE test, editing Value while Pending is a NEGATIVE test, and the cleanup withdraws
+ * Pending rows to Draft before deleting them (shared helper scripts/lib/contract-cleanup.mjs).
  *
  * Rules: STOPS at the first mismatch and prints the evidence (no silent rerun). Rows are cleaned in every case of exit.
  * The token stays in memory and is never printed. No id, address or token is printed or stored.
  */
 import { execSync } from 'node:child_process';
+import { deleteContracts, requireFlowOff } from './lib/contract-cleanup.mjs';
 
 const argOf = (n) => (process.argv.find((a) => a.startsWith(`--${n}=`)) || '').slice(n.length + 3);
 const MODE = argOf('mode');
@@ -30,6 +37,7 @@ const ENV = argOf('env').replace(/\/+$/, '');
 const AUTH = argOf('auth') || 'device';
 const CLIENT_ID = '04b07795-8ddb-461a-bbee-02f9e1bf7b46'; // public Azure CLI client id, same as the other scripts
 const PREFIX = 'TEST-TMP-USD';
+const FLOW_OFF_CONFIRMED = process.argv.includes('--flow-off-confirmed');
 
 if (!['update-cases', 'create-case', 'flow-case', 'guard-smoke', 'cleanup', 'check-clean'].includes(MODE)) { console.error('Missing or invalid --mode=update-cases|create-case|flow-case|guard-smoke|cleanup|check-clean. Nothing was run.'); process.exit(2); }
 if (!/^https:\/\/[^/]+$/.test(ENV)) { console.error('Missing or invalid --env=https://<org>.crm4.dynamics.com. Nothing was run.'); process.exit(2); }
@@ -84,6 +92,14 @@ async function must(method, path, body, extra) {
   return r;
 }
 
+// adapter for the shared helper (scripts/lib/contract-cleanup.mjs)
+const msgOfCall = (r) => noGuid(r.j?.error?.message || (r.ok ? '' : r.text) || '').replace(/\s+/g, ' ').trim();
+const io = {
+  get: async (p) => { const r = await call('GET', p); return { ok: r.ok, status: r.status, json: r.j, message: msgOfCall(r) }; },
+  patch: async (p, b) => { const r = await call('PATCH', p, b, { 'If-Match': '*' }); return { ok: r.ok, status: r.status, message: msgOfCall(r) }; },
+  del: async (p, h) => { const r = await call('DELETE', p, undefined, h || {}); return { ok: r.ok, status: r.status, message: msgOfCall(r) }; },
+};
+
 class Mismatch extends Error {}
 const log = [];
 function report(id, input, expected, actual, pass, extra = '') {
@@ -131,10 +147,14 @@ const snap = (g) => `statecode ${g.statecode}, statuscode ${g.statuscode}, mwf_v
 
 async function cleanup() {
   let removed = 0;
-  const rows = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`startswith(mwf_contractnumber,'TEST-TMP')`)}`)).j.value;
-  for (const r of rows) { await must('DELETE', `mwf_contracts(${r.mwf_contractid})`); removed++; }
-  const byName = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`startswith(mwf_name,'TEST-TMP')`)}`)).j.value;
-  for (const r of byName) { await must('DELETE', `mwf_contracts(${r.mwf_contractid})`); removed++; }
+  // contracts by number or by name, each id once. Pending rows are withdrawn to Draft first (the guard forbids deleting them).
+  const ids = new Set();
+  for (const f of [`startswith(mwf_contractnumber,'TEST-TMP')`, `startswith(mwf_name,'TEST-TMP')`]) {
+    for (const r of (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(f)}`)).j.value) ids.add(r.mwf_contractid);
+  }
+  const res = await deleteContracts(io, [...ids]);
+  if (res.failed.length) throw new Error(`could not delete ${res.failed.length} contract row(s): ${JSON.stringify(res.failed)}`);
+  removed += res.deleted;
   const cps = (await must('GET', `mwf_counterparties?$select=mwf_counterpartyid&$filter=${q(`startswith(mwf_name,'TEST-TMP')`)}`)).j.value;
   for (const r of cps) { await must('DELETE', `mwf_counterparties(${r.mwf_counterpartyid})`); removed++; }
   return removed;
@@ -171,16 +191,25 @@ async function updateCases() {
     if (g.mwf_valueusdfrozen === null) note = 'EVIDENCE: the column written in the status pass was NOT persisted.';
     report('1', 'USD Draft 500; one PATCH {mwf_value:1000, statuscode:Pending}', '1000.00 (the NEW Value)', snap(g), two(g.mwf_valueusdfrozen) === '1000.00' && g.statuscode === PENDING, note);
   }
-  // 2 Rejected -> Pending in one PATCH (statecode + statuscode)
+  // 2 Rejected -> Pending in one PATCH (statecode + statuscode). NEGATIVE test since the guard (ADR-004, decision Q1:
+  //   Rejected goes back to Draft first). The row reaches Rejected by allowed transitions: Draft -> Pending -> Rejected.
   {
     const c = await contract({ key: 'C2', iso: 'AED', value: 367250 });
+    await toPending(c.id);
+    const first = await read(c.id);
     const rej = await patch(c.id, { statecode: 1, statuscode: 2 });
-    if (!rej.ok) throw new Error(`setup PATCH to Rejected failed HTTP ${rej.status}\n${noGuid(rej.text).slice(0, 500)}`);
+    if (!rej.ok) throw new Error(`setup PATCH Pending -> Rejected failed HTTP ${rej.status}\n${noGuid(rej.text).slice(0, 500)}`);
     const before = await read(c.id);
     const r = await patch(c.id, { statecode: 0, statuscode: PENDING });
-    const g = await read(c.id);
-    report('2', `AED 367250, Rejected (state ${before.statecode}/status ${before.statuscode}); one PATCH {statecode:0, statuscode:Pending}`, `HTTP success and 97433.67${r.ok ? '' : ''}`,
-      `HTTP ${r.status}; ${snap(g)}${r.ok ? '' : `; error ${noGuid(r.text).slice(0, 300)}`}`, r.ok && two(g.mwf_valueusdfrozen) === '97433.67' && g.statuscode === PENDING);
+    const after = await read(c.id);
+    const m = noGuid(r.j?.error?.message || r.text || '').replace(/\s+/g, ' ').slice(0, 300);
+    const unchanged = after.statuscode === before.statuscode && after.statecode === before.statecode
+      && two(after.mwf_valueusdfrozen) === two(before.mwf_valueusdfrozen) && Number(after.mwf_value) === Number(before.mwf_value);
+    report('2', `AED 367250, Draft -> Pending -> Rejected (state ${before.statecode}/status ${before.statuscode}); one PATCH {statecode:0, statuscode:Pending}`,
+      'HTTP 400 "Cannot change the contract status from Rejected to Pending Approval."; row unchanged (Rejected, frozen 97433.67 from the first submission)',
+      `HTTP ${r.status}; message: ${m}; ${snap(after)}`,
+      r.status === 400 && /Cannot change the contract status from Rejected to Pending Approval\./.test(m) && unchanged
+        && two(first.mwf_valueusdfrozen) === '97433.67' && two(after.mwf_valueusdfrozen) === '97433.67' && after.statuscode === 2);
   }
   // 4 base currency
   await simple('C4', '4', 'TRY', 49000, '1000.00');
@@ -213,12 +242,14 @@ async function updateCases() {
     const g1 = await read(c.id);
     const ed = await patch(c.id, { mwf_value: 3000 });
     const g2 = await read(c.id);
+    const edMsg = noGuid(ed.j?.error?.message || ed.text || '').replace(/\s+/g, ' ').slice(0, 300);
     const same = await patch(c.id, { statuscode: PENDING });
     const g3 = await read(c.id);
-    report('8', 'USD 1000 Pending; edit Value 3000 while Pending; PATCH statuscode=Pending again',
-      '1000.00 stays (frozen, not recomputed) after the edit and after the same-status save',
-      `1st: ${two(g1.mwf_valueusdfrozen)}; after edit(HTTP ${ed.status}): ${two(g2.mwf_valueusdfrozen)} with Value ${g2.mwf_value}; after same-status save(HTTP ${same.status}): ${two(g3.mwf_valueusdfrozen)}`,
-      two(g1.mwf_valueusdfrozen) === '1000.00' && two(g2.mwf_valueusdfrozen) === '1000.00' && two(g3.mwf_valueusdfrozen) === '1000.00');
+    report('8', 'USD 1000 Pending; edit Value 3000 while Pending (the guard rejects it, ADR-004); PATCH statuscode=Pending again',
+      'the edit gets HTTP 400 "Cannot change Value ..." and Value stays 1000; frozen 1000.00 stays; the same-status save is HTTP 204 and does not recompute',
+      `1st: ${two(g1.mwf_valueusdfrozen)}; edit: HTTP ${ed.status} ${edMsg}; after edit Value ${g2.mwf_value}, frozen ${two(g2.mwf_valueusdfrozen)}; same-status save: HTTP ${same.status}, frozen ${two(g3.mwf_valueusdfrozen)}`,
+      two(g1.mwf_valueusdfrozen) === '1000.00' && ed.status === 400 && /Cannot change Value/.test(edMsg) && Number(g2.mwf_value) === 1000
+        && two(g2.mwf_valueusdfrozen) === '1000.00' && same.status === 204 && two(g3.mwf_valueusdfrozen) === '1000.00');
   }
   // 10 failure: no Value -> Pending
   {
@@ -303,6 +334,9 @@ async function createCase() {
     TOKEN = AUTH === 'az'
       ? execSync(`az account get-access-token --resource ${ENV} --query accessToken -o tsv`, { encoding: 'utf8', shell: true }).trim()
       : await deviceToken();
+    if (['update-cases', 'create-case', 'guard-smoke'].includes(MODE)) {
+      await requireFlowOff(io, { confirmedByUser: FLOW_OFF_CONFIRMED });
+    }
     if (MODE === 'cleanup') {
       // show the rows (read only) before they are deleted
       const rows = (await must('GET', `mwf_contracts?$select=mwf_name,statecode,statuscode,mwf_valueusdfrozen&$filter=${q(`startswith(mwf_name,'TEST-TMP')`)}`)).j.value;

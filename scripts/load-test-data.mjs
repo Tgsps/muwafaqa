@@ -7,19 +7,37 @@
  * - The "Approx. USD" notes are ignored. No base amount is computed: Dataverse calculates mwf_value_base from the currency records.
  * - Currency lookup is matched by ISO code (USD/KWD/AED/SAR) against EXISTING currency records. Currency records are never touched or created.
  * - Contract statuses: only Draft, In Force and Rejected are produced. A contract whose CSV status is "Pending Approval" is loaded as Draft
- *   (use --skip-pending to skip those rows instead). Non-default statuses are set by an update after creation and verified by reading back.
+ *   (use --skip-pending to skip those rows instead). Non-default statuses are set by updates after creation and verified by reading back.
+ *   Under the Contract State Guard (ADR-004) In Force and Rejected are reached by the ALLOWED transitions: Draft -> Pending Approval -> In Force
+ *   and Draft -> Pending Approval -> Rejected. Moving a row to Pending Approval starts an approval flow run when the flow is ON, and the
+ *   plug-in FreezeUsdValueOnSubmission writes mwf_valueusdfrozen, so the approval flow must be OFF: the script reads the flow state before
+ *   the first such row and stops if it is ON (or cannot be read; after checking by hand add --flow-off-confirmed).
  * - Any HTTP error, missing currency, or failed verification stops the script with the full error. No retries, no fallbacks.
  *
- * Usage: node scripts/load-test-data.mjs --env=https://<org>.crm4.dynamics.com [--skip-pending]
+ * Usage: node scripts/load-test-data.mjs --env=https://<org>.crm4.dynamics.com --confirm-mutates-environment [--skip-pending] [--flow-off-confirmed]
+ *
+ * The script WRITES to the environment (counterparties, contracts, status changes). Without --confirm-mutates-environment it prints
+ * why and exits with code 2 without sending anything (same behavior as the other mutating scripts).
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { requireFlowOff } from './lib/contract-cleanup.mjs';
 
 const CLIENT_ID = '04b07795-8ddb-461a-bbee-02f9e1bf7b46';
 const args = Object.fromEntries(process.argv.slice(2).map((a) => { const [k, v] = a.replace(/^--/, '').split('='); return [k, v ?? true]; }));
 const ENV = String(args.env ?? '').replace(/\/+$/, '');
 if (!ENV) { console.error('Missing --env=https://<org>.crm4.dynamics.com'); process.exit(2); }
+if (!args['confirm-mutates-environment']) {
+  console.error([
+    'WARNING: load-test-data.mjs WRITES to the environment:',
+    '  - creates counterparties and contracts (existing rows are skipped, never changed)',
+    '  - moves contracts to Pending Approval and then to In Force or Rejected (approval flow must be OFF)',
+    '  - the plug-in writes mwf_valueusdfrozen on every contract that passes Pending Approval',
+    'Nothing was run. To run it on purpose, add --confirm-mutates-environment (and --env=<url>).',
+  ].join('\n'));
+  process.exit(2);
+}
 const API = `${ENV}/api/data/v9.2`;
 const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
 
@@ -78,6 +96,16 @@ async function dv(method, path, body) {
   if (!r.ok) throw new Error(`${method} ${path} failed (HTTP ${r.status}):\n${t}`);
   return t ? JSON.parse(t) : { entityId: r.headers.get('OData-EntityId') };
 }
+// adapter for the shared helper (scripts/lib/contract-cleanup.mjs): reads only
+const io = {
+  get: async (p) => { try { return { ok: true, status: 200, json: await dv('GET', p) }; } catch (e) { return { ok: false, status: 0, message: String(e.message).slice(0, 200) }; } },
+};
+let flowChecked = false;
+async function ensureFlowOff() {
+  if (flowChecked) return;
+  await requireFlowOff(io, { confirmedByUser: args['flow-off-confirmed'] === true });
+  flowChecked = true;
+}
 const attr = (table, n, kind) => `EntityDefinitions(LogicalName='${table}')/Attributes(LogicalName='${n}')/Microsoft.Dynamics.CRM.${kind}?$select=LogicalName&$expand=OptionSet($select=Options)`;
 async function optionMap(table, n, kind = 'PicklistAttributeMetadata') {
   const a = await dv('GET', attr(table, n, kind));
@@ -110,7 +138,7 @@ try {
   const ctDir = await optionMap('mwf_contract', 'mwf_direction');
   const stat = await optionMap('mwf_contract', 'statuscode', 'StatusAttributeMetadata');
   const need = (map, label, what) => { const o = map.get(label); if (!o) throw new Stop(`No ${what} option labelled '${label}'.`); return o; };
-  for (const s of ALLOWED_STATUS) need(stat, s, 'Status Reason');
+  for (const s of [...ALLOWED_STATUS, 'Pending Approval']) need(stat, s, 'Status Reason');   // Pending Approval is the stop on the way to In Force / Rejected
 
   // ---------- counterparties ----------
   let cpCreated = 0, cpSkipped = 0; const cpId = new Map();
@@ -148,17 +176,20 @@ try {
     if (r.mwf_signeddate) body.mwf_signeddate = r.mwf_signeddate;
     if (r.mwf_effectivedate) body.mwf_effectivedate = r.mwf_effectivedate;
     if (r.mwf_expirydate) body.mwf_expirydate = r.mwf_expirydate;
+    if (status !== 'Draft') await ensureFlowOff();   // the route to In Force / Rejected passes Pending Approval
     const created = await dv('POST', 'mwf_contracts', body);
     const id = idOf(created.entityId); ctCreated++;
     console.log(`CREATED contract ${num}`);
 
-    // non-default status: update after creation, then verify
-    const target = need(stat, status, 'Status Reason');
+    // non-default status: update after creation by the transitions the guard allows (Draft -> Pending Approval -> status), verify each
     if (status !== 'Draft') {
-      await dv('PATCH', `mwf_contracts(${id})`, { statecode: target.state, statuscode: target.value });
-      const g = await dv('GET', `mwf_contracts(${id})?$select=statecode,statuscode`);
-      if (g.statuscode !== target.value || g.statecode !== target.state) throw new Error(`Status verification failed for ${num}: expected state ${target.state}/status ${target.value}, got ${g.statecode}/${g.statuscode}`);
-      console.log(`  status -> ${status} (verified: state ${g.statecode}, status ${g.statuscode})`);
+      for (const step of ['Pending Approval', status]) {
+        const t = need(stat, step, 'Status Reason');
+        await dv('PATCH', `mwf_contracts(${id})`, { statecode: t.state, statuscode: t.value });
+        const g = await dv('GET', `mwf_contracts(${id})?$select=statecode,statuscode`);
+        if (g.statuscode !== t.value || g.statecode !== t.state) throw new Error(`Status verification failed for ${num}: expected state ${t.state}/status ${t.value}, got ${g.statecode}/${g.statuscode}`);
+        console.log(`  status -> ${step} (verified: state ${g.statecode}, status ${g.statuscode})`);
+      }
     }
   }
 
