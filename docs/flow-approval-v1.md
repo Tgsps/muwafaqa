@@ -275,7 +275,9 @@ All observed on the live environment (rows `TEST-TMP-FLOW-01 edited`, `-02`, `-0
 **What this means:**
 - In (c) the rejection survived **only because of the platform's State / Status Reason constraint**, not because of flow logic.
 - In (d) the flow does **not** check the row's current status before writing its decision, so a legitimate user change is lost.
-- **Since the Contract State Guard is registered (ADR-004), case (d) ends differently:** the late write of In Force over the withdrawn Draft is rejected (Draft to In Force is not an allowed transition), the row stays Draft, and the run **fails** at the update action. Observed on 2026-10-13, see [the phase C section of the registration log](plugin-registration-log.md#phase-c-end-to-end-with-the-approval-flow-on). The flow still has no deliberate handling of that failure (Phase 2).
+- **Since the Contract State Guard is registered (ADR-004), case (d) ends differently.** The late write of In Force over the withdrawn Draft is never accepted (Draft to In Force is not an allowed transition), and the row stays Draft:
+  - **When the withdrawal happens before the answer of a stage,** the checkpoint after that stage stops the run **Cancelled, before any write** (section 13, observed 2026-10-13).
+  - **Otherwise** (the withdrawal falls in the short window between the check and the write) the guard still rejects the write and the run **fails** at the update action. That failure was observed on 2026-10-13 before the checkpoints existed, see [the phase C section of the registration log](plugin-registration-log.md#phase-c-end-to-end-with-the-approval-flow-on).
 - Two runs for one contract create two approval chains, which can contradict each other.
 
 ---
@@ -334,3 +336,56 @@ Each item has a trade-off to state when it is designed (extra column and flow lo
 A contract withdrawn to Draft and submitted again **while the first run still waits for approvals** can be completed by the stale run: both runs end with a write of the decision, and a status check alone cannot tell which run belongs to which submission. (The guard of ADR-004 rejects the stale write only when the status is no longer allowed for it; a re-submitted contract is Pending Approval again, so the transition is valid for either run.)
 
 **Proposed fix, not built:** a **submission-round column** written by plug-in 1 on each entry into Pending Approval. The flow would copy the round when it starts and check it before writing its decision. It would also be a cleaner trigger column than `mwf_valueusdfrozen`. It needs changes in plug-in 1, the guard (the column must be locked like the frozen value), an ADR and tests.
+
+---
+
+## 13. Checkpoints: a withdrawn contract stops the run
+
+### Structure
+
+After each approval stage the flow re-reads the contract and ends quietly if it is no longer Pending Approval:
+
+| After | Get a row by ID | Condition (statuscode equals 867640000) | False branch |
+|---|---|---|---|
+| Approval DepthHead | "Get contract after stage 1" | "Is still Pending (stage 1)" | Terminate, status **Cancelled**, named "Stop - contract no longer Pending (stage 1)" |
+| Approval FinanceMgr | "Get contract after stage 2" | "Is still Pending (stage 2)" | Terminate, status **Cancelled**, named "Stop - contract no longer Pending (stage 2)" |
+
+- The condition compares the status of the re-read row (`body/statuscode`) with 867640000, by value.
+- The **True** branch of each checkpoint continues to the original **Check Stage1** and **Check Stage2**, which stay after their checkpoint.
+
+### Why two checkpoints cover all three writes
+
+The flow writes the contract status in three places: Check Stage1 False (reject at stage 1), Check Stage2 False (reject at stage 2) and Check Stage2 True (approve, In Force). Checkpoint 1 sits before Check Stage1, so it covers the first write. Checkpoint 2 sits before Check Stage2, so it covers both stage 2 writes.
+
+### The test
+
+`scripts/test-flow-checkpoints.mjs` (flow ON, fictional rows TEST-TMP-CHK1 to CHK4, USD 1000):
+
+| Contract | What was done | Expected |
+|---|---|---|
+| CHK1 normal | stage 1 and stage 2 approved | In Force, run Succeeded |
+| CHK2 withdrawn before stage 1 | withdrawn to Draft right after the submission, then its stage 1 approved | Draft, run Cancelled at checkpoint 1, no stage 2 request |
+| CHK3 withdrawn after stage 1 | stage 1 approved, withdrawn to Draft once its stage 2 request was visible, then stage 2 approved | Draft, run Cancelled at checkpoint 2 |
+| CHK4 rejected | rejected at stage 1 | Rejected (Inactive), run Succeeded |
+
+### Evidence
+
+Marked **(script)** when read by the test script, **(owner)** when observed by the owner in Power Automate. No host, URL, user id, environment id, approval id or row id is recorded here.
+
+- **(script)** Setup at 2026-10-13 15:34:16 UTC: the four contracts moved to Pending Approval, each with the frozen value 1000.00. CHK2 was withdrawn to Draft at once.
+- **(owner)** Stage 1 was approved for CHK1, CHK2 and CHK3, and rejected for CHK4. **Only two stage 2 requests arrived (CHK1 and CHK3)**: none for CHK2 (withdrawn) and none for CHK4 (rejected).
+- **(script)** CHK3 was withdrawn to Draft at about 15:48:48 UTC, after its stage 2 request was visible. The owner then approved both stage 2 requests.
+- **(script)** Rows read afterwards: CHK1 In Force / Active, CHK2 Draft / Active, CHK3 Draft / Active, CHK4 Rejected / Inactive. The frozen value was 1000.00 in all four.
+- **(script)** `flowruns`: 4 finished runs, 2 Succeeded and 2 Cancelled, **0 Failed**, no error message. The table does not name the contract of a run.
+- **(owner)** Run history: four new runs: Canceled (11:35 min), Succeeded (13:44), Canceled (14:37), Succeeded (11:21). **No run Failed.**
+- **(owner, screenshot)** The Canceled run of 11:35: Approval DepthHead succeeded (11 min 34 s), "Get contract after stage 1" succeeded, "Is still Pending (stage 1)" took the False branch and shows Terminated, the action "Stop - contract no longer Pending (stage 1)" ran successfully, and Check Stage1 was skipped.
+- **(owner, screenshot)** The Canceled run of 14:37: checkpoint 1 passed, Approval FinanceMgr succeeded (2 min 56 s), "Get contract after stage 2" succeeded, "Is still Pending (stage 2)" took the False branch and shows Terminated, and the action "Stop - contract no longer Pending (stage 2)" ran successfully.
+- **Mapping of runs to contracts:** the two Canceled runs are CHK2 (stage 1) and CHK3 (stage 2), confirmed by the two run pages and by their end times. **The mapping of the two Succeeded runs to CHK1 and CHK4 is inferred** from the final row states.
+- **(script, independent count)** In the approvals table (Dataverse) **6 approvals** were created since the setup, all Completed (5 Approve, 1 Reject). This matches CHK1 two stages, CHK2 stage 1 only, CHK3 two stages and CHK4 one stage (reject). A stage 2 request for CHK2 would have made it 7. Only counts were read. The approval requests table still showed Active for these rows after completion; its meaning is unknown and nothing is concluded from it.
+- **Comparison with phase C (2026-10-13, before the checkpoints):** the late write of In Force over a withdrawn Draft failed the run at `Update_a_row_3` with the guard message. Now such a run ends **Cancelled** before any write.
+
+### What the checkpoints do NOT cover
+
+- **(a) The short window between the check and the write.** If the contract is withdrawn after the check passed and before the write, the guard still rejects the write and the run fails loudly. This is on purpose: a failed run is visible, a silent overwrite is not.
+- **(b) A stale run after withdraw and resubmit.** A contract withdrawn and submitted again while the first run still waits passes the checkpoint of the stale run (it is Pending Approval again). This is the gap described in section 12, [Known gap](#known-gap-a-stale-run-can-complete-a-re-submitted-contract). It is not repeated here.
+- **(c) The Terminate message is not recorded for a Cancelled run.** What the run history shows is the **name of the action** ("Stop - contract no longer Pending (stage N)"), so the action names are the way to tell which checkpoint ended a run.

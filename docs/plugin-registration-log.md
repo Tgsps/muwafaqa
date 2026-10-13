@@ -339,3 +339,7 @@ Rows loaded to Pending Approval, In Force or Rejected by `load-test-data.mjs` no
 ## Flow trigger test (2026-10-13)
 
 `scripts/test-flow-trigger.mjs` checked how many approval flow runs each action starts with the new trigger (Select columns `mwf_valueusdfrozen`, Filter rows `statuscode eq 867640000`). Observed by the owner in the run history: exactly one new run, belonging to the Draft to Pending Approval action; the three other actions started none. The script could not count runs itself (the `flowruns` table lists finished runs only). Results, limits and the known gap are in `docs/flow-approval-v1.md`, section 12.
+
+## Flow checkpoints test (2026-10-13)
+
+`scripts/test-flow-checkpoints.mjs` tested the two checkpoints added to the approval flow (a run for a withdrawn contract ends Cancelled before any write). Four fictional contracts: normal, withdrawn before stage 1, withdrawn after stage 1, rejected. Rows ended In Force, Draft, Draft and Rejected; 4 runs finished (2 Succeeded, 2 Cancelled, none Failed). Evidence, mapping of runs to contracts (partly inferred) and what is not covered: `docs/flow-approval-v1.md`, section 13. The test rows were deleted (CHK1 In Force with the bypass of the guard Delete step alone); check-clean: 0 TEST-TMP rows, 11 contracts.
