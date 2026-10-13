@@ -41,7 +41,7 @@
               "subscriptionRequest/message": 3,
               "subscriptionRequest/entityname": "mwf_contract",
               "subscriptionRequest/scope": 4,
-              "subscriptionRequest/filteringattributes": "statuscode",
+              "subscriptionRequest/filteringattributes": "mwf_valueusdfrozen",
               "subscriptionRequest/filterexpression": "statuscode eq 867640000"
             },
             "host": {
@@ -178,12 +178,66 @@
                 }
               },
               "runAfter": {
-                "Approval_FinanceMgr": [
+                "Is_still_Pending_(stage_2)": [
                   "Succeeded"
                 ]
               },
               "metadata": {
                 "operationMetadataId": "6a9fcb07-8e8c-459f-b1ef-aa299f9c04f4"
+              }
+            },
+            "Get_contract_after_stage_2": {
+              "type": "OpenApiConnection",
+              "inputs": {
+                "parameters": {
+                  "entityName": "mwf_contracts",
+                  "recordId": "@triggerOutputs()?['body/mwf_contractid']"
+                },
+                "host": {
+                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps",
+                  "operationId": "GetItem",
+                  "connectionName": "shared_commondataserviceforapps"
+                }
+              },
+              "runAfter": {
+                "Approval_FinanceMgr": [
+                  "Succeeded"
+                ]
+              }
+            },
+            "Is_still_Pending_(stage_2)": {
+              "type": "If",
+              "expression": {
+                "and": [
+                  {
+                    "equals": [
+                      "@outputs('Get_contract_after_stage_2')?['body/statuscode']",
+                      867640000
+                    ]
+                  },
+                  {
+                    "equals": [
+                      "@outputs('Get_contract_after_stage_2')?['body/mwf_approvalround']",
+                      "@triggerOutputs()?['body/mwf_approvalround']"
+                    ]
+                  }
+                ]
+              },
+              "actions": {},
+              "else": {
+                "actions": {
+                  "Stop_-_contract_no_longer_Pending_(stage_2)": {
+                    "type": "Terminate",
+                    "inputs": {
+                      "runStatus": "Cancelled"
+                    }
+                  }
+                }
+              },
+              "runAfter": {
+                "Get_contract_after_stage_2": [
+                  "Succeeded"
+                ]
               }
             }
           },
@@ -225,12 +279,66 @@
             }
           },
           "runAfter": {
-            "Approval_DeptHead": [
+            "Is_still_Pending_(stage_1)": [
               "Succeeded"
             ]
           },
           "metadata": {
             "operationMetadataId": "148d3c68-e39f-45d5-85de-5cb102a3aa4b"
+          }
+        },
+        "Get_contract_after_stage_1": {
+          "type": "OpenApiConnection",
+          "inputs": {
+            "parameters": {
+              "entityName": "mwf_contracts",
+              "recordId": "@triggerOutputs()?['body/mwf_contractid']"
+            },
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps",
+              "operationId": "GetItem",
+              "connectionName": "shared_commondataserviceforapps"
+            }
+          },
+          "runAfter": {
+            "Approval_DeptHead": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Is_still_Pending_(stage_1)": {
+          "type": "If",
+          "expression": {
+            "and": [
+              {
+                "equals": [
+                  "@outputs('Get_contract_after_stage_1')?['body/statuscode']",
+                  867640000
+                ]
+              },
+              {
+                "equals": [
+                  "@outputs('Get_contract_after_stage_1')?['body/mwf_approvalround']",
+                  "@triggerOutputs()?['body/mwf_approvalround']"
+                ]
+              }
+            ]
+          },
+          "actions": {},
+          "else": {
+            "actions": {
+              "Stop_-_contract_no_longer_Pending_(stage_1)": {
+                "type": "Terminate",
+                "inputs": {
+                  "runStatus": "Cancelled"
+                }
+              }
+            }
+          },
+          "runAfter": {
+            "Get_contract_after_stage_1": [
+              "Succeeded"
+            ]
           }
         }
       }

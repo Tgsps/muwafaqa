@@ -69,5 +69,5 @@ The guard Update step has the column in its filtering attributes (10 columns), b
 - **Two submissions at the same instant:** the round is read and written in two steps (Retrieve, then the write of the PreOperation). (not tested) whether two concurrent updates could produce the same round.
 - **Rejected to Draft to Pending Approval:** the round should go up like any other resubmission. (not tested)
 - **Other messages:** bulk messages and an owner change were not exercised. (not tested)
-- **`src/`:** the column is not in the solution source yet (`pac solution sync` not run).
+- **`src/`:** synced on 2026-10-13 (script): the column, the steps and the flow are in the solution source. See `docs/plugin-registration-log.md`. The pack warning about the `PluginAssembly` root component is not tested for import.
 - **Flow trigger:** the trigger still uses `mwf_valueusdfrozen` as its Select columns. Using the round instead is possible and not done.

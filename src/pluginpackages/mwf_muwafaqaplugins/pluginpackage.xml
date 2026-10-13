@@ -1,0 +1,9 @@
+<pluginpackage uniquename="mwf_muwafaqaplugins">
+  <exportkeyversion>1</exportkeyversion>
+  <iscustomizable>1</iscustomizable>
+  <name>mwf_muwafaqaplugins</name>
+  <package mimetype="application/octet-stream">mwf_muwafaqaplugins.nupkg</package>
+  <statecode>0</statecode>
+  <statuscode>1</statuscode>
+  <version>1.0.0</version>
+</pluginpackage>

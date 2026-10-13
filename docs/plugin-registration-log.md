@@ -367,3 +367,45 @@ Not done: `pac solution sync` to `src/` (the column is not in `src/` yet) and th
 ## Approval round check in the flow (2026-10-13)
 
 The two checkpoint conditions of the flow were extended by hand with a comparison of `mwf_approvalround` (the contract re-read after the stage against the trigger). Test with `scripts/test-flow-approvalround.mjs` (setup, read, cleanup; flow ON): submission 1 (round 1), withdraw, submission 2 (round 2). **(owner)** Run 1 stopped at "Stop - contract no longer Pending (stage 1)" and ended Canceled, without a manual cancel; run 2 passed both checkpoints and "Update a row 3" succeeded; the final status of run 2 was not seen. **(script)** The contract ended In Force with round 2, 3 approvals Completed (counts only), check-clean 0 TEST-TMP rows and 11 contracts. Tested once. Details, expressions and limits: `docs/flow-approval-v1.md`, section 14; open points: ADR-005.
+
+## src/ synced with the environment (2026-10-13)
+
+Procedure (the same as before, no new one): `pac solution sync` from the repository root (project `Muwafaqa.cdsproj`, solution `Muwafaqa`), then `node scripts/scrub-emails.mjs` before `git add` (CLAUDE.md). The direction is environment to source only; nothing was imported.
+
+### What changed in `src/` (script: counts from `git status` and the diff)
+
+| Area | Change |
+|---|---|
+| `Entities/mwf_Contract/Entity.xml` | the column `mwf_approvalround` (int, min 0, max 2147483647, not required, audit enabled, display name "Approval Round") |
+| `SdkMessageProcessingSteps/` | 5 new files: plug-in 1 (Update: filtering `statuscode`, PreImage of 3 columns; Create) and the guard (Update: filtering 10 columns, PreImage 9 columns; Create; Delete with a PreImage of `statuscode`) |
+| `pluginpackages/mwf_muwafaqaplugins/pluginpackage.xml` | new (package version 1.0.0) |
+| `Other/Solution.xml` | 1 root component for the assembly (version 1.0.2.0) and 5 for the steps |
+| `Other/Customizations.xml` | the version stamp and an empty `SdkMessageProcessingSteps` element |
+| `Workflows/` (the approval flow) | 9 to 15 actions: the two "Get contract after stage N" actions, the two "Is still Pending (stage N)" conditions with the round comparison, the two "Stop - contract no longer Pending (stage N)" Terminate actions; `Check Stage1` and `Check Stage2` were moved under the conditions; trigger Select columns `mwf_valueusdfrozen` |
+| forms and views | no change |
+
+### Scrub
+
+`scripts/scrub-emails.mjs` now also replaces the host of the record link in the flow (`WebhookApprovalCreationInput/itemLink`, found by the URL pattern in front of `/main.aspx?etn=`) with `<ORG_HOST>`. The host is not written in the script; `--env=<url>` may be passed to replace other occurrences of exactly that host. `--self-test` checks the replacement with fictional values and prints only PASS/FAIL. Result (script): 2 host replacements in the flow file, 0 hosts and 0 email-like values (outside OData annotations) remain in `src/`, the flow JSON still parses, and a second run replaces nothing.
+
+### Packing `src/` from a clean clone
+
+There is **no script** for the plug-in build (the `pipelines/` folder is empty). The real steps used in this project are:
+
+1. Build the package from `plugins/`: `dotnet build -c Release` in `plugins/Muwafaqa.Plugins`. The package is written to `bin/Release/mwf_muwafaqaplugins.1.0.0.nupkg`.
+2. Copy it to `src/pluginpackages/mwf_muwafaqaplugins/package/mwf_muwafaqaplugins.nupkg` (the file name that `pluginpackage.xml` expects). That folder is ignored by git (`*.nupkg`), so the package is **not** in the repository.
+3. `pac solution pack --zipfile <a folder outside the repository>/Muwafaqa.zip --folder src --packagetype Unmanaged`.
+
+Notes:
+- A rebuilt package is not byte for byte the same as the published one (the assembly hash is reproducible, the package hash is not, see the build identity sections of this log). **The SHA-256 of each published package is recorded in this log.**
+- The flow in `src/` has two placeholders, `<APPROVER_TEST_ACCOUNT>` and `<ORG_HOST>`; both must be filled in before an import.
+
+### Local pack check
+
+(script) `pac solution pack` of `src/` into a temporary folder outside the repository completed ("Packed Solution", unmanaged); the output was deleted afterwards. It printed one warning: `Following root components are not defined in customizations: Type='PluginAssembly'`. **(not tested for import):** nothing was imported, so it is not known whether an import of this source accepts it.
+
+### Open items
+
+- The pack warning about the `PluginAssembly` root component (not tested for import).
+- The package is not in the repository (option b above); the steps above are manual.
+- The environment host exists in an earlier commit: `docs/pre-publish-checklist.md`.

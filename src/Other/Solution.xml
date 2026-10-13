@@ -85,6 +85,12 @@
       <RootComponent type="61" schemaName="mwf_MuwafaqaContracts_icon" behavior="0" />
       <RootComponent type="62" schemaName="mwf_MuwafaqaContracts" behavior="0" />
       <RootComponent type="80" schemaName="mwf_MuwafaqaContracts" behavior="0" />
+      <RootComponent type="91" id="{a42b44df-57c6-f111-aaad-000d3ab4ceb3}" schemaName="Muwafaqa.Plugins, Version=1.0.2.0, Culture=neutral, PublicKeyToken=null" behavior="0" />
+      <RootComponent type="92" id="{00c8a429-58c6-f111-aaad-000d3ab4ceb3}" behavior="0" />
+      <RootComponent type="92" id="{bb48c73c-65c6-f111-aaad-000d3ab4ceb3}" behavior="0" />
+      <RootComponent type="92" id="{bb78c536-65c6-f111-aaad-000d3ab4ceb3}" behavior="0" />
+      <RootComponent type="92" id="{bf78c536-65c6-f111-aaad-000d3ab4ceb3}" behavior="0" />
+      <RootComponent type="92" id="{ec665969-5bc6-f111-aaad-000d3ab4ceb3}" behavior="0" />
     </RootComponents>
     <MissingDependencies>
       <MissingDependency>

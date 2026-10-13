@@ -1,0 +1,28 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<SdkMessageProcessingStep Name="Muwafaqa.Plugins.Contract.ContractStateGuard: Delete of mwf_contract" SdkMessageProcessingStepId="{bb48c73c-65c6-f111-aaad-000d3ab4ceb3}" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <SdkMessageId>a1bdbb1b-ea3e-db11-86a7-000a3a5473e8</SdkMessageId>
+  <PluginTypeExportKey>69E5F6441EBA5123648D1AE687AB23BD2DE7F91D0F09569BF136B1FAE19C10BE</PluginTypeExportKey>
+  <PrimaryEntity>mwf_contract</PrimaryEntity>
+  <AsyncAutoDelete>0</AsyncAutoDelete>
+  <Description>Contract State Guard (ADR-004): Delete of mwf_contract, PreValidation.</Description>
+  <FilteringAttributes></FilteringAttributes>
+  <InvocationSource>0</InvocationSource>
+  <Mode>0</Mode>
+  <Rank>1</Rank>
+  <EventHandlerTypeCode>4602</EventHandlerTypeCode>
+  <Stage>10</Stage>
+  <IsCustomizable>1</IsCustomizable>
+  <IsHidden>0</IsHidden>
+  <SupportedDeployment>0</SupportedDeployment>
+  <IntroducedVersion>1.0.0.0</IntroducedVersion>
+  <SdkMessageProcessingStepImages>
+    <SdkMessageProcessingStepImage Name="pre">
+      <SdkMessageProcessingStepImageId>{be48c73c-65c6-f111-aaad-000d3ab4ceb3}</SdkMessageProcessingStepImageId>
+      <Attributes>statuscode</Attributes>
+      <EntityAlias>pre</EntityAlias>
+      <ImageType>0</ImageType>
+      <MessagePropertyName>Target</MessagePropertyName>
+      <IsCustomizable>1</IsCustomizable>
+    </SdkMessageProcessingStepImage>
+  </SdkMessageProcessingStepImages>
+</SdkMessageProcessingStep>
