@@ -335,7 +335,7 @@ Each item has a trade-off to state when it is designed (extra column and flow lo
 
 A contract withdrawn to Draft and submitted again **while the first run still waits for approvals** can be completed by the stale run: both runs end with a write of the decision, and a status check alone cannot tell which run belongs to which submission. (The guard of ADR-004 rejects the stale write only when the status is no longer allowed for it; a re-submitted contract is Pending Approval again, so the transition is valid for either run.)
 
-**Status: plug-in side done, flow check pending.** The submission-round column `mwf_approvalround` now exists and is written by plug-in 1 on each real entry into Pending Approval (null before the first submission, 1 on the first, 2 on a resubmission). The guard locks it for clients. (script) tested on the server on 2026-10-13: see [ADR-005](decisions/ADR-005-approval-round.md) and the registration log. **Not built:** the flow does not use the round yet. The planned flow change is to copy the round when the run starts and to compare it with the stored round at each checkpoint and before each write, ending the run Cancelled when they differ. That flow change is a manual step with the owner (not done, not tested). Until then this gap stays open.
+**Status: closed for the scenario withdraw and resubmit, tested once.** The submission-round column `mwf_approvalround` is written by plug-in 1 on each real entry into Pending Approval (ADR-005), and the two checkpoints of the flow now also compare it (section 14). A stale run that was started by an earlier submission stops at its checkpoint once the contract was withdrawn and submitted again. Evidence and its limits: section 14 (owner-observed in the run history, one test). Not covered: see the open points of ADR-005 (a short race between the check and the write, two concurrent submissions, Rejected to Draft to Pending Approval).
 
 ---
 
@@ -387,5 +387,54 @@ Marked **(script)** when read by the test script, **(owner)** when observed by t
 ### What the checkpoints do NOT cover
 
 - **(a) The short window between the check and the write.** If the contract is withdrawn after the check passed and before the write, the guard still rejects the write and the run fails loudly. This is on purpose: a failed run is visible, a silent overwrite is not.
-- **(b) A stale run after withdraw and resubmit.** A contract withdrawn and submitted again while the first run still waits passes the checkpoint of the stale run (it is Pending Approval again). This is the gap described in section 12, [Known gap](#known-gap-a-stale-run-can-complete-a-re-submitted-contract). It is not repeated here.
+- **(b) A stale run after withdraw and resubmit.** A contract withdrawn and submitted again while the first run still waits passes the checkpoint of the stale run (it is Pending Approval again). This is the gap described in section 12, [Known gap](#known-gap-a-stale-run-can-complete-a-re-submitted-contract). It is not repeated here. Since the round check (section 14) the checkpoints also compare the submission round, so such a stale run stops there.
 - **(c) The Terminate message is not recorded for a Cancelled run.** What the run history shows is the **name of the action** ("Stop - contract no longer Pending (stage N)"), so the action names are the way to tell which checkpoint ended a run.
+
+---
+
+## 14. Approval round check (stale run)
+
+### The change (made by hand in the flow designer, not by a script)
+
+In **both** checkpoint conditions ("Is still Pending (stage 1)" and "Is still Pending (stage 2)") a **second row was added, joined with AND**: the `mwf_approvalround` of the contract that the checkpoint just re-read must equal the `mwf_approvalround` of the **trigger** (the contract as it was when the run started). In the code view of the flow the condition is, for N = 1 and 2:
+
+```
+and(
+  equals(outputs('Get_contract_after_stage_N')?['body/statuscode'], 867640000),
+  equals(outputs('Get_contract_after_stage_N')?['body/mwf_approvalround'], triggerOutputs()?['body/mwf_approvalround'])
+)
+```
+
+- **Idea:** the round goes up on every real submission (ADR-005). A run keeps the round it started with. If the contract was withdrawn and submitted again, the stored round is higher than the run's round, so the condition is False and the existing Terminate action ends the run Cancelled before any write.
+- The False branch and the Terminate actions are the ones of section 13; they were not changed. The action names still say "no longer Pending", although they now also cover a stale run (cosmetic, not renamed).
+- The trigger (Select columns `mwf_valueusdfrozen`, section 12) was not changed.
+
+### The test
+
+`scripts/test-flow-approvalround.mjs` (flow ON; fictional rows only, TEST-TMP-RND-1):
+
+| Mode | What it does |
+|---|---|
+| `setup` | creates one counterparty and one Draft contract; Draft to Pending Approval (submission 1, round 1, starts run 1); waits about 20 s; withdraws to Draft; waits about 10 s; Draft to Pending Approval again (submission 2, round 2, starts run 2) |
+| `read` | read only: status, state and round of the contract, and counts of the approvals created since the contract was created |
+| `cleanup` | deletes the contract (In Force through the bypass of the guard Delete step only) and the counterparty, then check-clean |
+
+The owner then answered the stage 1 request of run 1 (the older), then the requests of run 2.
+
+### Evidence
+
+Marked **(script)** when read by the script and **(owner)** when seen by the owner in Power Automate. No id, host, URL or signature of the run output is recorded here.
+
+- **(script)** Submission 1 at 2026-10-13 16:46:47 UTC gave round 1; the withdraw kept round 1; submission 2 at 16:47:21 UTC gave round 2. After the answers the contract was In Force with round 2.
+- **(owner)** **Run 1** (started 19:46 local, 16:46 UTC, submission 1, round 1): after its stage 1 approval was answered, "Get contract after stage 1" succeeded, "Is still Pending (stage 1)" went **False**, "Stop - contract no longer Pending (stage 1)" was executed (green), the condition shows Terminated, Check Stage1 was skipped, and the run status is **Canceled**. The owner did **not** cancel it manually.
+- **(owner)** **Run 2** (19:47 local, submission 2, round 2): the stage 1 checkpoint was True (the Stop action skipped), Approval FinanceMgr completed, "Get contract after stage 2" succeeded, "Is still Pending (stage 2)" was True (Stop skipped), Check Stage2 was True, and "Update a row 3" succeeded (0.2 s); its False branch did not execute. **The final status of run 2 in the run history was not seen by the owner** ("not seen"; it is not written here as Succeeded).
+- **(owner)** The trigger output of run 2 contained `mwf_approvalround` = 2.
+- **(script)** Counts only: 3 approvals were created since the test contract (all Completed, result Approve). That is stage 1 of run 1, stage 1 of run 2 and stage 2 of run 2; a stage 2 request for run 1 would have made it 4. This is **consistent** with the owner's observation, **not proof** (it is a count by time window and does not name the contract).
+- **(script)** Cleanup: check-clean 0 TEST-TMP contracts, 0 counterparties, 11 contracts.
+
+### Limits
+
+- **Tested once** (one contract, one withdraw and resubmit).
+- The final status of run 2 was not seen.
+- Not tested: a withdraw and resubmit that happens after stage 1 was answered (stage 2 checkpoint with a stale round), two concurrent submissions, Rejected to Draft to Pending Approval.
+- The short window between the check and the write is not covered by this check (section 13, point a): the guard of ADR-004 still rejects a write that is not allowed, and the run fails loudly.

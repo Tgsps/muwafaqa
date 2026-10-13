@@ -1,6 +1,6 @@
 # ADR-005: Approval round, to tell a stale approval run from the current submission
 
-- **Status:** Proposed. The plug-in side is built and tested on the server (script). The flow side is **not built**.
+- **Status:** Proposed. The plug-in side is built and tested on the server (script). The flow check was built **manually in the flow** and tested **once** (owner, in the run history).
 - **Date:** 2026-10-13
 
 Every claim below is marked **(script)** when a test script checked it on the server, **(unit)** when a unit test checked it, or **(not tested)**.
@@ -14,7 +14,7 @@ A contract can be withdrawn to Draft and submitted again while the first approva
 - A new column `mwf_approvalround` on `mwf_contract`: **Whole Number**, minimum 0, not required. Description: "Incremented by plug-in on each real Draft -> Pending Approval submission. Read-only for clients."
 - **Plug-in 1** (the one that writes the frozen USD value) also sets `mwf_approvalround = (current value or 0) + 1`, in the same place and under the **same condition** (the contract enters Pending Approval). The current value is **retrieved from the stored row**, never taken from the client Target.
 - **The guard** (ADR-004) locks the column for clients exactly like the frozen USD value: it cannot be set on Create (any non-null value, including 0) or changed on Update, in any status. Plug-in 1 writes at PreOperation, after the guard, so its write is not blocked.
-- **The flow** will copy the round when a run starts and compare it with the stored round at the checkpoints and before each write. **Not built, not tested.** It is a manual flow change with the owner.
+- **The flow** compares the round of the trigger (the contract as it was when the run started) with the stored round, read again at each checkpoint. **Built manually in the designer, tested once (owner).** See `docs/flow-approval-v1.md`, section 14. It does not compare again just before each write: that short window is open (see below).
 
 ## What was verified
 
@@ -30,6 +30,9 @@ A contract can be withdrawn to Draft and submitted again while the first approva
 | A client write of a different value on Update is rejected (HTTP 400, "Approval Round cannot be changed..."), the row is unchanged: in Pending and in Draft | (script) |
 | A client write of 5 or of 0 on Create is rejected (HTTP 400), no row is created | (script) |
 | A contract created directly as Pending Approval through the API gets round 1 | (script, observation) |
+| A stale run (submission 1, round 1) stops at "Stop - contract no longer Pending (stage 1)" after its stage 1 approval is answered, once the contract was withdrawn and submitted again (round 2); its status is Canceled and the owner did not cancel it | (owner), one test |
+| The run of the second submission (round 2) passes both checkpoints and runs Update a row 3 (succeeded). Its final status in the run history was **not seen** | (owner), final status not seen |
+| After the answers the contract was In Force with round 2; 3 approvals were created (consistent with the above, not proof) | (script, counts) |
 | `ApprovalRound.Next`: null or 0 gives 1, 1 gives 2, a negative stored value counts as 0, int.MaxValue overflows loudly | (unit) |
 | The guard matrix includes the column (4 statuses x changed, unchanged, null to value, value to null) | (unit) |
 | Plug-in 1 sets the round under the same condition as the frozen value (`SubmissionDetector`) | (unit, condition only; the shell is covered by the server tests above) |
@@ -60,7 +63,9 @@ The guard Update step has the column in its filtering attributes (10 columns), b
 
 ## What stays open
 
-- **The flow check** (copy the round at the start, compare at the checkpoints and before the writes): **not built, not tested.**
+- **A short race between the check and the write:** the round is compared at the checkpoint, not again just before the write. If the contract is withdrawn and resubmitted inside that window, the guard still rejects a write that is not allowed, otherwise the stale run could write. (not tested)
+- **The final status of the run of submission 2** was not seen by the owner. (not seen)
+- **The Terminate action names** still say "no longer Pending" although they now also cover a stale run (cosmetic, not renamed).
 - **Two submissions at the same instant:** the round is read and written in two steps (Retrieve, then the write of the PreOperation). (not tested) whether two concurrent updates could produce the same round.
 - **Rejected to Draft to Pending Approval:** the round should go up like any other resubmission. (not tested)
 - **Other messages:** bulk messages and an owner change were not exercised. (not tested)

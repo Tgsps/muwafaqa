@@ -363,3 +363,7 @@ Observations (script): a new Draft row holds null; the equal-value client write 
 The guard Update step registration was read again after the tests: filtering 10, PreImage 9, unchanged.
 
 Not done: `pac solution sync` to `src/` (the column is not in `src/` yet) and the flow change.
+
+## Approval round check in the flow (2026-10-13)
+
+The two checkpoint conditions of the flow were extended by hand with a comparison of `mwf_approvalround` (the contract re-read after the stage against the trigger). Test with `scripts/test-flow-approvalround.mjs` (setup, read, cleanup; flow ON): submission 1 (round 1), withdraw, submission 2 (round 2). **(owner)** Run 1 stopped at "Stop - contract no longer Pending (stage 1)" and ended Canceled, without a manual cancel; run 2 passed both checkpoints and "Update a row 3" succeeded; the final status of run 2 was not seen. **(script)** The contract ended In Force with round 2, 3 approvals Completed (counts only), check-clean 0 TEST-TMP rows and 11 contracts. Tested once. Details, expressions and limits: `docs/flow-approval-v1.md`, section 14; open points: ADR-005.
