@@ -335,3 +335,7 @@ Note on the first run of case 2: it failed because the expected message in the s
 ### New side effect to know about
 
 Rows loaded to Pending Approval, In Force or Rejected by `load-test-data.mjs` now get a **frozen USD value** from plug-in 1 (`mwf_valueusdfrozen`), because they pass through Pending Approval. This did not happen before the plug-in and the guard. It does not change the CSV data that is loaded.
+
+## Flow trigger test (2026-10-13)
+
+`scripts/test-flow-trigger.mjs` checked how many approval flow runs each action starts with the new trigger (Select columns `mwf_valueusdfrozen`, Filter rows `statuscode eq 867640000`). Observed by the owner in the run history: exactly one new run, belonging to the Draft to Pending Approval action; the three other actions started none. The script could not count runs itself (the `flowruns` table lists finished runs only). Results, limits and the known gap are in `docs/flow-approval-v1.md`, section 12.

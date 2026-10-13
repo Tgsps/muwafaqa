@@ -42,6 +42,7 @@ Notes:
 - **Filter columns** (labelled **Select columns** in the UI) limits which column changes fire the trigger. Only `statuscode` is listed there.
 - **Filter rows** is an OData expression evaluated on the server. It is the condition "Status Reason = Pending Approval".
 - Both are required. See section 6 for why Filter columns alone is not enough.
+- **Update 2026-10-13:** the live trigger now uses Select columns `mwf_valueusdfrozen` instead of `statuscode` (same Filter rows). See section 12.
 
 **Optional second guard** (Settings → Trigger conditions), redundant with Filter rows, kept as a defence in depth:
 
@@ -287,3 +288,49 @@ All observed on the live environment (rows `TEST-TMP-FLOW-01 edited`, `-02`, `-0
 4. **The plugin freezes the exchange rate at submission** (see ADR-001 and verification checklist item 3).
 
 Each item has a trade-off to state when it is designed (extra column and flow logic against the extra read and the plugin to maintain). They are not designed yet.
+
+---
+
+## 12. Trigger: only a real submission starts a run
+
+### The old trigger and why it did not prevent duplicates
+
+- **Old trigger:** Change type Modified, Select columns `statuscode`, Filter rows `statuscode eq 867640000`.
+- **Why it did not prevent duplicate runs:** Select columns fires when the column is **included in the request**, even if its value is unchanged (Learn, as read by the owner; not re-checked in this pass). Filter rows is evaluated on the row **after** the change. A save that sends `statuscode = Pending Approval` again, or Pending to Draft to Pending, passes both. This is what section 10 (case b) observed: every such save started a new run and a duplicate approval chain.
+
+### The new trigger
+
+- **Change type** Modified, **Select columns** `mwf_valueusdfrozen`, **Filter rows** `statuscode eq 867640000` (read back from the flow definition as stored).
+- **Idea:** `mwf_valueusdfrozen` is written by plug-in 1 only when the contract **enters** Pending Approval (ADR-003). So only a real submission includes that column in the update, and a save that merely repeats the status does not.
+
+### The test
+
+`scripts/test-flow-trigger.mjs` ran four actions on one fictional contract, with the flow ON:
+
+| # | Action | Expected new runs |
+|---|---|---|
+| 1 | PATCH Draft to Pending Approval | 1 |
+| 2 | PATCH only the Subject of the Pending contract | 0 |
+| 3 | PATCH `statuscode` = Pending Approval again (same value) | 0 |
+| 4 | PATCH the Subject together with `statuscode` = Pending Approval | 0 |
+
+**Evidence (observed by the owner in the Power Automate run history, not readable by the script):**
+- After all four actions the run history showed **exactly one new run**, started about 24 seconds after action 1.
+- The trigger output of that run: `modifiedon` equal to the second of action 1, `statuscode` Pending Approval, `mwf_valueusdfrozen` 1000, `mwf_name` the **original** name (not the edited one), SdkMessage Update. So the run belongs to action 1, and actions 2 to 4 started none.
+
+### Limits of this result
+
+- **One test, one run of it.** It was not repeated.
+- **Inference:** an attribute added by plug-in 1 at PreOperation counts as "included in the request" for the Select columns filter. This is inferred from this single test. Learn does not document it.
+- Not tested: a re-entry (Pending, Draft, Pending again) with the new trigger. It is expected to start one run, because plug-in 1 writes the column again on every entry, but this was not observed.
+
+### Two known facts
+
+- **(a) Change type is Modified.** A contract created directly in Pending Approval through the API starts **no run** (the app form creates a Draft). Not tested separately.
+- **(b) The `flowruns` table lists finished runs only.** A row is written after the run ends (observed: `createdon` is later than `endtime`, and no row has the status Running). A run that waits for an approval is not listed, so runs cannot be counted from that table right after an action. Use the run history in Power Automate.
+
+### Known gap: a stale run can complete a re-submitted contract
+
+A contract withdrawn to Draft and submitted again **while the first run still waits for approvals** can be completed by the stale run: both runs end with a write of the decision, and a status check alone cannot tell which run belongs to which submission. (The guard of ADR-004 rejects the stale write only when the status is no longer allowed for it; a re-submitted contract is Pending Approval again, so the transition is valid for either run.)
+
+**Proposed fix, not built:** a **submission-round column** written by plug-in 1 on each entry into Pending Approval. The flow would copy the round when it starts and check it before writing its decision. It would also be a cleaner trigger column than `mwf_valueusdfrozen`. It needs changes in plug-in 1, the guard (the column must be locked like the frozen value), an ADR and tests.
