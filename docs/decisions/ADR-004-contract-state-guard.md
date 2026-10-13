@@ -128,7 +128,7 @@ This is a **risk**, not a pending item.
 ## Not verified yet
 
 - **The exact number of passes at PreValidation.** Learn ([Behavior of specialized update operations](https://learn.microsoft.com/en-us/power-apps/developer/data-platform/special-update-operation-behavior)) documents the split of a request into a normal-column pass and a status pass for PreOperation and PostOperation only. The combined requests behave correctly, but one pass against two cannot be proven from outside. The design does not depend on it.
-- **The guard with the approval flow ON, end to end** (the next phase): an approval that finishes, a user who withdraws to Draft while the approval is outstanding, and the failure handling in the flow.
+- **Verified on 2026-10-13 (phase C): the guard with the approval flow ON, end to end.** An approval that finishes ended In Force, and a late write of In Force over a withdrawn Draft was rejected with the guard message, which failed that flow run. See `docs/plugin-registration-log.md`, section "Phase C: end-to-end with the approval flow ON". The run-to-contract mapping is inferred, not shown by name. The failure handling in the flow is still open (Follow-ups).
 - **Messages the guard does not cover:** a change of owner (Assign, `ownerid`) and bulk messages such as `UpdateMultiple`. The Update step on the table does not see an assign, and the bulk messages were not exercised.
 - **The guard cannot tell the flow from a user.** The flow runs with the same account, so a rule such as "only the flow may set In Force" cannot be expressed here.
 
@@ -138,7 +138,7 @@ This is a **risk**, not a pending item.
    - `scripts/load-test-data.mjs` moves Draft to In Force and Draft to Rejected directly. It must go through Pending Approval.
    - `scripts/test-usd-freeze.mjs`: the Rejected to Pending test (case 2) becomes a **negative** test; cleaning rows in Pending means **withdraw to Draft, then delete**; rows that reached In Force cannot be deleted without the bypass.
    - `scripts/verification-api-tests.mjs` and any other script that changes the status or deletes rows.
-2. **Flow failure handling (flow step 4):** a late write of In Force over Draft now fails with the guard message. The flow needs a deliberate handling of that failure (for example, run after failure), instead of an unhandled failed run.
+2. **Flow failure handling (flow step 4), still open:** a late write of In Force over Draft now fails with the guard message. This was observed on 2026-10-13: the action `Update_a_row_3` (Check Stage2, True branch) failed with BadRequest and "Cannot change the contract status from Draft to In Force. Allowed next status: Pending Approval.". The flow needs a deliberate handling of that failure (for example, run after failure), instead of an unhandled failed run.
 3. **`ownerid` and the dates** are revisited later (decision 3 above). Assign is not covered by the guard.
-4. **The end-to-end test with the approval flow ON** (see "Not verified yet").
+4. **The end-to-end test with the approval flow ON:** done on 2026-10-13 (see "Not verified yet").
 5. **Security roles phase:** do not grant `prvBypassCustomBusinessLogic` to any role other than System Administrator.

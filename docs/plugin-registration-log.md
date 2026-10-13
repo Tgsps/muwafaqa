@@ -251,3 +251,47 @@ Three fictional rows were left for the owner after the API run:
 ### Risk recorded
 
 The bypass works for the administrator account used in the tests (a DELETE of an In Force row with the step id of the guard Delete step returned 204). Only the System Administrator role holds the privilege by default. It must not be granted to any other role (ADR-004).
+
+## Phase C: end-to-end with the approval flow ON (2026-10-12 to 2026-10-13)
+
+Script: `scripts/test-guard-flow.mjs` (`--mode=part1`, then `--mode=part2`), device code sign-in, guard flags set. The approval flow "Muwafaqa - Contract Approval v1" was **ON**. Fictional rows only, prefix `TEST-TMP-GUARD-FLOW`.
+
+### Setup (part 1, 2026-10-12)
+
+- One fictional counterparty and two contracts: `TEST-TMP-GUARD-FLOW1 normal` and `TEST-TMP-GUARD-FLOW2 withdrawn`. Both Draft, USD, Value 1000, Contract Type Maintenance, Direction Expense, with distinct Contract Numbers.
+- Both moved to Pending Approval by PATCH. Read back: status Pending Approval and `mwf_valueusdfrozen` **1000.00** for both. The flow started one run for each.
+- FLOW2 was **withdrawn to Draft** (PATCH) while its approval was left outstanding. Read back: Draft, `mwf_valueusdfrozen` 1000.00 (kept).
+
+### Run results (observed by the owner in the Power Automate UI, not readable by the script)
+
+- Two runs started on 2026-10-12 at 21:21 (local time). Both stayed Running for about 19 h 57 min, waiting for approvals, and finished after the owner approved stage 1 and stage 2 on 2026-10-13.
+- **One run Succeeded. The other run Failed.**
+- The failed run: action `Update_a_row_3` (inside Check Stage2, True branch) failed with BadRequest and this message: "Cannot change the contract status from Draft to In Force. Allowed next status: Pending Approval."
+- **The run-to-contract mapping is inferred.** The run page did not show which run belongs to which contract by name. It is inferred from the message (Draft to In Force) and from the rows read afterwards.
+- Side finding: the approvals and the runs were still valid after about 20 hours of waiting (they did not expire in that time). This is what was observed, not a general statement.
+
+### Rows read after the approvals (part 2, 2026-10-13)
+
+| Contract | Status | State | `mwf_valueusdfrozen` | Expected |
+|---|---|---|---|---|
+| `TEST-TMP-GUARD-FLOW1 normal` | **In Force** | 0 | 1000.00 | In Force (the flow's write Pending to In Force is allowed) |
+| `TEST-TMP-GUARD-FLOW2 withdrawn` | **Draft** | 0 | 1000.00 | Draft (the late write of In Force is rejected by the guard) |
+
+### Cleanup
+
+- FLOW1 (In Force) deleted with the bypass of the guard **Delete step only** (`MSCRM.BypassBusinessLogicExecutionStepIds`). **No step was disabled.** HTTP 204.
+- FLOW2 (Draft) deleted, HTTP 204. The fictional counterparty deleted, HTTP 204.
+- check-clean: TEST-TMP contracts **0**, TEST-TMP counterparties **0**, total contracts **11**.
+
+### Result and what it shows
+
+- The flow's legitimate write (Pending Approval to In Force) goes through the guard.
+- The flow's late write of In Force over a withdrawn Draft is **rejected**, the row stays Draft, and that run fails. In the experiments of 2026-10-11, before the guard, the same situation overwrote the Draft.
+- The frozen USD value stayed 1000.00 on both rows.
+
+### Not proven
+
+- **The run-to-contract mapping is inferred** (see above).
+- **The guard's rejection of the flow's write is proven by the message** in the failed run, **not by the script**, which does not read the run history. The script read only the final rows.
+- Nothing is known about approvals that wait longer than about 20 hours.
+- The flow has no deliberate handling of the failed action (flow step 4, open).

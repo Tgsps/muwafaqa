@@ -274,6 +274,7 @@ All observed on the live environment (rows `TEST-TMP-FLOW-01 edited`, `-02`, `-0
 **What this means:**
 - In (c) the rejection survived **only because of the platform's State / Status Reason constraint**, not because of flow logic.
 - In (d) the flow does **not** check the row's current status before writing its decision, so a legitimate user change is lost.
+- **Since the Contract State Guard is registered (ADR-004), case (d) ends differently:** the late write of In Force over the withdrawn Draft is rejected (Draft to In Force is not an allowed transition), the row stays Draft, and the run **fails** at the update action. Observed on 2026-10-13, see [the phase C section of the registration log](plugin-registration-log.md#phase-c-end-to-end-with-the-approval-flow-on). The flow still has no deliberate handling of that failure (Phase 2).
 - Two runs for one contract create two approval chains, which can contradict each other.
 
 ---
