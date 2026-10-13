@@ -31,7 +31,7 @@ A contract can be withdrawn to Draft and submitted again while the first approva
 | A client write of 5 or of 0 on Create is rejected (HTTP 400), no row is created | (script) |
 | A contract created directly as Pending Approval through the API gets round 1 | (script, observation) |
 | A stale run (submission 1, round 1) stops at "Stop - contract no longer Pending (stage 1)" after its stage 1 approval is answered, once the contract was withdrawn and submitted again (round 2); its status is Canceled and the owner did not cancel it | (owner), one test |
-| The run of the second submission (round 2) passes both checkpoints and runs Update a row 3 (succeeded). Its final status in the run history was **not seen** | (owner), final status not seen |
+| The run of the second submission (round 2) passes both checkpoints and runs Update a row 3 (succeeded). Its final status in the run history is **Succeeded** (started 19:47 local, duration 7:23) | (owner, Run history) |
 | After the answers the contract was In Force with round 2; 3 approvals were created (consistent with the above, not proof) | (script, counts) |
 | `ApprovalRound.Next`: null or 0 gives 1, 1 gives 2, a negative stored value counts as 0, int.MaxValue overflows loudly | (unit) |
 | The guard matrix includes the column (4 statuses x changed, unchanged, null to value, value to null) | (unit) |
@@ -64,7 +64,8 @@ The guard Update step has the column in its filtering attributes (10 columns), b
 ## What stays open
 
 - **A short race between the check and the write:** the round is compared at the checkpoint, not again just before the write. If the contract is withdrawn and resubmitted inside that window, the guard still rejects a write that is not allowed, otherwise the stale run could write. (not tested)
-- **The final status of the run of submission 2** was not seen by the owner. (not seen)
+- **The final status of the run of submission 2:** Succeeded (owner, Run history).
+- **Value = 0:** A contract with Value = 0 enters approval today (accepted, frozen USD 0, round 1). Whether this is intended and which ApprovalMatrix band applies is a business decision, not taken.
 - **The Terminate action names** still say "no longer Pending" although they now also cover a stale run (cosmetic, not renamed).
 - **Two submissions at the same instant:** the round is read and written in two steps (Retrieve, then the write of the PreOperation). (not tested) whether two concurrent updates could produce the same round.
 - **Rejected to Draft to Pending Approval:** the round should go up like any other resubmission. (not tested)

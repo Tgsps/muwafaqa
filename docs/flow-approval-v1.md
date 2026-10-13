@@ -427,7 +427,7 @@ Marked **(script)** when read by the script and **(owner)** when seen by the own
 
 - **(script)** Submission 1 at 2026-10-13 16:46:47 UTC gave round 1; the withdraw kept round 1; submission 2 at 16:47:21 UTC gave round 2. After the answers the contract was In Force with round 2.
 - **(owner)** **Run 1** (started 19:46 local, 16:46 UTC, submission 1, round 1): after its stage 1 approval was answered, "Get contract after stage 1" succeeded, "Is still Pending (stage 1)" went **False**, "Stop - contract no longer Pending (stage 1)" was executed (green), the condition shows Terminated, Check Stage1 was skipped, and the run status is **Canceled**. The owner did **not** cancel it manually.
-- **(owner)** **Run 2** (19:47 local, submission 2, round 2): the stage 1 checkpoint was True (the Stop action skipped), Approval FinanceMgr completed, "Get contract after stage 2" succeeded, "Is still Pending (stage 2)" was True (Stop skipped), Check Stage2 was True, and "Update a row 3" succeeded (0.2 s); its False branch did not execute. **The final status of run 2 in the run history was not seen by the owner** ("not seen"; it is not written here as Succeeded).
+- **(owner)** **Run 2** (19:47 local, submission 2, round 2): the stage 1 checkpoint was True (the Stop action skipped), Approval FinanceMgr completed, "Get contract after stage 2" succeeded, "Is still Pending (stage 2)" was True (Stop skipped), Check Stage2 was True, and "Update a row 3" succeeded (0.2 s); its False branch did not execute. Its final status in the run history is **Succeeded** (started 19:47 local, duration 7:23) (owner, Run history).
 - **(owner)** The trigger output of run 2 contained `mwf_approvalround` = 2.
 - **(script)** Counts only: 3 approvals were created since the test contract (all Completed, result Approve). That is stage 1 of run 1, stage 1 of run 2 and stage 2 of run 2; a stage 2 request for run 1 would have made it 4. This is **consistent** with the owner's observation, **not proof** (it is a count by time window and does not name the contract).
 - **(script)** Cleanup: check-clean 0 TEST-TMP contracts, 0 counterparties, 11 contracts.
@@ -435,6 +435,7 @@ Marked **(script)** when read by the script and **(owner)** when seen by the own
 ### Limits
 
 - **Tested once** (one contract, one withdraw and resubmit).
-- The final status of run 2 was not seen.
+- The final status of run 2 is Succeeded (owner, Run history).
+- A contract with Value = 0 enters approval today (accepted, frozen USD 0, round 1). Whether this is intended and which ApprovalMatrix band applies is a business decision, not taken.
 - Not tested: a withdraw and resubmit that happens after stage 1 was answered (stage 2 checkpoint with a stale round), two concurrent submissions, Rejected to Draft to Pending Approval.
 - The short window between the check and the write is not covered by this check (section 13, point a): the guard of ADR-004 still rejects a write that is not allowed, and the run fails loudly.

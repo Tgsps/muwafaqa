@@ -409,3 +409,41 @@ Notes:
 - The pack warning about the `PluginAssembly` root component (not tested for import).
 - The package is not in the repository (option b above); the steps above are manual.
 - The environment host exists in an earlier commit: `docs/pre-publish-checklist.md`.
+
+## Small test gaps closed (2026-10-13)
+
+All results below were produced by test scripts against the development environment. The row counts after every run were checked by script: 0 TEST-TMP contracts, 0 TEST-TMP counterparties, 11 contracts in total.
+
+### Guard with the flow ON: `scripts/test-guard-flow.mjs` part 1 and part 2
+
+Part 2 reads rows that part 1 created and that the owner answered by hand, so part 1 was run first (flow ON).
+
+| Case | Expected | Actual | Result |
+|---|---|---|---|
+| Two Draft contracts moved to Pending Approval with the flow ON | Pending Approval, frozen USD value 1000.00 | Pending Approval, 1000.00 (both) | PASS (script) |
+| Second contract withdrawn to Draft while its approval was outstanding | Draft | Draft | PASS (script) |
+| First contract after the owner answered the approvals | In Force | In Force, frozen value 1000.00 | PASS (script) |
+| Withdrawn contract after the owner answered its approval | Draft (not overwritten by the stale run) | Draft, frozen value 1000.00 | PASS (script) |
+| Cleanup | all rows deleted | In Force row deleted with the bypass of the guard Delete step only (HTTP 204), Draft row deleted (HTTP 204), counterparty deleted (HTTP 204) | PASS (script) |
+
+- **(owner)** Run history at 20:29 local showed two new runs: one **Canceled** (duration 1:01) and one **Succeeded** (duration 2:11); none Running or Failed. The mapping to FLOW2 (Canceled) and FLOW1 (Succeeded) is **inferred** from the status and the duration; the run pages were not opened. The scripts do not read the run history.
+
+### `scripts/verification-api-tests.mjs` (flow OFF)
+
+- **`same-status-save` fixed:** it no longer depends on a left-over row. It creates its own contract, moves it to Pending Approval, sends a `statuscode` PATCH with the same value, and deletes the rows. Observed (script): HTTP 204; status, frozen USD value (1000) and approval round (1) unchanged; `modifiedon` unchanged (same second).
+- **`t1` (spare Status Reason option):** the spare option was inserted (HTTP 200) and deleted (HTTP 204); the four real options were unchanged afterwards (script). It does not write contract rows, so the guard does not apply to it.
+- **`t3` (exchange rate change):** all steps ran under the current guard on Draft rows (script). The AED rate was changed to a temporary value and restored (restored = true); the two existing AED test contracts were unchanged. Observed: an existing row keeps its rate and base amount after the currency rate changes; a Value edit on the row refreshes its rate and base amount; a PATCH of `exchangerate` through the API returned HTTP 204 and the stored rate did not change (script).
+- **`value-zero` (new):** a real Draft to Pending Approval submission with Value = 0.
+
+  | | Intended (from the code, `UsdValueCalculator` and plug-in 1) | Actual (script) |
+  |---|---|---|
+  | Create with Value 0 | accepted | accepted, frozen value null, round null |
+  | Submission | accepted, frozen USD value 0.00, round 1 | HTTP 204, status Pending Approval, frozen USD value 0, round 1 |
+
+  Only a negative or a missing Value is rejected by plug-in 1; a Value of 0 is accepted and frozen as 0. The zero case of the calculator is also covered by a unit test. Whether a zero-value contract should be allowed to enter approval is a business decision and was **not** decided here; the approval matrix and the flow behaviour for a frozen value of 0 were **not tested**.
+
+### Still open
+
+- The run-to-contract mapping of the guard-flow test is inferred (owner, Run history), not read from the run pages.
+- A contract with Value = 0 enters approval today (accepted, frozen USD 0, round 1). Whether this is intended and which ApprovalMatrix band applies is a business decision, not taken.
+- The flow behaviour for a frozen USD value of 0 (which matrix row applies). (not tested)

@@ -16,7 +16,8 @@
  *   t2           item 2: KWD / USD precision, read back through the Web API (form and grid display need the UI)
  *   t3           item 3: exchange rate change and its effect on existing records (AED rate is changed and restored)
  *   t4           item 4 step 5: update a Rejected row back to Draft through the API
- *   same-status-save  item 7 step 3: PATCH one existing row (subject "TEST-TMP-FLOW-01 edited") with its CURRENT Status Reason only
+ *   same-status-save  item 7 step 3: creates its own row (Draft -> Pending), PATCHes it with its CURRENT Status Reason only, deletes it. Needs the flow OFF
+ *   value-zero   a real Draft -> Pending Approval submission with Value = 0 (observation: HTTP status, frozen USD value, round). Needs the flow OFF
  *   quick-toggle item 7 step 4: create TEST-TMP-FLOW-03, then Pending -> Draft -> Pending with no wait. The row is kept for reading run history
  *   delete-by-subject  deletes only the contracts with the subjects "TEST-TMP-FLOW-01 edited", "TEST-TMP-FLOW-02", "TEST-TMP-FLOW-03"
  *   check-clean  read-only: no TEST-TMP rows remain
@@ -227,23 +228,46 @@ try {
   }
 
   else if (test === 'same-status-save') {
-    // item 7 step 3: save a Pending Approval row again with the SAME Status Reason. Touches exactly one row, found by its Subject.
-    const SUBJECT = 'TEST-TMP-FLOW-01 edited';
+    // item 7 step 3: save a Pending Approval row again with the SAME Status Reason.
+    // The row is created here (Draft, then Pending Approval) and deleted afterwards, so the test does not depend on a left-over row.
+    // Moving to Pending Approval starts a flow run when the flow is ON, so the flow must be OFF.
+    await requireFlowOff(io, { confirmedByUser: process.argv.includes('--flow-off-confirmed') });
     const PENDING = 867640000;
-    const find = await must('GET', `mwf_contracts?$select=mwf_name,statuscode,statecode,modifiedon&$filter=${q(`mwf_name eq '${SUBJECT}'`)}`);
-    if (find.json.value.length !== 1) throw new Error(`expected exactly 1 contract with the subject "${SUBJECT}", found ${find.json.value.length}. Nothing was sent.`);
-    const row = find.json.value[0];
-    R.before = { statuscode: row.statuscode, statecode: row.statecode, modifiedon: row.modifiedon };
-    if (row.statuscode !== PENDING) throw new Error(`the row is not Pending Approval (statuscode ${row.statuscode}). Nothing was sent.`);
-    const riyadh = (d) => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Riyadh', dateStyle: 'short', timeStyle: 'medium' }).format(d);
-    const sentAt = new Date();
-    R.patchSentAt = { riyadh: riyadh(sentAt), utc: sentAt.toISOString() };
-    console.log(`Sending PATCH (statuscode only, same value) at ${R.patchSentAt.riyadh} Riyadh time (${R.patchSentAt.utc} UTC)`);
-    R.patch = await observe('PATCH', `mwf_contracts(${row.mwf_contractid})`, { statuscode: PENDING });
-    const again = await must('GET', `mwf_contracts(${row.mwf_contractid})?$select=statuscode,statecode,modifiedon`);
-    R.after = { statuscode: again.json.statuscode, statecode: again.json.statecode, modifiedon: again.json.modifiedon };
-    R.modifiedonChanged = R.before.modifiedon !== R.after.modifiedon;
-    R.note = 'Only this row was written. Whether a flow run started must be read from the flow run history.';
+    const cp = await tmpCounterparty(); const ids = [];
+    try {
+      const id = await tmpContract(cp, { number: 'TEST-TMP-SAME-01', name: 'TEST-TMP same-status save', value: 1000, iso: 'USD' }); ids.push(id);
+      await must('PATCH', `mwf_contracts(${id})`, { statuscode: PENDING }, { 'If-Match': '*' });
+      const read = async () => {
+        const r = await must('GET', `mwf_contracts(${id})?$select=statuscode,statecode,modifiedon,mwf_valueusdfrozen,mwf_approvalround`);
+        return { statuscode: r.json.statuscode, statecode: r.json.statecode, modifiedon: r.json.modifiedon, valueUsdFrozen: r.json.mwf_valueusdfrozen, approvalRound: r.json.mwf_approvalround };
+      };
+      R.before = await read();
+      if (R.before.statuscode !== PENDING) throw new Error(`the row is not Pending Approval (statuscode ${R.before.statuscode}). Nothing was sent.`);
+      const riyadh = (d) => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Riyadh', dateStyle: 'short', timeStyle: 'medium' }).format(d);
+      const sentAt = new Date();
+      R.patchSentAt = { riyadh: riyadh(sentAt), utc: sentAt.toISOString() };
+      console.log(`Sending PATCH (statuscode only, same value) at ${R.patchSentAt.riyadh} Riyadh time (${R.patchSentAt.utc} UTC)`);
+      R.patch = await observe('PATCH', `mwf_contracts(${id})`, { statuscode: PENDING });
+      R.after = await read();
+      R.modifiedonChanged = R.before.modifiedon !== R.after.modifiedon;
+      R.note = 'Only the row created by this test was written (and deleted afterwards).';
+    } finally { R.cleanup = await cleanup(ids, cp); }
+  }
+
+  else if (test === 'value-zero') {
+    // A real Draft -> Pending Approval submission of a contract whose Value is 0. Observation only: nothing is assumed.
+    await requireFlowOff(io, { confirmedByUser: process.argv.includes('--flow-off-confirmed') });
+    const cp = await tmpCounterparty(); const ids = [];
+    try {
+      const id = await tmpContract(cp, { number: 'TEST-TMP-ZERO-01', name: 'TEST-TMP value zero', value: 0, iso: 'USD' }); ids.push(id);
+      const read = async () => {
+        const r = await must('GET', `mwf_contracts(${id})?$select=mwf_value,statuscode,statecode,mwf_valueusdfrozen,mwf_approvalround`);
+        return { value: r.json.mwf_value, statuscode: r.json.statuscode, statecode: r.json.statecode, valueUsdFrozen: r.json.mwf_valueusdfrozen, approvalRound: r.json.mwf_approvalround };
+      };
+      R.afterCreate = await read();
+      R.submit = await observe('PATCH', `mwf_contracts(${id})`, { statuscode: 867640000 }, { 'If-Match': '*' });
+      R.afterSubmit = await read();
+    } finally { R.cleanup = await cleanup(ids, cp); }
   }
 
   else if (test === 'quick-toggle') {
