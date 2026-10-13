@@ -13,6 +13,7 @@ namespace Muwafaqa.Plugins.Contract
         public const string Value = "mwf_value";                     // Value, Money
         public const string Currency = "transactioncurrencyid";      // Currency, Lookup (transactioncurrency)
         public const string ValueUsdFrozen = "mwf_valueusdfrozen";   // Value (USD, Frozen), Decimal
+        public const string ApprovalRound = "mwf_approvalround";     // Approval Round, Whole Number (null = no submission yet)
         public const string StatusCode = "statuscode";               // Status Reason
         public const string StateCode = "statecode";                 // Status
 

@@ -335,7 +335,7 @@ Each item has a trade-off to state when it is designed (extra column and flow lo
 
 A contract withdrawn to Draft and submitted again **while the first run still waits for approvals** can be completed by the stale run: both runs end with a write of the decision, and a status check alone cannot tell which run belongs to which submission. (The guard of ADR-004 rejects the stale write only when the status is no longer allowed for it; a re-submitted contract is Pending Approval again, so the transition is valid for either run.)
 
-**Proposed fix, not built:** a **submission-round column** written by plug-in 1 on each entry into Pending Approval. The flow would copy the round when it starts and check it before writing its decision. It would also be a cleaner trigger column than `mwf_valueusdfrozen`. It needs changes in plug-in 1, the guard (the column must be locked like the frozen value), an ADR and tests.
+**Status: plug-in side done, flow check pending.** The submission-round column `mwf_approvalround` now exists and is written by plug-in 1 on each real entry into Pending Approval (null before the first submission, 1 on the first, 2 on a resubmission). The guard locks it for clients. (script) tested on the server on 2026-10-13: see [ADR-005](decisions/ADR-005-approval-round.md) and the registration log. **Not built:** the flow does not use the round yet. The planned flow change is to copy the round when the run starts and to compare it with the stored round at each checkpoint and before each write, ending the run Cancelled when they differ. That flow change is a manual step with the owner (not done, not tested). Until then this gap stays open.
 
 ---
 

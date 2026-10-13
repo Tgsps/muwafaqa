@@ -8,7 +8,10 @@ namespace Muwafaqa.Plugins.Contract
     {
         public string LogicalName { get; }
         public string DisplayName { get; }
-        /// <summary>True: locked in every status (the frozen USD value). False: locked unless the status is Draft.</summary>
+        /// <summary>
+        /// True: locked in every status and written by a plug-in only (the frozen USD value, the approval round).
+        /// False: locked unless the status is Draft.
+        /// </summary>
         public bool AlwaysLocked { get; }
 
         public GuardedColumn(string logicalName, string displayName, bool alwaysLocked)
@@ -21,6 +24,8 @@ namespace Muwafaqa.Plugins.Contract
     /// Which columns cannot be changed. Evaluated with the status the row has BEFORE the request (PreImage).
     /// A column is "changed" only if its value in the Target differs from the PreImage value.
     /// A column absent from the Target is not changed. A column absent from the PreImage is null (an image holds non-null values only).
+    /// The always-locked columns are written by plug-in 1 at PreOperation (stage 20); this guard runs at PreValidation (stage 10)
+    /// and only sees what the client sent, so it does not block that write.
     /// </summary>
     public static class LockedColumnsPolicy
     {
@@ -33,9 +38,13 @@ namespace Muwafaqa.Plugins.Contract
             new GuardedColumn(ContractColumns.Counterparty, "Counterparty", false),
             new GuardedColumn(ContractColumns.Number, "Contract Number", false),
             new GuardedColumn(ContractColumns.ValueUsdFrozen, "Value (USD, Frozen)", true),
+            new GuardedColumn(ContractColumns.ApprovalRound, "Approval Round", true),
         };
 
-        private const string FrozenText = "Value (USD, Frozen) cannot be changed. It is written by the system when the contract is submitted.";
+        private static string SystemWrittenText(string displayName)
+        {
+            return displayName + " cannot be changed. It is written by the system when the contract is submitted.";
+        }
 
         public static PolicyResult CheckUpdate(
             int currentStatus,
@@ -44,7 +53,7 @@ namespace Muwafaqa.Plugins.Contract
         {
             var editable = currentStatus == ContractStatus.Draft;
             var lockedNames = new List<string>();
-            var frozenChanged = false;
+            var systemWrittenChanged = new List<string>();
 
             foreach (var col in Columns)
             {
@@ -54,11 +63,11 @@ namespace Muwafaqa.Plugins.Contract
                 if (!preImage.TryGetValue(col.LogicalName, out p)) p = ColumnValue.Null;
                 if (t.Equals(p)) continue;                       // identical value: no-op
 
-                if (col.AlwaysLocked) frozenChanged = true;
+                if (col.AlwaysLocked) systemWrittenChanged.Add(col.DisplayName);
                 else if (!editable) lockedNames.Add(col.DisplayName);
             }
 
-            if (lockedNames.Count == 0 && !frozenChanged) return PolicyResult.Allow;
+            if (lockedNames.Count == 0 && systemWrittenChanged.Count == 0) return PolicyResult.Allow;
 
             var parts = new List<string>();
             if (lockedNames.Count > 0)
@@ -69,19 +78,21 @@ namespace Muwafaqa.Plugins.Contract
                 parts.Add("Cannot change " + string.Join(", ", lockedNames) + " while the contract status is "
                     + ContractStatus.NameOf(currentStatus) + ". " + hint);
             }
-            if (frozenChanged) parts.Add(FrozenText);
+            parts.AddRange(systemWrittenChanged.Select(SystemWrittenText));
             return PolicyResult.Deny(string.Join(" ", parts));
         }
 
-        /// <summary>On Create only the frozen column is guarded: any non-null value is rejected.</summary>
+        /// <summary>On Create only the system-written columns are guarded: any non-null value is rejected.</summary>
         public static PolicyResult CheckCreate(IDictionary<string, ColumnValue> target)
         {
-            ColumnValue v;
-            if (target.TryGetValue(ContractColumns.ValueUsdFrozen, out v) && !v.IsNull)
+            var offending = new List<string>();
+            foreach (var col in Columns.Where(c => c.AlwaysLocked))
             {
-                return PolicyResult.Deny(FrozenText);
+                ColumnValue v;
+                if (target.TryGetValue(col.LogicalName, out v) && !v.IsNull) offending.Add(col.DisplayName);
             }
-            return PolicyResult.Allow;
+            if (offending.Count == 0) return PolicyResult.Allow;
+            return PolicyResult.Deny(string.Join(" ", offending.Select(SystemWrittenText)));
         }
     }
 }

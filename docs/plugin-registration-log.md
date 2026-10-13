@@ -343,3 +343,23 @@ Rows loaded to Pending Approval, In Force or Rejected by `load-test-data.mjs` no
 ## Flow checkpoints test (2026-10-13)
 
 `scripts/test-flow-checkpoints.mjs` tested the two checkpoints added to the approval flow (a run for a withdrawn contract ends Cancelled before any write). Four fictional contracts: normal, withdrawn before stage 1, withdrawn after stage 1, rejected. Rows ended In Force, Draft, Draft and Rejected; 4 runs finished (2 Succeeded, 2 Cancelled, none Failed). Evidence, mapping of runs to contracts (partly inferred) and what is not covered: `docs/flow-approval-v1.md`, section 13. The test rows were deleted (CHK1 In Force with the bypass of the guard Delete step alone); check-clean: 0 TEST-TMP rows, 11 contracts.
+
+## Approval round (2026-10-13)
+
+The column `mwf_approvalround` (Whole Number) was added to `mwf_contract`, plug-in 1 now increments it on each real submission, and the guard locks it for clients (ADR-005). Closes the plug-in side of the "stale run after withdraw and resubmit" gap in `docs/flow-approval-v1.md`; the flow check is **not done**.
+
+| Item | Result |
+|---|---|
+| Column | created by `scripts/add-approvalround-column.mjs`; metadata read back (script): Whole Number, min 0, max 2147483647, not required. A Whole Number column has no default value, so a new row holds null |
+| Solution | the column belongs to the solution through the table (include all subcomponents), like the other custom columns |
+| Package | updated with the content PATCH (assembly 1.0.2.0, package version 1.0.0 unchanged). Assembly SHA-256 `ecabaa8a95073cb15030c0e9b6f27ff200c6e6356151a7732c47eef9efe4004f`, package file 13,635 bytes SHA-256 `f14d12d8295541c25b5cf53f39d884687dfea679aab01240fa0535ee9a62d1ea` |
+| Unit tests | 262 passed, 0 failed (233 before) |
+| Guard Update step | filtering attributes updated to **10** columns (with `mwf_approvalround`) |
+| Guard Update PreImage | **still 9 columns** (without `mwf_approvalround`): the update of the image attributes was refused with HTTP 400, code 0x80040216, "An unexpected error occurred". **The cause was not investigated.** Decision: keep it (owner, option a). Effect: a client Update with a non-null `mwf_approvalround` is always rejected, even equal to the stored value (fail closed) |
+| Integration tests `scripts/test-approval-round.mjs` | (script) 9 passed, 0 failed, 3 observations; flow OFF; cleanup with the shared helper; check-clean 0 TEST-TMP contracts, 0 counterparties, 11 contracts |
+
+Observations (script): a new Draft row holds null; the equal-value client write is rejected (HTTP 400); a contract created directly as Pending Approval through the API gets round 1 (nothing is claimed about runs, the flow was OFF).
+
+The guard Update step registration was read again after the tests: filtering 10, PreImage 9, unchanged.
+
+Not done: `pac solution sync` to `src/` (the column is not in `src/` yet) and the flow change.

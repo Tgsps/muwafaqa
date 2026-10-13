@@ -16,6 +16,8 @@
  *                    Idempotent by step name. Solution header at creation.
  *   --mode=phase-a   MUTATES. package-update, then steps-guard, then the full read back table.
  *   --mode=readback  READ ONLY. The read back of phase-a (package, assembly, types, plug-in 1 steps, guard steps).
+ *   --mode=guard-columns  MUTATES. Sets the filtering attributes of the existing guard Update step AND the attributes of its
+ *                    PreImage "pre" to the current column list (now with mwf_approvalround). Reads both back.
  *   --mode=steps-disable / --mode=steps-enable  MUTATES. Disables or enables ONLY the three ContractStateGuard steps
  *                    (PATCH statecode of the step rows). Rollback if the guard blocks everything by mistake.
  *   --mode=package   MUTATES the environment (needs --confirm-mutates-environment). Runs the preliminaries first and stops
@@ -45,7 +47,7 @@ const PACKAGE_VERSION = '1.0.0';
 const TYPE_NAME = 'Muwafaqa.Plugins.Contract.FreezeUsdValueOnSubmission';
 const CLIENT_ID = '04b07795-8ddb-461a-bbee-02f9e1bf7b46'; // public Azure CLI client id, same as the other scripts
 
-if (!['prelim', 'package', 'steps-update', 'steps-create', 'package-update', 'steps-guard', 'phase-a', 'readback', 'steps-disable', 'steps-enable'].includes(MODE)) { console.error('Missing or invalid --mode. Nothing was run.'); process.exit(2); }
+if (!['prelim', 'package', 'steps-update', 'steps-create', 'package-update', 'steps-guard', 'phase-a', 'readback', 'steps-disable', 'steps-enable', 'guard-columns'].includes(MODE)) { console.error('Missing or invalid --mode. Nothing was run.'); process.exit(2); }
 if (!/^https:\/\/[^/]+$/.test(ENV)) { console.error('Missing or invalid --env=https://<org>.crm4.dynamics.com. Nothing was run.'); process.exit(2); }
 if (!['device', 'az'].includes(AUTH)) { console.error('Invalid --auth=device|az. Nothing was run.'); process.exit(2); }
 if (MODE !== 'prelim' && MODE !== 'readback') {
@@ -286,9 +288,9 @@ async function stepsStep(message) {
 
 // ---------------------------------------------------------------- guard release (ADR-004)
 const GUARD_TYPE = 'Muwafaqa.Plugins.Contract.ContractStateGuard';
-const GUARD_UPDATE_COLUMNS = 'statuscode,statecode,mwf_value,transactioncurrencyid,mwf_contracttype,mwf_direction,mwf_counterpartyid,mwf_contractnumber,mwf_valueusdfrozen';
+const GUARD_UPDATE_COLUMNS = 'statuscode,statecode,mwf_value,transactioncurrencyid,mwf_contracttype,mwf_direction,mwf_counterpartyid,mwf_contractnumber,mwf_valueusdfrozen,mwf_approvalround';
 const SORT = (csv) => csv.split(',').map((x) => x.trim()).sort().join(',');
-const EXPECTED_ASSEMBLY_VERSION = '1.0.1.0';
+const EXPECTED_ASSEMBLY_VERSION = argOf('expect-assembly-version') || '1.0.2.0';
 
 async function getPackage() {
   const pk = (await get(`pluginpackages?$filter=uniquename eq '${PACKAGE_UNIQUE}'&$select=name,uniquename,version`)).value;
@@ -383,7 +385,7 @@ async function readbackAll() {
   console.log(`package   : ${pk.name} | unique ${pk.uniquename} | version ${pk.version}`);
   console.log(`assembly  : ${asm.name} | version ${asm.version}`);
   console.log(`types     : ${types.map((t) => t.typename).sort().join(', ')}`);
-  check('assembly version 1.0.1.0', asm.version === EXPECTED_ASSEMBLY_VERSION, asm.version);
+  check(`assembly version ${EXPECTED_ASSEMBLY_VERSION}`, asm.version === EXPECTED_ASSEMBLY_VERSION, asm.version);
   const freeze = types.find((t) => t.typename === TYPE_NAME);
   const guard = types.find((t) => t.typename === GUARD_TYPE);
   check('both plug-in types exist in the assembly', !!freeze && !!guard, '');
@@ -419,12 +421,30 @@ async function readbackAll() {
   check('plug-in 1 steps (Update, Create): Enabled, stage 20, pointing to the assembly',
     rows.filter((r) => r.owner === 'plug-in 1').length === 2 && rows.filter((r) => r.owner === 'plug-in 1').every((r) => r.state === 'Enabled' && r.stage === 20 && r.pointsTo === 'assembly type ok'), '');
   const gu = g('Update'), gc = g('Create'), gd = g('Delete');
-  check('guard Update: stage 10, sync, rank 1, filtering and PreImage = the 9 columns', !!gu && gu.stage === 10 && gu.mode === 0 && gu.rank === 1
+  check(`guard Update: stage 10, sync, rank 1, filtering and PreImage = the ${GUARD_UPDATE_COLUMNS.split(',').length} columns`, !!gu && gu.stage === 10 && gu.mode === 0 && gu.rank === 1
     && SORT(gu._filter) === SORT(GUARD_UPDATE_COLUMNS) && SORT(gu._im) === SORT(GUARD_UPDATE_COLUMNS), '');
   check('guard Create: stage 10, sync, rank 1, no filtering, no image', !!gc && gc.stage === 10 && gc.mode === 0 && gc.rank === 1 && gc.filter === 'none' && gc.image === 'none', '');
   check('guard Delete: stage 10, sync, rank 1, PreImage = statuscode only', !!gd && gd.stage === 10 && gd.mode === 0 && gd.rank === 1 && gd._im === 'statuscode', '');
   check('all five steps are solution components', rows.length === 5 && rows.every((r) => r.inSolution === 'yes'), '');
   check('guard steps point to the ContractStateGuard type', ['Update', 'Create', 'Delete'].every((m) => g(m)?.pointsTo === 'assembly type ok'), '');
+}
+
+async function guardColumns() {
+  console.log('\n--- set the guard Update step columns (filtering attributes and PreImage)');
+  const name = `${GUARD_TYPE}: Update of mwf_contract`;
+  const st = (await get(`sdkmessageprocessingsteps?$filter=name eq '${name}'&$select=name,filteringattributes`)).value;
+  if (st.length !== 1) throw new Stop(`${name}: expected 1, found ${st.length}`, 3);
+  const stepId = st[0].sdkmessageprocessingstepid;
+  if (SORT(st[0].filteringattributes || '') === SORT(GUARD_UPDATE_COLUMNS)) console.log('SKIP  filtering attributes already as wanted');
+  else { await patchRow(`sdkmessageprocessingsteps(${stepId})`, { filteringattributes: GUARD_UPDATE_COLUMNS }); console.log('UPDATED  filtering attributes'); }
+  const im = (await get(`sdkmessageprocessingstepimages?$filter=_sdkmessageprocessingstepid_value eq ${stepId}&$select=name,attributes`)).value;
+  if (im.length !== 1) throw new Stop(`PreImage of the guard Update step: expected 1, found ${im.length}`, 3);
+  if (SORT(im[0].attributes || '') === SORT(GUARD_UPDATE_COLUMNS)) console.log('SKIP  PreImage attributes already as wanted');
+  else { await patchRow(`sdkmessageprocessingstepimages(${im[0].sdkmessageprocessingstepimageid})`, { attributes: GUARD_UPDATE_COLUMNS }); console.log('UPDATED  PreImage attributes'); }
+  const st2 = (await get(`sdkmessageprocessingsteps(${stepId})?$select=filteringattributes,statecode`)).filteringattributes || '';
+  const im2 = (await get(`sdkmessageprocessingstepimages(${im[0].sdkmessageprocessingstepimageid})?$select=attributes`)).attributes || '';
+  check('guard Update step filtering attributes read back', SORT(st2) === SORT(GUARD_UPDATE_COLUMNS), `${st2.split(',').length} columns`);
+  check('guard Update PreImage attributes read back', SORT(im2) === SORT(GUARD_UPDATE_COLUMNS), `${im2.split(',').length} columns`);
 }
 
 async function setGuardState(enable) {
@@ -447,12 +467,13 @@ async function setGuardState(enable) {
     TOKEN = AUTH === 'az'
       ? execSync(`az account get-access-token --resource ${ENV} --query accessToken -o tsv`, { encoding: 'utf8', shell: true }).trim()
       : await deviceToken();
-    if (['package-update', 'steps-guard', 'phase-a', 'readback', 'steps-disable', 'steps-enable'].includes(MODE)) {
+    if (['package-update', 'steps-guard', 'phase-a', 'readback', 'steps-disable', 'steps-enable', 'guard-columns'].includes(MODE)) {
       if (MODE === 'package-update' || MODE === 'phase-a') await packageUpdate();
       if (MODE === 'steps-guard' || MODE === 'phase-a') await stepsGuard();
+      if (MODE === 'guard-columns') await guardColumns();
       if (MODE === 'steps-disable') await setGuardState(false);
       if (MODE === 'steps-enable') await setGuardState(true);
-      if (['steps-guard', 'phase-a', 'readback', 'package-update'].includes(MODE)) await readbackAll();
+      if (['steps-guard', 'phase-a', 'readback', 'package-update', 'guard-columns'].includes(MODE)) await readbackAll();
       const badP = results.filter((r) => !r.pass).length;
       console.log(`\nSUMMARY: ${results.length - badP} passed, ${badP} failed.`);
       process.exit(badP ? 1 : 0);

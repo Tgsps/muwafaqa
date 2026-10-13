@@ -40,6 +40,8 @@ namespace Muwafaqa.Plugins.Tests
                 case ContractColumns.Type:
                 case ContractColumns.Direction:
                     return Tuple.Create(ColumnValue.FromInt(867640000), ColumnValue.FromInt(867640001));
+                case ContractColumns.ApprovalRound:
+                    return Tuple.Create(ColumnValue.FromInt(1), ColumnValue.FromInt(2));
                 case ContractColumns.Number:
                 case ContractColumns.Subject:
                     return Tuple.Create(ColumnValue.FromText("C-0001"), ColumnValue.FromText("C-0002"));

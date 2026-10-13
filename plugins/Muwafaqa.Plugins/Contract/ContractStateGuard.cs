@@ -11,7 +11,7 @@ namespace Muwafaqa.Plugins.Contract
     /// Registered later as THREE steps of this one class on mwf_contract, all PreValidation (stage 10), synchronous:
     ///
     ///   Update  filtering attributes: statuscode, statecode, mwf_value, transactioncurrencyid, mwf_contracttype,
-    ///           mwf_direction, mwf_counterpartyid, mwf_contractnumber, mwf_valueusdfrozen
+    ///           mwf_direction, mwf_counterpartyid, mwf_contractnumber, mwf_valueusdfrozen, mwf_approvalround
     ///           PreImage "pre": the same columns (statuscode and statecode included)
     ///   Create  no filtering attributes, no image
     ///   Delete  PreImage "pre": statuscode

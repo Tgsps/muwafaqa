@@ -1,5 +1,6 @@
 using System;
 using Microsoft.Xrm.Sdk;
+using Microsoft.Xrm.Sdk.Query;
 
 namespace Muwafaqa.Plugins.Contract
 {
@@ -7,6 +8,7 @@ namespace Muwafaqa.Plugins.Contract
     /// When a contract ENTERS Pending Approval, writes mwf_valueusdfrozen on the Target.
     /// Registered on Create and Update of mwf_contract, PreOperation (20), synchronous.
     /// Update step: filtering attribute statuscode, PreImage "pre" with statuscode, mwf_value, transactioncurrencyid.
+    /// On the same condition it also sets mwf_approvalround = current value (retrieved, never the client value) + 1.
     /// </summary>
     public class FreezeUsdValueOnSubmission : PluginBase
     {
@@ -81,8 +83,19 @@ namespace Muwafaqa.Plugins.Contract
                 CurrencyRate usd = CurrencyRateReader.ReadActiveUsd(reader);
 
                 var result = UsdValueCalculator.Compute(value, contractCurrency, usd);
+
+                // Approval round: the CURRENT value comes from the stored row (never from the client Target); a Create has none.
+                int? currentRound = null;
+                if (context.MessageName == "Update")
+                {
+                    var stored = reader.Retrieve(ContractColumns.EntityName, context.PrimaryEntityId, new ColumnSet(ContractColumns.ApprovalRound));
+                    currentRound = stored.GetAttributeValue<int?>(ContractColumns.ApprovalRound);
+                }
+                var round = ApprovalRound.Next(currentRound);
+
                 target[ContractColumns.ValueUsdFrozen] = result;
-                trace.Trace("USD value frozen from currency " + (contractCurrency?.IsoCode ?? "n/a") + ".");
+                target[ContractColumns.ApprovalRound] = round;
+                trace.Trace("USD value frozen from currency " + (contractCurrency?.IsoCode ?? "n/a") + "; approval round " + round + ".");
             }
             catch (UsdValueException ex)
             {

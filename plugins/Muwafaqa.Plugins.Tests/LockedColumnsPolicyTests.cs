@@ -10,17 +10,18 @@ namespace Muwafaqa.Plugins.Tests
     {
         private static readonly string[] Kinds = { "unchanged", "changed", "null-to-value", "value-to-null" };
 
-        // 6 locked-after-submission columns + the frozen column, x 4 statuses, x 4 kinds of write = 112 cells
+        // 6 locked-after-submission columns + the 2 system-written columns (frozen USD value, approval round),
+        // x 4 statuses, x 4 kinds of write = 128 cells
         public static IEnumerable<object[]> Cells()
         {
-            var columns = new List<string>(LockedAfterSubmission) { ContractColumns.ValueUsdFrozen };
+            var columns = new List<string>(LockedAfterSubmission) { ContractColumns.ValueUsdFrozen, ContractColumns.ApprovalRound };
             foreach (var col in columns)
             {
                 foreach (var status in Statuses)
                 {
                     foreach (var kind in Kinds)
                     {
-                        var frozen = col == ContractColumns.ValueUsdFrozen;
+                        var frozen = col == ContractColumns.ValueUsdFrozen || col == ContractColumns.ApprovalRound;
                         var expected = kind == "unchanged" || (!frozen && status == ContractStatus.Draft);
                         yield return new object[] { col, status, kind, expected };
                     }
@@ -57,7 +58,7 @@ namespace Muwafaqa.Plugins.Tests
         [Fact]
         public void The_matrix_has_every_cell()
         {
-            Assert.Equal(7 * 4 * 4, new List<object[]>(Cells()).Count);
+            Assert.Equal(8 * 4 * 4, new List<object[]>(Cells()).Count);
         }
 
         [Fact]
@@ -128,6 +129,59 @@ namespace Muwafaqa.Plugins.Tests
         {
             Assert.False(LockedColumnsPolicy.CheckCreate(Row(Col(ContractColumns.ValueUsdFrozen, ColumnValue.FromDecimal(1m)))).Allowed);
             Assert.False(LockedColumnsPolicy.CheckCreate(Row(Col(ContractColumns.ValueUsdFrozen, ColumnValue.FromDecimal(0m)))).Allowed);
+        }
+
+        [Fact]
+        public void Create_with_an_approval_round_is_denied_including_zero()
+        {
+            var one = LockedColumnsPolicy.CheckCreate(Row(Col(ContractColumns.ApprovalRound, ColumnValue.FromInt(1))));
+            var zero = LockedColumnsPolicy.CheckCreate(Row(Col(ContractColumns.ApprovalRound, ColumnValue.FromInt(0))));
+            Assert.False(one.Allowed);
+            Assert.False(zero.Allowed);
+            Assert.StartsWith("Approval Round cannot be changed.", one.Message);
+        }
+
+        [Fact]
+        public void Create_with_approval_round_null_or_absent_is_allowed()
+        {
+            Assert.True(LockedColumnsPolicy.CheckCreate(Row(Col(ContractColumns.ApprovalRound, ColumnValue.Null))).Allowed);
+        }
+
+        [Fact]
+        public void Update_changing_the_approval_round_names_the_column_in_every_status()
+        {
+            var v = TwoValues(ContractColumns.ApprovalRound);
+            foreach (var status in Statuses)
+            {
+                var r = LockedColumnsPolicy.CheckUpdate(status,
+                    Row(Col(ContractColumns.ApprovalRound, v.Item2)), Row(Col(ContractColumns.ApprovalRound, v.Item1)));
+                Assert.False(r.Allowed);
+                Assert.StartsWith("Approval Round cannot be changed.", r.Message);
+            }
+        }
+
+        [Fact]
+        public void Update_writing_the_same_approval_round_is_a_no_op()
+        {
+            var v = TwoValues(ContractColumns.ApprovalRound);
+            foreach (var status in Statuses)
+            {
+                Assert.True(LockedColumnsPolicy.CheckUpdate(status,
+                    Row(Col(ContractColumns.ApprovalRound, v.Item1)), Row(Col(ContractColumns.ApprovalRound, v.Item1))).Allowed);
+            }
+        }
+
+        [Fact]
+        public void Frozen_and_round_changed_together_name_both()
+        {
+            var f = TwoValues(ContractColumns.ValueUsdFrozen);
+            var n = TwoValues(ContractColumns.ApprovalRound);
+            var r = LockedColumnsPolicy.CheckUpdate(ContractStatus.Draft,
+                Row(Col(ContractColumns.ValueUsdFrozen, f.Item2), Col(ContractColumns.ApprovalRound, n.Item2)),
+                Row(Col(ContractColumns.ValueUsdFrozen, f.Item1), Col(ContractColumns.ApprovalRound, n.Item1)));
+            Assert.False(r.Allowed);
+            Assert.Contains("Value (USD, Frozen) cannot be changed.", r.Message);
+            Assert.Contains("Approval Round cannot be changed.", r.Message);
         }
 
         [Fact]
