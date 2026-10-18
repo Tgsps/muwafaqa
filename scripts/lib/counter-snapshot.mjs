@@ -143,3 +143,25 @@ export async function restoreFromArgs(ctr, argv = process.argv) {
   printRestore(rs);
   return rs;
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Connection check, first thing in every test script (before any write). The environment is reached through a network that
+// has dropped before ("fetch failed"). Three GET requests in a row must succeed, otherwise the script stops with a clear
+// message and NOTHING has been written. Only these READ requests are retried (a limited number of attempts); no write is
+// ever retried by the helper.
+// ---------------------------------------------------------------------------------------------------------------
+export async function requireStableConnection(call, { need = 3, maxAttempts = 8, pauseMs = 2000 } = {}) {
+  let streak = 0; let attempts = 0; let last = '';
+  while (streak < need && attempts < maxAttempts) {
+    attempts++;
+    try {
+      const r = await call('GET', 'WhoAmI');
+      if (r.ok) streak++; else { streak = 0; last = `HTTP ${r.status}`; }
+    } catch (e) { streak = 0; last = 'network error (fetch failed)'; }
+    if (streak < need && attempts < maxAttempts) await new Promise((res) => setTimeout(res, pauseMs));
+  }
+  if (streak < need) {
+    throw new Error(`Connection check failed: ${need} consecutive GET requests were not reached in ${attempts} attempts (last: ${last}). Nothing was written. Run the script again when the connection is stable.`);
+  }
+  console.log(`INFO  connection check: ${need} consecutive GET requests succeeded (${attempts} attempt(s))`);
+}

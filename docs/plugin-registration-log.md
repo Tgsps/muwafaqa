@@ -510,3 +510,14 @@ Details and the per-script table are in ADR-006 ("Update 2026-10-18").
 - **Run:** `test-approval-round.mjs`: cases a to 7: 6 PASS, 0 FAIL, 2 observations, then `fetch failed` (network); cases 8, 9 and the registration read did not run; the pass was stopped, nothing was re-run. A one-shot cleanup with the shared helper deleted 2 contracts and 1 counterparty and restored MNT 2 to 0. Final: 0/0/11, counters 0/0/0/0/0, the 11 legacy rows unchanged (script).
 - **Not run:** `test-usd-freeze` (three modes), `test-state-guard` (stop rule); `test-flow-approvalround`, `test-flow-checkpoints`, `test-flow-trigger`, `test-guard-flow` (need the flow ON). All six are (not tested) after the edit.
 - **`src/` is behind:** `Solution.xml` still names assembly 1.0.3.0; a new sync is needed.
+
+## Regression run of the flow-OFF scripts (2026-10-18)
+
+Details, the observation explanations and the counters are in ADR-006 ("Update 2026-10-18", section C).
+
+- **Connection check** in the helper, first thing in the seven scripts, `test-contract-number.mjs` and `verification-api-tests.mjs`: 3 GET requests in a row before any write, else stop with nothing written; only reads are retried (up to 8 attempts); no write is retried. It passed at the first three attempts in every run (script).
+- **Results (script, flow OFF):** `test-approval-round` 9 PASS, 0 FAIL, 3 observations; `test-usd-freeze` update-cases 10 PASS, create-case 1 PASS, guard-smoke 5 PASS; `test-state-guard --skip-ui-rows` 75 PASS, 0 FAIL, 4 observations.
+- **After every script (script):** 0 TEST-TMP contracts, 0 temporary counterparties, 11 contracts; counters all 0 again (consumed MNT 3, 10, 1, 1 and 18, restored by the helper's rule); the 11 legacy contracts unchanged (latest `modifiedon` 2026-10-07T17:23:48Z).
+- **Observations:** `[a]` round null on a new Draft; `[6]` an equal round value is rejected (the known 9-column PreImage deviation); `[9]` Create as Pending gives round 1 and frozen 1000.00; usd-freeze case 3 takes the base currency TRY when none is given; state-guard: Rejected to Draft with `{statecode 0}` alone is allowed, a Create with `{statecode 1}` is ignored by the platform (Draft row), `PATCH mwf_contractnumber ""` is rejected in Pending and in Draft.
+- **Not tested:** the four flow-ON scripts and `test-usd-freeze --mode=flow-case`; the UI rows of `test-state-guard`; the two-step handoff/restore path; `verification-api-tests` modes `t1` to `t4` after the edit.
+- **Open:** `src/` still names assembly 1.0.3.0 (environment 1.0.4.0); a new sync is needed.

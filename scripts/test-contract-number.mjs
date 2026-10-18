@@ -29,7 +29,7 @@
  */
 import { execSync } from 'node:child_process';
 import { approvalFlowState, deleteContracts } from './lib/contract-cleanup.mjs';
-import { snapshotCounters, readCounters, restoreCounters } from './lib/counter-snapshot.mjs';
+import { snapshotCounters, readCounters, restoreCounters, requireStableConnection } from './lib/counter-snapshot.mjs';
 
 const argOf = (n) => (process.argv.find((a) => a.startsWith(`--${n}=`)) || '').slice(n.length + 3);
 const ENV = argOf('env').replace(/\/+$/, '');
@@ -325,6 +325,7 @@ async function run() {
     TOKEN = AUTH === 'az'
       ? execSync(`az account get-access-token --resource ${ENV} --query accessToken -o tsv`, { encoding: 'utf8', shell: true }).trim()
       : await deviceToken();
+    await requireStableConnection(call);   // 3 GET requests in a row before any write
     if (MODE === 'check-clean') { await checkClean(); await printCounters(); }
     else if (MODE === 'cleanup') await cleanupOnly();
     else await run();

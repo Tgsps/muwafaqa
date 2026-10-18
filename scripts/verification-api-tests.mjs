@@ -40,7 +40,7 @@
 import { execSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { deleteContract, deleteContracts, findGuardDeleteStepId, requireFlowOff } from './lib/contract-cleanup.mjs';
-import { snapshotCounters, restoreCounters } from './lib/counter-snapshot.mjs';
+import { snapshotCounters, restoreCounters, requireStableConnection } from './lib/counter-snapshot.mjs';
 
 const argOf = (name) => (process.argv.find((a) => a.startsWith(`--${name}=`)) || '').slice(name.length + 3);
 if (!process.argv.includes('--confirm-mutates-environment')) {
@@ -155,6 +155,7 @@ async function snapshot() {
 
 const R = { test, steps: {} };
 try {
+  await requireStableConnection(call);   // 3 GET requests in a row before any write
   if (test === 'snapshot') Object.assign(R, await snapshot());
 
   else if (test === 't1') {

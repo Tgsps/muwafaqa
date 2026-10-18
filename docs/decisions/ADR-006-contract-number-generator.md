@@ -209,9 +209,9 @@ Counter rows are seeded **by script per environment** (`scripts/create-contractn
 
 | Script | Needs the flow | Counter wiring | Run now |
 |---|---|---|---|
-| `test-approval-round.mjs` | OFF | one process: snapshot, restore after the cleanup | **interrupted** (below) |
-| `test-usd-freeze.mjs` | OFF for `update-cases`, `create-case`, `guard-smoke`; ON for `flow-case` | one process; `flow-case` prints the handoff, `cleanup` restores | not run (stop rule) |
-| `test-state-guard.mjs` | OFF | one process; with the three UI rows it prints the handoff (restore only after `--mode=cleanup --include-ui`); with `--skip-ui-rows` it restores | not run (stop rule) |
+| `test-approval-round.mjs` | OFF | one process: snapshot, restore after the cleanup | first attempt interrupted by a network fault; second attempt complete: 9 PASS, 0 FAIL, 3 observations (section C) |
+| `test-usd-freeze.mjs` | OFF for `update-cases`, `create-case`, `guard-smoke`; ON for `flow-case` | one process; `flow-case` prints the handoff, `cleanup` restores | `update-cases`, `create-case`, `guard-smoke` run, all PASS (section C); `flow-case` not run (needs the flow ON) |
+| `test-state-guard.mjs` | OFF | one process; with the three UI rows it prints the handoff (restore only after `--mode=cleanup --include-ui`); with `--skip-ui-rows` it restores | run with `--skip-ui-rows`: 75 PASS, 0 FAIL, 4 observations (section C) |
 | `test-flow-approvalround.mjs` | ON | `setup` prints the handoff, `cleanup` restores from the arguments | not run (needs the flow ON, owner) |
 | `test-flow-checkpoints.mjs` | ON | same | not run (needs the flow ON, owner) |
 | `test-flow-trigger.mjs` | ON | one process | not run (needs the flow ON, owner) |
@@ -219,8 +219,38 @@ Counter rows are seeded **by script per environment** (`scripts/create-contractn
 
 Edited, syntax-checked and (for `test-approval-round.mjs`) partly run. The other six: **(not tested)** after the edit.
 
-**Run of `test-approval-round.mjs`** (script, flow OFF, counters 0/0/0/0/0, 0 TEST-TMP, 11 contracts before): cases a to 7 ran, **6 PASS, 0 FAIL, 2 observations**; then the connection dropped (`fetch failed`) in the next step (case 8), and the script's own cleanup failed with the same error. Cases 8 and 9 and the final read of the guard registration did **not** run. The cause is a network fault of the machine (the environment answered slowly, 2 seconds, and an unrelated public site timed out at the same time); it is not a product result. By the rule "stop at the first unexpected failure, no re-run" the pass was **stopped here**: `test-usd-freeze.mjs` and `test-state-guard.mjs` were not run.
+**Run of `test-approval-round.mjs`** (script, flow OFF, counters 0/0/0/0/0, 0 TEST-TMP, 11 contracts before): cases a to 7 ran, **6 PASS, 0 FAIL, 2 observations**; then the connection dropped (`fetch failed`) in the next step (case 8), and the script's own cleanup failed with the same error. Cases 8 and 9 and the final read of the guard registration did **not** run. The cause is a network fault of the machine (the environment answered slowly, 2 seconds, and an unrelated public site timed out at the same time); it is not a product result. By the rule "stop at the first unexpected failure, no re-run" the first pass was **stopped here**; the second attempt is in section C.
 
 **Cleanup after the interruption** (script, a one-shot cleanup with the shared helper, outside the repository): 2 contracts and 1 counterparty deleted; the Maintenance counter 2 restored to 0 (counter == snapshot + consumed). Final: 0 TEST-TMP contracts, 0 counterparties, 11 contracts, counters 0/0/0/0/0, and the 11 legacy rows (TEST-CT) unchanged (latest `modifiedon` still 2026-10-07).
 
-**Open:** run `test-approval-round.mjs`, `test-usd-freeze.mjs` (three modes) and `test-state-guard.mjs --skip-ui-rows` again when the connection is stable; the four scripts that need the flow ON, when the owner turns the flow on.
+**Open:** the four scripts that need the flow ON, when the owner turns the flow on. The flow-OFF scripts were run again in section C.
+
+### C. Regression run of the flow-OFF scripts (2026-10-18, second attempt, flow OFF)
+
+**Connection check added first** (`requireStableConnection` in `scripts/lib/counter-snapshot.mjs`, called at the start of the seven scripts, `test-contract-number.mjs` and `verification-api-tests.mjs`): three GET requests in a row must succeed before any write, otherwise the script stops with a clear message and has written nothing. Only these read requests are retried (up to 8 attempts, 2 s apart); **no write is ever retried**. In every run below the check passed at the first three attempts. (script)
+
+Before every script and after its cleanup (script): flow OFF; 0 TEST-TMP contracts, 0 temporary counterparties, 11 contracts; counters MNT, PRC, INS, SAL, SRV all 0; the 11 legacy contracts (the `TEST-CT` series, including the last two) unchanged: the latest `modifiedon` among them stayed 2026-10-07T17:23:48Z.
+
+| Script and mode | Result (script) | Counter consumed, then restored to 0 |
+|---|---|---|
+| `test-approval-round.mjs` (all cases) | **9 PASS, 0 FAIL, 3 observations**, including cases 8 and 9 and the read of the guard registration (filtering 10 columns, PreImage 9, as documented) | MNT 3 |
+| `test-usd-freeze.mjs --mode=update-cases` | **10 PASS, 0 FAIL** (cases 1, 2, 4, 5, 6, 6b, 6c, 7, 8, 10) | MNT 10 |
+| `test-usd-freeze.mjs --mode=create-case` | **1 PASS** (case 3, an observation case with no fixed expectation, see below) | MNT 1 |
+| `test-usd-freeze.mjs --mode=guard-smoke` | **5 PASS, 0 FAIL** | MNT 1 |
+| `test-state-guard.mjs --mode=integration --skip-ui-rows` | **75 PASS, 0 FAIL, 4 observations**: transitions 17, create 6, locked columns 36, combined requests 3, delete 5, plug-in 1 regression 7, bypass 1 (the bypass of the guard Delete step alone works) | MNT 18 |
+
+For each script the helper's rule held (counter == snapshot + consumed), so the restore ran and was never refused. All rows were deleted by the scripts' own cleanup.
+
+**What the observations are** (an observation is a case whose result is reported but has no pass/fail expectation, or whose expectation is known not to hold; none of them is a failure):
+
+- `test-approval-round` **[a]**: a new Draft row has `mwf_approvalround` = **null**, not 0. A Whole Number column has no default value (ADR-005); plug-in 1 treats null as 0. The case only records the value, so it is neither PASS nor FAIL.
+- `test-approval-round` **[6]**: a client sends `mwf_approvalround` equal to the stored value (2) on Update. The design said "exactly like the frozen value", where an equal value is a no-op. Observed: **HTTP 400** ("Approval Round cannot be changed..."), row unchanged. The cause is the known guard deviation (ADR-005): the PreImage has 9 columns without the round, so an equal non-null value reads as a change and is rejected (fail closed). It is not PASS because the stated ideal (no-op) does not hold, and not FAIL because the owner decided to keep the 9-column PreImage.
+- `test-approval-round` **[9]**: Create directly as Pending Approval through the API. Observed: round 1, frozen value 1000.00, status Pending (as intended). It is an observation case; nothing is claimed about flow runs (the flow is OFF). This case did not run in the interrupted first attempt.
+- `test-usd-freeze` **case 3** (create-case): a contract created directly as Pending Approval with no currency got the base currency TRY from the platform, and the frozen value was computed from it (20.41 for Value 1000). The case has no fixed expectation by design.
+- `test-state-guard` **[1 transitions]**: Rejected to Draft with `{statecode 0}` alone (what the Activate button may send) is allowed (HTTP 204) and the row becomes Draft.
+- `test-state-guard` **[2 create]**: Create with `{statecode 1}` and no status. The case expected a rejection ("the guard reads state 1 as Rejected"); observed **HTTP 204 and a Draft row**: the platform ignores `statecode` on Create, so the guard never sees it.
+- `test-state-guard` **[7 observations] x2**: `PATCH mwf_contractnumber ""` is rejected (HTTP 400, the Update text) on a Pending row and on a Draft row, as expected since ADR-006 (the number is system-written). The case labels still said "contract number null" although every row now has a generated number; the labels were corrected after the run (text only).
+
+**Not run, so not tested:** the four scripts that need the flow ON (`test-flow-approvalround`, `test-flow-checkpoints`, `test-flow-trigger`, `test-guard-flow`) and `test-usd-freeze.mjs --mode=flow-case`; the three UI rows of `test-state-guard` (`--skip-ui-rows` was used on purpose, they would keep numbers); the handoff/restore path (`printHandoff`, `restoreFromArgs`) in a real two-step run; `verification-api-tests.mjs` modes `t1` to `t4` after the edit.
+
+**Open:** `src/` still names assembly 1.0.3.0 (the environment has 1.0.4.0): a new sync is needed (separate task).

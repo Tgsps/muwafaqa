@@ -20,7 +20,7 @@
  */
 import { execSync } from 'node:child_process';
 import { deleteContract, requireFlowOff } from './lib/contract-cleanup.mjs';
-import { ctrIo, trackCreate, snapshotCounters, restoreAfterRun, restoreFromArgs, printHandoff } from './lib/counter-snapshot.mjs';
+import { ctrIo, trackCreate, snapshotCounters, restoreAfterRun, restoreFromArgs, printHandoff, requireStableConnection } from './lib/counter-snapshot.mjs';
 
 const argOf = (n) => (process.argv.find((a) => a.startsWith(`--${n}=`)) || '').slice(n.length + 3);
 const MODE = argOf('mode');
@@ -348,12 +348,12 @@ async function g6() {
 
 async function g7() {
   group = '7 observations';
-  const p = await mk('G7-P', { noNumber: true });
+  const p = await mk('G7-P');
   await toPending(p);
-  await attempt('Pending row, contract number null: PATCH mwf_contractnumber ""', p, { mwf_contractnumber: '' }, 'observe',
+  await attempt('Pending row (it has a generated number): PATCH mwf_contractnumber ""', p, { mwf_contractnumber: '' }, 'observe',
     { expected: 'observation only (the number is system-written since ADR-006: a rejection is expected)' });
-  const d = await mk('G7-D', { noNumber: true });
-  await attempt('Draft row, contract number null: PATCH mwf_contractnumber ""', d, { mwf_contractnumber: '' }, 'observe',
+  const d = await mk('G7-D');
+  await attempt('Draft row (it has a generated number): PATCH mwf_contractnumber ""', d, { mwf_contractnumber: '' }, 'observe',
     { expected: 'observation only (the number is system-written since ADR-006: a rejection is expected, in Draft too)' });
 }
 
@@ -423,6 +423,7 @@ const ctr = ctrIo(call);
     TOKEN = AUTH === 'az'
       ? execSync(`az account get-access-token --resource ${ENV} --query accessToken -o tsv`, { encoding: 'utf8', shell: true }).trim()
       : await deviceToken();
+    await requireStableConnection(call);   // 3 GET requests in a row before any write (counter helper)
     if (MODE === 'check-clean') {
       const r = await remaining();
       console.log(`rows with the prefix: ${r.rows.length}; counterparties: ${r.cps.length}; total contracts ${r.total}`);

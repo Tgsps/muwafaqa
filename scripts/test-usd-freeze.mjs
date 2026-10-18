@@ -30,7 +30,7 @@
  */
 import { execSync } from 'node:child_process';
 import { deleteContracts, requireFlowOff } from './lib/contract-cleanup.mjs';
-import { ctrIo, trackCreate, snapshotCounters, restoreAfterRun, restoreFromArgs, printHandoff } from './lib/counter-snapshot.mjs';
+import { ctrIo, trackCreate, snapshotCounters, restoreAfterRun, restoreFromArgs, printHandoff, requireStableConnection } from './lib/counter-snapshot.mjs';
 
 const argOf = (n) => (process.argv.find((a) => a.startsWith(`--${n}=`)) || '').slice(n.length + 3);
 const MODE = argOf('mode');
@@ -338,6 +338,7 @@ const ctr = ctrIo(call);
     TOKEN = AUTH === 'az'
       ? execSync(`az account get-access-token --resource ${ENV} --query accessToken -o tsv`, { encoding: 'utf8', shell: true }).trim()
       : await deviceToken();
+    await requireStableConnection(call);   // 3 GET requests in a row before any write (counter helper)
     if (['update-cases', 'create-case', 'guard-smoke'].includes(MODE)) {
       await requireFlowOff(io, { confirmedByUser: FLOW_OFF_CONFIRMED });
     }
