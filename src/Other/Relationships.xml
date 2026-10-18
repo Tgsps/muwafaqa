@@ -5,10 +5,13 @@
   <EntityRelationship Name="lk_mwf_approvalmatrix_modifiedby" />
   <EntityRelationship Name="lk_mwf_contract_createdby" />
   <EntityRelationship Name="lk_mwf_contract_modifiedby" />
+  <EntityRelationship Name="lk_mwf_contractnumbercounter_createdby" />
+  <EntityRelationship Name="lk_mwf_contractnumbercounter_modifiedby" />
   <EntityRelationship Name="lk_mwf_counterparty_createdby" />
   <EntityRelationship Name="lk_mwf_counterparty_modifiedby" />
   <EntityRelationship Name="mwf_counterparty_mwf_contract" />
   <EntityRelationship Name="organization_mwf_approvalmatrix" />
+  <EntityRelationship Name="organization_mwf_contractnumbercounter" />
   <EntityRelationship Name="organization_mwf_counterparty" />
   <EntityRelationship Name="owner_mwf_contract" />
   <EntityRelationship Name="team_mwf_contract" />

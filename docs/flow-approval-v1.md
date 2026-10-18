@@ -439,3 +439,7 @@ Marked **(script)** when read by the script and **(owner)** when seen by the own
 - A contract with Value = 0 enters approval today (accepted, frozen USD 0, round 1). Whether this is intended and which ApprovalMatrix band applies is a business decision, not taken.
 - Not tested: a withdraw and resubmit that happens after stage 1 was answered (stage 2 checkpoint with a stale round), two concurrent submissions, Rejected to Draft to Pending Approval.
 - The short window between the check and the write is not covered by this check (section 13, point a): the guard of ADR-004 still rejects a write that is not allowed, and the run fails loudly.
+
+## Exported source and the flow state
+
+`src/` was exported while the flow was **off** in the environment (during development); the exported flow therefore has state Off. Turning the flow on is done by hand by the owner after an import. The exported flow also carries the placeholders `<APPROVER_TEST_ACCOUNT>` and `<ORG_HOST>` that must be filled in first (see CLAUDE.md).

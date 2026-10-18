@@ -1,0 +1,37 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<savedqueries xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <savedquery>
+    <IsCustomizable>1</IsCustomizable>
+    <CanBeDeleted>0</CanBeDeleted>
+    <isquickfindquery>0</isquickfindquery>
+    <isprivate>0</isprivate>
+    <isdefault>1</isdefault>
+    <savedqueryid>{d49bd787-ea13-4b45-ba8f-2c02dbf59a4f}</savedqueryid>
+    <layoutxml>
+      <grid name="resultset" jump="mwf_name" select="1" icon="1" preview="1">
+        <row name="result" id="mwf_contractnumbercounterid">
+          <cell name="mwf_name" width="300" />
+          <cell name="createdon" width="125" />
+        </row>
+      </grid>
+    </layoutxml>
+    <querytype>0</querytype>
+    <fetchxml>
+      <fetch version="1.0" mapping="logical">
+        <entity name="mwf_contractnumbercounter">
+          <attribute name="mwf_contractnumbercounterid" />
+          <attribute name="mwf_name" />
+          <attribute name="createdon" />
+          <order attribute="mwf_name" descending="false" />
+          <filter type="and">
+            <condition attribute="statecode" operator="eq" value="0" />
+          </filter>
+        </entity>
+      </fetch>
+    </fetchxml>
+    <IntroducedVersion>1.0.0.0</IntroducedVersion>
+    <LocalizedNames>
+      <LocalizedName description="Active Contract Number Counters" languagecode="1033" />
+    </LocalizedNames>
+  </savedquery>
+</savedqueries>
