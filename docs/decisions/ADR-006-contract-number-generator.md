@@ -135,8 +135,9 @@ Done by the owner by hand after commit `cb08234`; I did not see the screens. The
 - (a) A new Maintenance contract saved with an empty Contract Number received **`MNT-0001`**. (owner)
 - (b) Changing the Contract Type after saving was rejected with a Business Process Error. (owner)
 - (c) A manual number (`XYZ-9999`) on a new contract was rejected and no record was created. (owner)
+- (d) **Save after create (owner, second UI test):** a new Maintenance contract with an empty number was saved, then the **Subject** was edited and saved (second save), then the **Value** was edited and saved (third save). Both later saves **succeeded without any rejection** (owner, from the owner's screenshots; I did not see the screens). The contract was then deleted by the owner. Read-only check by script afterwards: no contract with a generated number, 0 TEST-TMP, 0 temporary counterparties, 11 contracts; the Maintenance counter held 1 and was set to 0 by a one-time script outside the project (one manual contract, deleted = 1); the helper's rule is unchanged. Counters 0/0/0/0/0 and the 11 legacy contracts' latest `modifiedon` unchanged (script).
 - The test contracts were deleted by the owner afterwards. Read-only check by script: no contract with those names, no contract with a generated number, 11 contracts in total; the Maintenance counter held 1 and was reset to 0 with the helper's rule (counter == snapshot + consumed) (script).
-- **Not tested:** an ordinary user without privileges on the counter table creating a contract; the flow's behaviour with generated numbers.
+- **Not tested:** an ordinary user without privileges on the counter table creating a contract (including the saves after create); the flow's behaviour with generated numbers; editing the **Subject** of a contract that is **Pending Approval**.
 
 ## Solution source (`src/`, synced 2026-10-18)
 
