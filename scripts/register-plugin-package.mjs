@@ -293,8 +293,12 @@ const GUARD_TYPE = 'Muwafaqa.Plugins.Contract.ContractStateGuard';
 const NUMBER_TYPE = 'Muwafaqa.Plugins.Contract.GenerateContractNumberOnCreate';
 const NUMBER_STEP_RANK = 10;   // plug-in 1 has rank 1: the counter lock is taken as late as possible (ADR-006)
 const GUARD_UPDATE_COLUMNS = 'statuscode,statecode,mwf_value,transactioncurrencyid,mwf_contracttype,mwf_direction,mwf_counterpartyid,mwf_contractnumber,mwf_valueusdfrozen,mwf_approvalround';
+// The PreImage has 9 columns, NOT 10: it does not hold mwf_approvalround. By design (ADR-005) the guard rejects any client write of the
+// approval round without reading the PreImage, so the image does not need that column. (An attempt to add it to the image failed
+// with 0x80040216 "An unexpected error occurred", cause unknown; the design makes it unnecessary.)
+const GUARD_IMAGE_COLUMNS = GUARD_UPDATE_COLUMNS.split(',').filter((c) => c !== 'mwf_approvalround').join(',');
 const SORT = (csv) => csv.split(',').map((x) => x.trim()).sort().join(',');
-const EXPECTED_ASSEMBLY_VERSION = argOf('expect-assembly-version') || '1.0.4.0';
+const EXPECTED_ASSEMBLY_VERSION = argOf('expect-assembly-version') || '1.0.5.0';
 
 async function getPackage() {
   const pk = (await get(`pluginpackages?$filter=uniquename eq '${PACKAGE_UNIQUE}'&$select=name,uniquename,version`)).value;
@@ -373,7 +377,7 @@ async function stepsGuard() {
       } else {
         const r = await post('sdkmessageprocessingstepimages', {
           name: 'pre', entityalias: 'pre', imagetype: 0, messagepropertyname: 'Target',
-          attributes: message === 'Update' ? GUARD_UPDATE_COLUMNS : 'statuscode',
+          attributes: message === 'Update' ? GUARD_IMAGE_COLUMNS : 'statuscode',
           'sdkmessageprocessingstepid@odata.bind': `/sdkmessageprocessingsteps(${stepId})`,
         });
         check(`POST ${message} PreImage accepted`, !!r.id, '');
@@ -452,8 +456,8 @@ async function readbackAll() {
   check('plug-in 1 steps (Update, Create): Enabled, stage 20, pointing to the assembly',
     rows.filter((r) => r.owner === 'plug-in 1').length === 2 && rows.filter((r) => r.owner === 'plug-in 1').every((r) => r.state === 'Enabled' && r.stage === 20 && r.pointsTo === 'assembly type ok'), '');
   const gu = g('Update'), gc = g('Create'), gd = g('Delete');
-  check(`guard Update: stage 10, sync, rank 1, filtering and PreImage = the ${GUARD_UPDATE_COLUMNS.split(',').length} columns`, !!gu && gu.stage === 10 && gu.mode === 0 && gu.rank === 1
-    && SORT(gu._filter) === SORT(GUARD_UPDATE_COLUMNS) && SORT(gu._im) === SORT(GUARD_UPDATE_COLUMNS), '');
+  check(`guard Update: stage 10, sync, rank 1, filtering = ${GUARD_UPDATE_COLUMNS.split(',').length} columns, PreImage = ${GUARD_IMAGE_COLUMNS.split(',').length} columns (without mwf_approvalround, by design)`, !!gu && gu.stage === 10 && gu.mode === 0 && gu.rank === 1
+    && SORT(gu._filter) === SORT(GUARD_UPDATE_COLUMNS) && SORT(gu._im) === SORT(GUARD_IMAGE_COLUMNS), '');
   check('guard Create: stage 10, sync, rank 1, no filtering, no image', !!gc && gc.stage === 10 && gc.mode === 0 && gc.rank === 1 && gc.filter === 'none' && gc.image === 'none', '');
   check('guard Delete: stage 10, sync, rank 1, PreImage = statuscode only', !!gd && gd.stage === 10 && gd.mode === 0 && gd.rank === 1 && gd._im === 'statuscode', '');
   const gn = rows.find((r) => r.owner === 'number');
@@ -472,12 +476,12 @@ async function guardColumns() {
   else { await patchRow(`sdkmessageprocessingsteps(${stepId})`, { filteringattributes: GUARD_UPDATE_COLUMNS }); console.log('UPDATED  filtering attributes'); }
   const im = (await get(`sdkmessageprocessingstepimages?$filter=_sdkmessageprocessingstepid_value eq ${stepId}&$select=name,attributes`)).value;
   if (im.length !== 1) throw new Stop(`PreImage of the guard Update step: expected 1, found ${im.length}`, 3);
-  if (SORT(im[0].attributes || '') === SORT(GUARD_UPDATE_COLUMNS)) console.log('SKIP  PreImage attributes already as wanted');
-  else { await patchRow(`sdkmessageprocessingstepimages(${im[0].sdkmessageprocessingstepimageid})`, { attributes: GUARD_UPDATE_COLUMNS }); console.log('UPDATED  PreImage attributes'); }
+  if (SORT(im[0].attributes || '') === SORT(GUARD_IMAGE_COLUMNS)) console.log('SKIP  PreImage attributes already as wanted');
+  else { await patchRow(`sdkmessageprocessingstepimages(${im[0].sdkmessageprocessingstepimageid})`, { attributes: GUARD_IMAGE_COLUMNS }); console.log('UPDATED  PreImage attributes'); }
   const st2 = (await get(`sdkmessageprocessingsteps(${stepId})?$select=filteringattributes,statecode`)).filteringattributes || '';
   const im2 = (await get(`sdkmessageprocessingstepimages(${im[0].sdkmessageprocessingstepimageid})?$select=attributes`)).attributes || '';
   check('guard Update step filtering attributes read back', SORT(st2) === SORT(GUARD_UPDATE_COLUMNS), `${st2.split(',').length} columns`);
-  check('guard Update PreImage attributes read back', SORT(im2) === SORT(GUARD_UPDATE_COLUMNS), `${im2.split(',').length} columns`);
+  check('guard Update PreImage attributes read back', SORT(im2) === SORT(GUARD_IMAGE_COLUMNS), `${im2.split(',').length} columns`);
 }
 
 async function setGuardState(enable) {

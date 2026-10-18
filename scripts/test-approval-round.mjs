@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Integration tests for mwf_approvalround (ADR-005), through the Dataverse Web API.
- * FICTIONAL TEST-TMP-RND rows only. The approval flow must be OFF: every entry into Pending Approval would start a run.
+ * FICTIONAL TEST-TMP-ROUND rows only (a prefix of its own: no other script's rows are touched). The approval flow must be OFF: every entry into Pending Approval would start a run.
  * The script reads the flow state first and stops if it is ON (or cannot be read; after checking by hand add --flow-off-confirmed).
  *
  * Cases:
@@ -34,7 +34,7 @@ const ENV = argOf('env').replace(/\/+$/, '');
 const AUTH = argOf('auth') || 'device';
 const FLOW_OFF_CONFIRMED = process.argv.includes('--flow-off-confirmed');
 const CLIENT_ID = '04b07795-8ddb-461a-bbee-02f9e1bf7b46'; // public Azure CLI client id, same as the other scripts
-const PREFIX = 'TEST-TMP-RND';
+const PREFIX = 'TEST-TMP-ROUND';
 const PENDING = 867640000;
 const INFORCE = 867640001;
 const DRAFT = 1;
@@ -166,9 +166,18 @@ async function cases() {
 
   const eq = await patch(a, { mwf_approvalround: 2 });
   g = await read(a);
-  out('OBS', '6', 'client sends mwf_approvalround = 2 (EQUAL to the stored value) on Update',
-    'observation; expected HTTP 400 (the guard PreImage has no mwf_approvalround, so an equal non-null value reads as a change)',
-    `HTTP ${eq.status}${eq.ok ? '' : `; ${msgOf(eq)}`}; round after ${show(g.mwf_approvalround)}`);
+  const eqm = msgOf(eq);
+  out(eq.status === 400 && /Approval Round cannot be changed/.test(eqm) && g.mwf_approvalround === 2 ? 'PASS' : 'FAIL', '6',
+    'client sends mwf_approvalround = 2 (EQUAL to the stored value) on Update',
+    'HTTP 400 "Approval Round cannot be changed..." by design (ADR-005: the round is system-written; any client write of it is rejected, whatever the value, without reading the PreImage)',
+    `HTTP ${eq.status}; ${eqm}; round after ${show(g.mwf_approvalround)}`);
+
+  const nul = await patch(a, { mwf_approvalround: null });
+  g = await read(a);
+  out(nul.status === 400 && g.mwf_approvalround === 2 ? 'PASS' : 'FAIL', '6b',
+    'client sends mwf_approvalround = null on Update',
+    'HTTP 400 (rejected like any other value), round unchanged (2)',
+    `HTTP ${nul.status}; ${msgOf(nul)}; round after ${show(g.mwf_approvalround)}`);
 
   await must('PATCH', `mwf_contracts(${a})`, { statuscode: INFORCE }, { 'If-Match': '*' });
   g = await read(a);
@@ -225,8 +234,8 @@ const ctr = ctrIo(call);
     await requireStableConnection(call);   // 3 GET requests in a row before any write (counter helper)
     await requireFlowOff(io, { confirmedByUser: FLOW_OFF_CONFIRMED });
 
-    const pre = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`startswith(mwf_name,'TEST-TMP')`)}`)).j.value.length;
-    if (pre) throw new Stop(`${pre} TEST-TMP row(s) already exist. Nothing was changed.`);
+    const pre = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`startswith(mwf_name,'${PREFIX}')`)}`)).j.value.length;
+    if (pre) throw new Stop(`${pre} ${PREFIX} row(s) already exist. Nothing was changed.`);
     const total0 = (await must('GET', `mwf_contracts?$select=mwf_contractid&$count=true&$top=1`)).j['@odata.count'];
     console.log(`before: total contracts ${total0}`);
     ctrSnap = await snapshotCounters(ctr);
@@ -248,21 +257,24 @@ const ctr = ctrIo(call);
       if (TOKEN) {
         console.log('\n--- cleanup (shared helper)');
         const ok = await cleanupAll();
-        const a = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`startswith(mwf_name,'TEST-TMP')`)}`)).j.value.length;
-        const b = (await must('GET', `mwf_counterparties?$select=mwf_counterpartyid&$filter=${q(`startswith(mwf_name,'TEST-TMP')`)}`)).j.value.length;
+        const a = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`startswith(mwf_name,'${PREFIX}')`)}`)).j.value.length;
+        const b = (await must('GET', `mwf_counterparties?$select=mwf_counterpartyid&$filter=${q(`startswith(mwf_name,'${PREFIX}')`)}`)).j.value.length;
         const total = (await must('GET', `mwf_contracts?$select=mwf_contractid&$count=true&$top=1`)).j['@odata.count'];
-        console.log(`check-clean: TEST-TMP contracts ${a}, TEST-TMP counterparties ${b}, total contracts ${total} (expected 0, 0, 11)`);
+        console.log(`check-clean: ${PREFIX} contracts ${a}, ${PREFIX} counterparties ${b}, total contracts ${total} (expected 0, 0, 11 when nothing else exists)`);
         if (!ok || a || b) exit = exit || 5;
         if (ctrSnap) { const rs = await restoreAfterRun(ctr, ctrSnap); if (rs.refused) exit = exit || 6; }
 
-        // the guard Update step registration must be unchanged (filtering 10, PreImage 9)
+        // the guard Update step registration (filtering 10, PreImage 9 by design)
         const st = (await must('GET', `sdkmessageprocessingsteps?$filter=${q(`name eq '${GUARD_UPDATE_STEP_NAME}'`)}&$select=name,filteringattributes`)).j.value;
         if (st.length === 1) {
           const im = (await must('GET', `sdkmessageprocessingstepimages?$filter=_sdkmessageprocessingstepid_value eq ${st[0].sdkmessageprocessingstepid}&$select=attributes`)).j.value;
           const f = (st[0].filteringattributes || '').split(',').filter(Boolean);
           const i = im.length ? (im[0].attributes || '').split(',').filter(Boolean) : [];
-          console.log(`guard Update step: filtering attributes ${f.length} (contains mwf_approvalround: ${f.includes('mwf_approvalround')}), PreImage attributes ${i.length} (contains mwf_approvalround: ${i.includes('mwf_approvalround')}) (expected 10 and 9)`);
-        } else console.log(`guard Update step: ${st.length} found`);
+          const regOk = f.length === 10 && f.includes('mwf_approvalround') && i.length === 9 && !i.includes('mwf_approvalround');
+          out(regOk ? 'PASS' : 'FAIL', 'reg', 'guard Update step registration (read only)',
+            'filtering attributes 10 (with mwf_approvalround, so the guard sees a client write of it); PreImage 9 (without it, by design: the round is rejected without reading the PreImage, ADR-005)',
+            `filtering ${f.length} (contains mwf_approvalround: ${f.includes('mwf_approvalround')}), PreImage ${i.length} (contains mwf_approvalround: ${i.includes('mwf_approvalround')})`);
+        } else out('FAIL', 'reg', 'guard Update step registration (read only)', 'exactly 1 step', `${st.length} found`);
       }
     } catch (e) { console.error(`cleanup FAILED: ${noGuid(e.message)}`); exit = exit || 5; }
     const p = results.filter((r) => r.status === 'PASS').length;

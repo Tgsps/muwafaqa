@@ -355,7 +355,7 @@ The column `mwf_approvalround` (Whole Number) was added to `mwf_contract`, plug-
 | Package | updated with the content PATCH (assembly 1.0.2.0, package version 1.0.0 unchanged). Assembly SHA-256 `ecabaa8a95073cb15030c0e9b6f27ff200c6e6356151a7732c47eef9efe4004f`, package file 13,635 bytes SHA-256 `f14d12d8295541c25b5cf53f39d884687dfea679aab01240fa0535ee9a62d1ea` |
 | Unit tests | 262 passed, 0 failed (233 before) |
 | Guard Update step | filtering attributes updated to **10** columns (with `mwf_approvalround`) |
-| Guard Update PreImage | **still 9 columns** (without `mwf_approvalround`): the update of the image attributes was refused with HTTP 400, code 0x80040216, "An unexpected error occurred". **The cause was not investigated.** Decision: keep it (owner, option a). Effect: a client Update with a non-null `mwf_approvalround` is always rejected, even equal to the stored value (fail closed) |
+| Guard Update PreImage | **still 9 columns** (closed as a design decision on 2026-10-18, see the last section of this log and ADR-005) (without `mwf_approvalround`): the update of the image attributes was refused with HTTP 400, code 0x80040216, "An unexpected error occurred". **The cause was not investigated.** Decision: keep it (owner, option a). Effect: a client Update with a non-null `mwf_approvalround` is always rejected, even equal to the stored value (fail closed) |
 | Integration tests `scripts/test-approval-round.mjs` | (script) 9 passed, 0 failed, 3 observations; flow OFF; cleanup with the shared helper; check-clean 0 TEST-TMP contracts, 0 counterparties, 11 contracts |
 
 Observations (script): a new Draft row holds null; the equal-value client write is rejected (HTTP 400); a contract created directly as Pending Approval through the API gets round 1 (nothing is claimed about runs, the flow was OFF).
@@ -521,3 +521,36 @@ Details, the observation explanations and the counters are in ADR-006 ("Update 2
 - **Observations:** `[a]` round null on a new Draft; `[6]` an equal round value is rejected (the known 9-column PreImage deviation); `[9]` Create as Pending gives round 1 and frozen 1000.00; usd-freeze case 3 takes the base currency TRY when none is given; state-guard: Rejected to Draft with `{statecode 0}` alone is allowed, a Create with `{statecode 1}` is ignored by the platform (Draft row), `PATCH mwf_contractnumber ""` is rejected in Pending and in Draft.
 - **Not tested:** the four flow-ON scripts and `test-usd-freeze --mode=flow-case`; the UI rows of `test-state-guard`; the two-step handoff/restore path; `verification-api-tests` modes `t1` to `t4` after the edit.
 - **Open:** `src/` still names assembly 1.0.3.0 (environment 1.0.4.0); a new sync is needed.
+
+## Approval round: system-only in the guard, PreImage stays at 9 columns (2026-10-18, assembly 1.0.5.0)
+
+Details and sources are in ADR-005 ("Design decision: the guard PreImage has 9 columns...").
+
+- **Diagnosis (script):** the PATCH that adds `mwf_approvalround` to the guard image was reproduced (the recorded rollback value was the 9 current columns): HTTP 400, 0x80040216, "An unexpected error occurred."; the image stayed unchanged. The cause is not known; no further experiment was run (owner decision).
+- **Guard (unit: 300 passed, 0 failed):** `mwf_approvalround` is `SystemOnly`: any client Update with the column in the Target is rejected whatever the value (different, equal, null), without reading the PreImage; Create with a non-null value is still rejected; an Update without the column is not rejected; the frozen USD value keeps its equal-value no-op.
+- **Package:** assembly **1.0.5.0**, package SHA-256 `1702ddf1023f2756a303c77daec015b992e79847454dea78d1c59596c806abbd`, DLL SHA-256 `9e100c6bb3090b1c19a499ba7917ad8c0cc69d705878757267ced06f91d58d5a`. `package-update` passed. **Read-back (script): 15 passed, 0 failed**: the guard Update step has filtering 10 columns and PreImage 9 columns, and the read-back now expects exactly that (`GUARD_IMAGE_COLUMNS` in the script, with the reason in a comment), so the former failing line is a PASS.
+- **`test-approval-round` (script, flow OFF):** **12 PASS, 0 FAIL, 2 observations** ([a] round null on a new Draft; [9] Create as Pending gives round 1 and frozen 1000.00). Case 6 (equal value) and the new case 6b (null) are intended expectations: HTTP 400 PASS. The registration read is now a result line (PASS: filtering 10, PreImage 9). Counters: MNT 3 consumed, restored to 0.
+- **`test-contract-number --only=T4,T5` (script):** T4, T4b, T5, T6, T6b PASS: the number generator is not affected. Counters 0 before and after.
+- **Per-script prefixes:** every flow script now uses a prefix of its own for its pre-check, cleanup and check-clean, and no prefix is a prefix of another: `TEST-TMP-ROUND` (approval round, was `TEST-TMP-RND`, which was a prefix of `TEST-TMP-RND-1`), `TEST-TMP-RND-1` (flow approval round), `TEST-TMP-USD`, `TEST-TMP-GUARD` (state guard), `TEST-TMP-GFLOW` (guard flow, was `TEST-TMP-GUARD-FLOW`, a prefix-clash with the state-guard prefix), `TEST-TMP-CHK`, `TEST-TMP-TRIG`, `TEST-TMP-NUM`. Their check-clean lines print the script's own prefix counts and the total contract count. The scripts can therefore be set up one after the other in one flow-ON session without deleting each other's rows. (Edited, syntax checked; run: `test-approval-round` and `test-contract-number` only.)
+- **Not tested:** the flow-ON scripts after the prefix change; the two-step handoff/restore path. (`test-usd-freeze` and `test-state-guard` were run after the prefix change, see the next section.)
+- **Plan for the flow-ON session:** `docs/flow-on-session-plan.md`.
+- **`src/` is behind:** `Solution.xml` names assembly 1.0.3.0 (the environment has 1.0.5.0); one sync after the flow session.
+
+## Re-run after the prefix change, and a counter incident (2026-10-18)
+
+Flow OFF, one script at a time, after the per-script prefixes and the system-only approval round (assembly 1.0.5.0). Baseline before: 0 TEST-TMP, 0 temporary counterparties, 11 contracts, counters 0/0/0/0/0, the 11 legacy contracts with the latest `modifiedon` 2026-10-07T17:23:48Z.
+
+| Script and mode | Result (script) | MNT consumed | After the script |
+|---|---|---|---|
+| `test-usd-freeze --mode=update-cases` | **10 PASS, 0 FAIL** | 10 | restored to 0; 0 `TEST-TMP-USD` rows; 11 contracts |
+| `test-usd-freeze --mode=create-case` | **1 PASS** | 1 | restored to 0; 0 rows; 11 contracts |
+| `test-usd-freeze --mode=guard-smoke` | **5 PASS, 0 FAIL** | 1 | restored to 0; 0 rows; 11 contracts |
+| `test-state-guard --mode=integration --skip-ui-rows` | **75 PASS, 0 FAIL, 4 observations** (same distribution as before: 17, 6, 36, 3, 5, 7, 0, 1) | 18 by the script | **counter NOT restored (19)**; 0 `TEST-TMP-GUARD` rows; total 12 contracts; exit code 6 |
+
+**Incident (interference):** during the `test-state-guard` run a contract named `www` (value 150, Draft, number `MNT-0002`, created 2026-10-18 11:56:45 UTC) appeared. It is not a test-script row (no `TEST-TMP` prefix, no frozen value). The owner confirmed it was a manual test created in the model-driven app at the same time. It took a number from the same Maintenance counter, so after the run the counter held 19 instead of 18, and the helper **refused to restore** ("snapshot 0, consumed by this test 18, now 19, another number was used"). The protection worked as designed: it did not guess. The contract was deleted by the owner in the UI.
+
+**One-time repair (script outside the project, not part of the repository):** the arithmetic is fully explained (snapshot 0 + 18 consumed by the script + 1 manual contract, deleted = 19). After a read-only check of every condition (no contract with a generated number, 0 TEST-TMP, 0 temporary counterparties, 11 contracts, MNT 19 and the other counters 0), the MNT counter was set to 0 (PATCH HTTP 204). The general rule of the helper is **unchanged and stays strict**. Afterwards: counters 0/0/0/0/0, 11 contracts, 0 TEST-TMP, and the latest `modifiedon` of the 11 legacy contracts is still 2026-10-07T17:23:48Z (script).
+
+**New operating rule:** No activity from the user interface while any test script runs: creating or editing a contract in the model-driven app takes a number from the same counter and breaks the counter rule (see the incident of 2026-10-18 in ADR-006).
+
+**Not tested:** the flow-ON scripts after the prefix change; the two-step handoff/restore path.

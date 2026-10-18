@@ -207,10 +207,10 @@ async function countRunsSince(ts) {
           console.log(`contract: deleted ${res.deleted}${res.failed.length ? `, FAILED ${JSON.stringify(res.failed)}` : ''}`);
         }
         if (fx.cp) { const d = await call('DELETE', `mwf_counterparties(${fx.cp})`); console.log(`counterparty: HTTP ${d.status}`); }
-        const a = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`startswith(mwf_name,'TEST-TMP')`)}`)).j.value.length;
-        const b = (await must('GET', `mwf_counterparties?$select=mwf_counterpartyid&$filter=${q(`startswith(mwf_name,'TEST-TMP')`)}`)).j.value.length;
+        const a = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`startswith(mwf_name,'${PREFIX}')`)}`)).j.value.length;
+        const b = (await must('GET', `mwf_counterparties?$select=mwf_counterpartyid&$filter=${q(`startswith(mwf_name,'${PREFIX}')`)}`)).j.value.length;
         const total = (await must('GET', `mwf_contracts?$select=mwf_contractid&$count=true&$top=1`)).j['@odata.count'];
-        console.log(`check-clean: TEST-TMP contracts ${a}, TEST-TMP counterparties ${b}, total contracts ${total} (expected 0, 0, 11)`);
+        console.log(`check-clean (prefix ${PREFIX}): contracts ${a}, counterparties ${b}, total contracts ${total} (expected 0, 0, 11 when nothing else exists)`);
         if (a || b) exit = exit || 5;
         if (ctrSnap) { const rs = await restoreAfterRun(ctr, ctrSnap); if (rs.refused) exit = exit || 6; }
       }

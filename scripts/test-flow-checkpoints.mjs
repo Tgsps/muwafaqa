@@ -250,10 +250,10 @@ async function cleanup() {
   }
   const cps = (await must('GET', `mwf_counterparties?$select=mwf_name&$filter=${q(`startswith(mwf_name,'${PREFIX}')`)}`)).j.value;
   for (const c of cps) { const d = await call('DELETE', `mwf_counterparties(${c.mwf_counterpartyid})`); console.log(`counterparty: HTTP ${d.status}`); }
-  const a = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`startswith(mwf_name,'TEST-TMP')`)}`)).j.value.length;
-  const b = (await must('GET', `mwf_counterparties?$select=mwf_counterpartyid&$filter=${q(`startswith(mwf_name,'TEST-TMP')`)}`)).j.value.length;
+  const a = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`startswith(mwf_name,'${PREFIX}')`)}`)).j.value.length;
+  const b = (await must('GET', `mwf_counterparties?$select=mwf_counterpartyid&$filter=${q(`startswith(mwf_name,'${PREFIX}')`)}`)).j.value.length;
   const total = (await must('GET', `mwf_contracts?$select=mwf_contractid&$count=true&$top=1`)).j['@odata.count'];
-  console.log(`check-clean: TEST-TMP contracts ${a}, TEST-TMP counterparties ${b}, total contracts ${total} (expected 0, 0, 11)`);
+  console.log(`check-clean (prefix ${PREFIX}): contracts ${a}, counterparties ${b}, total contracts ${total} (expected 0, 0, 11 when nothing else exists)`);
   if (a === 0 && b === 0) await restoreFromArgs(ctr);
 }
 

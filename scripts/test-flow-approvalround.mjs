@@ -32,6 +32,7 @@ const ENV = argOf('env').replace(/\/+$/, '');
 const AUTH = argOf('auth') || 'device';
 const CLIENT_ID = '04b07795-8ddb-461a-bbee-02f9e1bf7b46'; // public Azure CLI client id, same as the other scripts
 const SUBJECT = 'TEST-TMP-RND-1 stale run test';
+const SCOPE = 'TEST-TMP-RND-1';   // this script's own prefix (the other scripts' rows are never touched)
 const CP_NAME = 'TEST-TMP-RND-1 Fictional Counterparty (delete me)';
 const PENDING = 867640000;
 const DRAFT = 1;
@@ -111,7 +112,7 @@ const ctr = ctrIo(call);
 
 async function setup() {
   await requireFlowOn();
-  const pre = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`startswith(mwf_name,'TEST-TMP')`)}`)).j.value.length;
+  const pre = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`startswith(mwf_name,'${SCOPE}')`)}`)).j.value.length;
   if (pre) throw new Stop(`${pre} TEST-TMP row(s) already exist. Run --mode=cleanup first. Nothing was changed.`);
   const total0 = (await must('GET', `mwf_contracts?$select=mwf_contractid&$count=true&$top=1`)).j['@odata.count'];
   console.log(`before: total contracts ${total0}`);
@@ -203,10 +204,10 @@ async function cleanup() {
   }
   const cps = (await must('GET', `mwf_counterparties?$select=mwf_name&$filter=${q(`mwf_name eq '${CP_NAME}'`)}`)).j.value;
   for (const c of cps) { const d = await call('DELETE', `mwf_counterparties(${c.mwf_counterpartyid})`); console.log(`counterparty: HTTP ${d.status}`); }
-  const a = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`startswith(mwf_name,'TEST-TMP')`)}`)).j.value.length;
-  const b = (await must('GET', `mwf_counterparties?$select=mwf_counterpartyid&$filter=${q(`startswith(mwf_name,'TEST-TMP')`)}`)).j.value.length;
+  const a = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`startswith(mwf_name,'${SCOPE}')`)}`)).j.value.length;
+  const b = (await must('GET', `mwf_counterparties?$select=mwf_counterpartyid&$filter=${q(`startswith(mwf_name,'${SCOPE}')`)}`)).j.value.length;
   const total = (await must('GET', `mwf_contracts?$select=mwf_contractid&$count=true&$top=1`)).j['@odata.count'];
-  console.log(`check-clean: TEST-TMP contracts ${a}, TEST-TMP counterparties ${b}, total contracts ${total} (expected 0, 0, 11)`);
+  console.log(`check-clean (prefix ${SCOPE}): contracts ${a}, counterparties ${b}, total contracts ${total} (expected 0, 0, 11 when nothing else exists)`);
   if (a === 0 && b === 0) await restoreFromArgs(ctr);
 }
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * End-to-end test of the Contract State Guard with the approval flow ON (ADR-004, phase C).
- * FICTIONAL TEST-TMP-GUARD-FLOW rows only.
+ * FICTIONAL TEST-TMP-GFLOW rows only (a prefix of its own, not a prefix of the other scripts' rows).
  *
  * Modes:
  *   --mode=part1  creates one counterparty and two Draft contracts (FLOW1 normal, FLOW2 withdrawn), moves both to Pending
@@ -26,7 +26,7 @@ const MODE = argOf('mode');
 const ENV = argOf('env').replace(/\/+$/, '');
 const AUTH = argOf('auth') || 'device';
 const CLIENT_ID = '04b07795-8ddb-461a-bbee-02f9e1bf7b46'; // public Azure CLI client id, same as the other scripts
-const PREFIX = 'TEST-TMP-GUARD-FLOW';
+const PREFIX = 'TEST-TMP-GFLOW';
 const GUARD_DELETE_STEP = 'Muwafaqa.Plugins.Contract.ContractStateGuard: Delete of mwf_contract';
 const ST = { Draft: 1, Pending: 867640000, InForce: 867640001, Rejected: 2 };
 const NAME = { 1: 'Draft', 867640000: 'Pending Approval', 867640001: 'In Force', 2: 'Rejected' };
@@ -183,10 +183,10 @@ async function part2() {
 }
 
 async function checkClean() {
-  const a = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`startswith(mwf_name,'TEST-TMP')`)}`)).j.value.length;
-  const b = (await must('GET', `mwf_counterparties?$select=mwf_counterpartyid&$filter=${q(`startswith(mwf_name,'TEST-TMP')`)}`)).j.value.length;
+  const a = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`startswith(mwf_name,'${PREFIX}')`)}`)).j.value.length;
+  const b = (await must('GET', `mwf_counterparties?$select=mwf_counterpartyid&$filter=${q(`startswith(mwf_name,'${PREFIX}')`)}`)).j.value.length;
   const total = (await must('GET', `mwf_contracts?$select=mwf_contractid&$count=true&$top=1`)).j['@odata.count'];
-  console.log(`check-clean: TEST-TMP contracts ${a}, TEST-TMP counterparties ${b}, total contracts ${total} (expected 0, 0, 11)`);
+  console.log(`check-clean (prefix ${PREFIX}): contracts ${a}, counterparties ${b}, total contracts ${total} (expected 0, 0, 11 when nothing else exists)`);
 }
 
 (async () => {

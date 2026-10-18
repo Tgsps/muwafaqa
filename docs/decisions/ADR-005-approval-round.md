@@ -13,7 +13,7 @@ A contract can be withdrawn to Draft and submitted again while the first approva
 
 - A new column `mwf_approvalround` on `mwf_contract`: **Whole Number**, minimum 0, not required. Description: "Incremented by plug-in on each real Draft -> Pending Approval submission. Read-only for clients."
 - **Plug-in 1** (the one that writes the frozen USD value) also sets `mwf_approvalround = (current value or 0) + 1`, in the same place and under the **same condition** (the contract enters Pending Approval). The current value is **retrieved from the stored row**, never taken from the client Target.
-- **The guard** (ADR-004) locks the column for clients exactly like the frozen USD value: it cannot be set on Create (any non-null value, including 0) or changed on Update, in any status. Plug-in 1 writes at PreOperation, after the guard, so its write is not blocked.
+- **The guard** (ADR-004) treats the column as **system-written only**: it cannot be set on Create (any non-null value, including 0), and **any client Update that includes the column in its Target is rejected, whatever the value** (different, equal to the stored one, or null), in every status. The guard does not read the PreImage for this column. (This replaced "exactly like the frozen USD value", whose equal-value no-op needed the column in the PreImage; see the design decision below.) Plug-in 1 writes at PreOperation, after the guard, so its write is not blocked. The frozen USD value is unchanged: an equal value is still a no-op.
 - **The flow** compares the round of the trigger (the contract as it was when the run started) with the stored round, read again at each checkpoint. **Built manually in the designer, tested once (owner).** See `docs/flow-approval-v1.md`, section 14. It does not compare again just before each write: that short window is open (see below).
 
 ## What was verified
@@ -29,6 +29,8 @@ A contract can be withdrawn to Draft and submitted again while the first approva
 | Pending to In Force keeps round 2 | (script) |
 | A client write of a different value on Update is rejected (HTTP 400, "Approval Round cannot be changed..."), the row is unchanged: in Pending and in Draft | (script) |
 | A client write of 5 or of 0 on Create is rejected (HTTP 400), no row is created | (script) |
+| A client write of a value **equal** to the stored one (2) on Update is rejected (HTTP 400), and so is a write of **null**; the row is unchanged | (script, 2026-10-18, assembly 1.0.5.0) |
+| An Update that does not include the column is not rejected (a save of another column, a same-status save) | (script, `test-approval-round` cases 4 and 2; unit) |
 | A contract created directly as Pending Approval through the API gets round 1 | (script, observation) |
 | A stale run (submission 1, round 1) stops at "Stop - contract no longer Pending (stage 1)" after its stage 1 approval is answered, once the contract was withdrawn and submitted again (round 2); its status is Canceled and the owner did not cancel it | (owner), one test |
 | The run of the second submission (round 2) passes both checkpoints and runs Update a row 3 (succeeded). Its final status in the run history is **Succeeded** (started 19:47 local, duration 7:23) | (owner, Run history) |
@@ -50,16 +52,34 @@ A contract can be withdrawn to Draft and submitted again while the first approva
 
 - Plug-in 1 reads the stored row on every submission (one more Retrieve in System context). It does **not** use the PreImage for this, so it does not depend on the image registration.
 - The round is null until the first submission, and only goes up. A rejection and a return to Draft do not reset it (the round counts submissions).
-- A client can never set the column, including a value equal to the stored one (see the deviation below). The form does not need to show it.
-- The assembly version is now 1.0.2.0; the package version stays 1.0.0 (ADR-003).
+- A client can never send the column, including a value equal to the stored one (by design, see the decision below). The form does not need to show it.
+- The assembly version is now 1.0.5.0 (1.0.2.0 when the round was introduced); the package version stays 1.0.0 (ADR-003).
 
-### Known deviation: the guard PreImage has 9 columns, not 10
+### Design decision: the guard PreImage has 9 columns, and the round does not need to be in it (closed as a design decision, not as a fix)
 
-The guard Update step has the column in its filtering attributes (10 columns), but its PreImage `pre` still has **9** columns, without `mwf_approvalround`. The update of the image attributes was refused by the server with HTTP 400, code 0x80040216, "An unexpected error occurred". **The cause was not investigated.** The owner decided to keep the image at 9 columns (no delete and recreate, no step disabled).
+The guard Update step has the round in its **filtering attributes** (10 columns) so that the guard runs when a client sends it, but its PreImage `pre` has **9** columns, without `mwf_approvalround`. An attempt to add the column to the image failed with HTTP 400, code **0x80040216**, message "An unexpected error occurred." (first on 2026-10-13, reproduced on 2026-10-18).
 
-- **Effect (script):** a client Update that sends a non-null `mwf_approvalround` is **always rejected**, **even if it equals the stored value** (the column is absent from the image, so it reads as null). Observed on the server: an equal value (2) was rejected with HTTP 400.
-- This is stricter than "exactly like the frozen value" in that one corner. It is fail closed, and no legitimate client writes this column.
-- To close the deviation, the image has to be recreated with 10 columns (a registration change, with the risk that the guard has no image for a moment). Not done.
+**What was established (script, read only unless said):**
+- The failing request: `PATCH /sdkmessageprocessingstepimages(<id>)` with the body `{"attributes":"<the 9 current columns>,mwf_approvalround"}`. The full response is only the code and that message (no inner error, no detail). The image stayed unchanged (9 columns) after the failure, so no rollback was needed.
+- The step is enabled and not managed (PreValidation, synchronous, rank 1), and its filtering attributes already hold the 10 columns including `mwf_approvalround`.
+- `mwf_approvalround` is a normal Integer column, valid for read, create and update, the same kind of column as `mwf_valueusdfrozen` which is in the image. The attributes string has no spaces and the same comma format as the filtering string.
+- Other images in the environment (system images) hold up to 13 attributes, so 10 is not a limit.
+
+**What was not established:** the cause. In particular it is not known whether *any* update of this image fails, whether *creating* an image with 10 columns would work, or whether the Plug-in Registration Tool would behave differently. The experiments that would answer this (a temporary second image on the same step) were **deliberately not run**.
+
+**Sources (Microsoft Learn):**
+- [web service error codes](https://learn.microsoft.com/en-us/power-apps/developer/data-platform/reference/web-service-error-codes): 0x80040216 is **UnExpected**, "An unexpected error occurred.", a generic code.
+- [sdkmessageprocessingstepimage table reference](https://learn.microsoft.com/en-us/power-apps/developer/data-platform/reference/entities/sdkmessageprocessingstepimage): `attributes` is a plain comma-separated text column (max 100000 characters, not required); Update by `PATCH` is a supported operation. No restriction is documented on the columns or on their count, and none ties them to the step's filtering attributes.
+- [Register a plug-in](https://learn.microsoft.com/en-us/power-apps/developer/data-platform/register-plug-in): images are supported for Update, and only the columns the logic needs should be included. No rule is given that would explain the failure. An additional search found no similar report.
+
+**Decision (owner, 2026-10-18):** do not chase the cause. The design is changed so that the image is **not needed** for the round: the guard rejects any client write of `mwf_approvalround` whenever it is in the Target, whatever the value, **without reading the PreImage** (assembly 1.0.5.0; category `SystemOnly` in `LockedColumnsPolicy`). The image therefore stays at 9 columns **on purpose**.
+
+**Effect:**
+- Before: a write of an equal value was rejected only because the column was missing from the image (an accident of the registration, reported as a deviation). Now it is rejected by rule, and a write of null is rejected too.
+- `mwf_valueusdfrozen` is unchanged (it is in the image; an equal value is still a no-op).
+- Plug-in 1 is not affected: it writes at PreOperation, and the guard (PreValidation) never sees that write.
+- The registration read-back (`register-plugin-package.mjs --mode=readback`) now expects filtering 10 / PreImage 9 and passes (script); `test-approval-round` case 6 is an intended expectation (HTTP 400, PASS), not an observation.
+- This closes the item **as a design decision, not as a fix**: the platform error remains unexplained.
 
 ## What stays open
 

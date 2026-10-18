@@ -129,10 +129,10 @@ const rowCount = async () => (await must('GET', `mwf_contracts?$select=mwf_contr
 const lastOf = async (snap, type) => (await readCounters(io, snap))[type].last;
 
 async function checkClean() {
-  const a = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q("startswith(mwf_name,'TEST-TMP')")}`)).j.value.length;
-  const b = (await must('GET', `mwf_counterparties?$select=mwf_counterpartyid&$filter=${q("startswith(mwf_name,'TEST-TMP')")}`)).j.value.length;
+  const a = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q("startswith(mwf_name,'${PREFIX}')")}`)).j.value.length;
+  const b = (await must('GET', `mwf_counterparties?$select=mwf_counterpartyid&$filter=${q("startswith(mwf_name,'${PREFIX}')")}`)).j.value.length;
   const total = (await must('GET', 'mwf_contracts?$select=mwf_contractid&$count=true&$top=1')).j['@odata.count'];
-  console.log(`check-clean: TEST-TMP contracts ${a}, TEST-TMP counterparties ${b}, total contracts ${total} (expected 0, 0, 11)`);
+  console.log(`check-clean (prefix ${PREFIX}): contracts ${a}, counterparties ${b}, total contracts ${total} (expected 0, 0, 11 when nothing else exists)`);
   return { a, b, total };
 }
 

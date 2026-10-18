@@ -11,8 +11,8 @@
  *                        PATCH Value, DELETE it. Cleans up and runs check-clean.
  *   --mode=flow-case     case 9: creates ONE row (Draft, USD 1000) and moves it to Pending Approval, then reads it back.
  *                        The row (and its counterparty) is KEPT so the approval flow run can be checked by hand.
- *   --mode=cleanup       deletes every TEST-TMP row (contracts, then the counterparty) and verifies it.
- *   --mode=check-clean   read only. No TEST-TMP rows remain.
+ *   --mode=cleanup       deletes every TEST-TMP-USD row (contracts, then the counterparty; rows of other scripts are not touched) and verifies it.
+ *   --mode=check-clean   read only. No TEST-TMP-USD rows remain.
  *
  * Usage:
  *   node scripts/test-usd-freeze.mjs --mode=update-cases --env=https://<org>.crm4.dynamics.com --confirm-mutates-environment [--auth=device|az]
@@ -151,19 +151,19 @@ async function cleanup() {
   let removed = 0;
   // contracts by number or by name, each id once. Pending rows are withdrawn to Draft first (the guard forbids deleting them).
   const ids = new Set();
-  for (const f of [`startswith(mwf_name,'TEST-TMP')`]) {
+  for (const f of [`startswith(mwf_name,'${PREFIX}')`]) {
     for (const r of (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(f)}`)).j.value) ids.add(r.mwf_contractid);
   }
   const res = await deleteContracts(io, [...ids]);
   if (res.failed.length) throw new Error(`could not delete ${res.failed.length} contract row(s): ${JSON.stringify(res.failed)}`);
   removed += res.deleted;
-  const cps = (await must('GET', `mwf_counterparties?$select=mwf_counterpartyid&$filter=${q(`startswith(mwf_name,'TEST-TMP')`)}`)).j.value;
+  const cps = (await must('GET', `mwf_counterparties?$select=mwf_counterpartyid&$filter=${q(`startswith(mwf_name,'${PREFIX}')`)}`)).j.value;
   for (const r of cps) { await must('DELETE', `mwf_counterparties(${r.mwf_counterpartyid})`); removed++; }
   return removed;
 }
 async function counts() {
-  const a = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`startswith(mwf_name,'TEST-TMP')`)}`)).j.value.length;
-  const b = (await must('GET', `mwf_counterparties?$select=mwf_counterpartyid&$filter=${q(`startswith(mwf_name,'TEST-TMP')`)}`)).j.value.length;
+  const a = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`startswith(mwf_name,'${PREFIX}')`)}`)).j.value.length;
+  const b = (await must('GET', `mwf_counterparties?$select=mwf_counterpartyid&$filter=${q(`startswith(mwf_name,'${PREFIX}')`)}`)).j.value.length;
   const total = (await must('GET', `mwf_contracts?$select=mwf_contractid&$count=true&$top=1`)).j['@odata.count'];
   return { contracts: a, counterparties: b, totalContracts: total };
 }
@@ -344,23 +344,23 @@ const ctr = ctrIo(call);
     }
     if (MODE === 'cleanup') {
       // show the rows (read only) before they are deleted
-      const rows = (await must('GET', `mwf_contracts?$select=mwf_name,statecode,statuscode,mwf_valueusdfrozen&$filter=${q(`startswith(mwf_name,'TEST-TMP')`)}`)).j.value;
+      const rows = (await must('GET', `mwf_contracts?$select=mwf_name,statecode,statuscode,mwf_valueusdfrozen&$filter=${q(`startswith(mwf_name,'${PREFIX}')`)}`)).j.value;
       for (const r of rows) console.log(`row: Subject "${r.mwf_name}", statecode ${r.statecode}, statuscode ${r.statuscode}, mwf_valueusdfrozen ${two(r.mwf_valueusdfrozen)}`);
       console.log(`rows found before cleanup: ${rows.length}`);
       const removed = await cleanup();
       const a = await counts();
-      console.log(`cleanup: removed ${removed} row(s); check-clean: TEST-TMP contracts ${a.contracts}, counterparties ${a.counterparties}; total contracts ${a.totalContracts}`);
+      console.log(`cleanup: removed ${removed} row(s); check-clean (prefix ${PREFIX}): contracts ${a.contracts}, counterparties ${a.counterparties}; total contracts ${a.totalContracts}`);
       const rsC = a.contracts === 0 && a.counterparties === 0 ? await restoreFromArgs(ctr) : { refused: 0 };
       process.exit(a.contracts === 0 && a.counterparties === 0 && !rsC.refused ? 0 : 1);
     }
     if (MODE === 'check-clean') {
       const c = await counts();
-      console.log(`check-clean: TEST-TMP contracts ${c.contracts}, TEST-TMP counterparties ${c.counterparties}, total contracts ${c.totalContracts}`);
+      console.log(`check-clean (prefix ${PREFIX}): contracts ${c.contracts}, counterparties ${c.counterparties}, total contracts ${c.totalContracts}`);
       process.exit(c.contracts === 0 && c.counterparties === 0 ? 0 : 1);
     }
     const before = await counts();
-    console.log(`before: TEST-TMP contracts ${before.contracts}, counterparties ${before.counterparties}; total contracts ${before.totalContracts}`);
-    if (before.contracts || before.counterparties) { console.log(`INFO  removing ${await cleanup()} leftover TEST-TMP row(s) first`); }
+    console.log(`before (prefix ${PREFIX}): contracts ${before.contracts}, counterparties ${before.counterparties}; total contracts ${before.totalContracts}`);
+    if (before.contracts || before.counterparties) { console.log(`INFO  removing ${await cleanup()} leftover TEST-TMP-USD row(s) first`); }
     ctrSnap = await snapshotCounters(ctr);
     await setup();
     if (MODE === 'update-cases') await updateCases();
@@ -377,7 +377,7 @@ const ctr = ctrIo(call);
       if (TOKEN && !['check-clean', 'cleanup', 'flow-case'].includes(MODE)) {
         const removed = await cleanup();
         const a = await counts();
-        console.log(`\ncleanup: removed ${removed} row(s); check-clean: TEST-TMP contracts ${a.contracts}, counterparties ${a.counterparties}; total contracts ${a.totalContracts}`);
+        console.log(`\ncleanup: removed ${removed} row(s); check-clean (prefix ${PREFIX}): contracts ${a.contracts}, counterparties ${a.counterparties}; total contracts ${a.totalContracts}`);
         if (a.contracts || a.counterparties) exit = exit || 5;
         if (ctrSnap) { const rs = await restoreAfterRun(ctr, ctrSnap); if (rs.refused) exit = exit || 6; }
       }

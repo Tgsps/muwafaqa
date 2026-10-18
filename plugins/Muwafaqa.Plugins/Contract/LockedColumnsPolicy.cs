@@ -12,7 +12,12 @@ namespace Muwafaqa.Plugins.Contract
         /// (frozen USD value, approval round, contract number).</summary>
         SystemWritten,
         /// <summary>Must be supplied on Create and cannot change afterwards, in any status (Contract Type, ADR-006).</summary>
-        SetOnce
+        SetOnce,
+        /// <summary>
+        /// Written by a plug-in only, and rejected whenever a client sends it, whatever the value (even one equal to the stored value,
+        /// even null). No PreImage comparison is made, so the column does not need to be in the PreImage (approval round, ADR-005).
+        /// </summary>
+        SystemOnly
     }
 
     /// <summary>One column guarded by the policy.</summary>
@@ -46,7 +51,7 @@ namespace Muwafaqa.Plugins.Contract
             new GuardedColumn(ContractColumns.Counterparty, "Counterparty", ColumnLock.AfterDraft),
             new GuardedColumn(ContractColumns.Number, "Contract Number", ColumnLock.SystemWritten),
             new GuardedColumn(ContractColumns.ValueUsdFrozen, "Value (USD, Frozen)", ColumnLock.SystemWritten),
-            new GuardedColumn(ContractColumns.ApprovalRound, "Approval Round", ColumnLock.SystemWritten),
+            new GuardedColumn(ContractColumns.ApprovalRound, "Approval Round", ColumnLock.SystemOnly),
         };
 
         private static string SystemWrittenText(GuardedColumn col)
@@ -87,6 +92,12 @@ namespace Muwafaqa.Plugins.Contract
             {
                 ColumnValue t;
                 if (!target.TryGetValue(col.LogicalName, out t)) continue;
+                if (col.Lock == ColumnLock.SystemOnly)
+                {
+                    // present in the Target = rejected, whatever the value; no PreImage is read for this column
+                    otherMessages.Add(SystemWrittenText(col));
+                    continue;
+                }
                 ColumnValue p;
                 if (!preImage.TryGetValue(col.LogicalName, out p)) p = ColumnValue.Null;
                 if (t.Equals(p)) continue;                       // identical value: no-op
@@ -132,7 +143,7 @@ namespace Muwafaqa.Plugins.Contract
             {
                 ColumnValue v;
                 var present = target.TryGetValue(col.LogicalName, out v);
-                if (col.Lock == ColumnLock.SystemWritten)
+                if (col.Lock == ColumnLock.SystemWritten || col.Lock == ColumnLock.SystemOnly)
                 {
                     if (present && !v.IsNullOrEmptyText) messages.Add(SuppliedOnCreateText(col));
                 }

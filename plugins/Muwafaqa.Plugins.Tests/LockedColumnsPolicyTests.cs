@@ -24,7 +24,10 @@ namespace Muwafaqa.Plugins.Tests
                     foreach (var kind in Kinds)
                     {
                         var editableInDraft = Array.IndexOf(LockedAfterSubmission, col) >= 0;
-                        var expected = kind == "unchanged" || (editableInDraft && status == ContractStatus.Draft);
+                        // the approval round is rejected whenever it is in the Target, even unchanged (SystemOnly, ADR-005)
+                        var expected = col == ContractColumns.ApprovalRound
+                            ? false
+                            : kind == "unchanged" || (editableInDraft && status == ContractStatus.Draft);
                         yield return new object[] { col, status, kind, expected };
                     }
                 }
@@ -70,6 +73,7 @@ namespace Muwafaqa.Plugins.Tests
             {
                 var every = new List<string>(LockedAfterSubmission);
                 every.AddRange(SystemWritten);
+                every.Remove(ContractColumns.ApprovalRound);   // SystemOnly: even a null in the Target is rejected (own test below)
                 every.Add(ContractColumns.Type);
                 foreach (var col in every)
                 {
@@ -168,13 +172,59 @@ namespace Muwafaqa.Plugins.Tests
         }
 
         [Fact]
-        public void Update_writing_the_same_approval_round_is_a_no_op()
+        public void Update_writing_an_EQUAL_approval_round_is_rejected_in_every_status()
         {
             var v = TwoValues(ContractColumns.ApprovalRound);
             foreach (var status in Statuses)
             {
+                var r = LockedColumnsPolicy.CheckUpdate(status,
+                    Row(Col(ContractColumns.ApprovalRound, v.Item1)), Row(Col(ContractColumns.ApprovalRound, v.Item1)));
+                Assert.False(r.Allowed);
+                Assert.StartsWith("Approval Round cannot be changed. It is written by the system when the contract is submitted.", r.Message);
+            }
+        }
+
+        [Fact]
+        public void Update_writing_an_EQUAL_approval_round_is_rejected_even_without_a_PreImage_value()
+        {
+            // the PreImage has no approval round column (9 columns): the decision must not depend on it
+            foreach (var status in Statuses)
+            {
+                Assert.False(LockedColumnsPolicy.CheckUpdate(status,
+                    Row(Col(ContractColumns.ApprovalRound, ColumnValue.FromInt(2))), Row()).Allowed);
+            }
+        }
+
+        [Fact]
+        public void Update_writing_null_to_the_approval_round_is_rejected()
+        {
+            foreach (var status in Statuses)
+            {
+                Assert.False(LockedColumnsPolicy.CheckUpdate(status,
+                    Row(Col(ContractColumns.ApprovalRound, ColumnValue.Null)), Row()).Allowed);
+            }
+        }
+
+        [Fact]
+        public void Update_without_the_approval_round_in_the_Target_is_not_rejected()
+        {
+            // absent = not sent by the client (this is every normal save, and plug-in 1's own write is invisible to the guard)
+            foreach (var status in Statuses)
+            {
+                var s = TwoValues(ContractColumns.Subject);
+                Assert.True(GuardEvaluator.EvaluateUpdate(status, null, null,
+                    Row(Col(ContractColumns.Subject, s.Item2)), Row(Col(ContractColumns.ApprovalRound, ColumnValue.FromInt(2)))).Allowed);
+            }
+        }
+
+        [Fact]
+        public void Update_writing_an_EQUAL_frozen_value_is_still_a_no_op()
+        {
+            var v = TwoValues(ContractColumns.ValueUsdFrozen);
+            foreach (var status in Statuses)
+            {
                 Assert.True(LockedColumnsPolicy.CheckUpdate(status,
-                    Row(Col(ContractColumns.ApprovalRound, v.Item1)), Row(Col(ContractColumns.ApprovalRound, v.Item1))).Allowed);
+                    Row(Col(ContractColumns.ValueUsdFrozen, v.Item1)), Row(Col(ContractColumns.ValueUsdFrozen, v.Item1))).Allowed);
             }
         }
 
@@ -325,12 +375,15 @@ namespace Muwafaqa.Plugins.Tests
         {
             var systemWritten = new List<string>();
             var setOnce = new List<string>();
+            var systemOnly = new List<string>();
             foreach (var c in LockedColumnsPolicy.Columns)
             {
+                if (c.Lock == ColumnLock.SystemOnly) systemOnly.Add(c.LogicalName);
                 if (c.Lock == ColumnLock.SystemWritten) systemWritten.Add(c.LogicalName);
                 if (c.Lock == ColumnLock.SetOnce) setOnce.Add(c.LogicalName);
             }
-            Assert.Equal(new[] { ContractColumns.Number, ContractColumns.ValueUsdFrozen, ContractColumns.ApprovalRound }, systemWritten);
+            Assert.Equal(new[] { ContractColumns.Number, ContractColumns.ValueUsdFrozen }, systemWritten);
+            Assert.Equal(new[] { ContractColumns.ApprovalRound }, systemOnly);
             Assert.Equal(new[] { ContractColumns.Type }, setOnce);
         }
 
