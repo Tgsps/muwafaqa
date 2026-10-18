@@ -10,19 +10,21 @@ namespace Muwafaqa.Plugins.Tests
     {
         private static readonly string[] Kinds = { "unchanged", "changed", "null-to-value", "value-to-null" };
 
-        // 6 locked-after-submission columns + the 2 system-written columns (frozen USD value, approval round),
-        // x 4 statuses, x 4 kinds of write = 128 cells
+        // 4 locked-after-draft columns + 3 system-written columns (contract number, frozen USD value, approval round)
+        // + 1 set-once column (contract type), x 4 statuses, x 4 kinds of write = 128 cells
         public static IEnumerable<object[]> Cells()
         {
-            var columns = new List<string>(LockedAfterSubmission) { ContractColumns.ValueUsdFrozen, ContractColumns.ApprovalRound };
+            var columns = new List<string>(LockedAfterSubmission);
+            columns.AddRange(SystemWritten);
+            columns.Add(ContractColumns.Type);
             foreach (var col in columns)
             {
                 foreach (var status in Statuses)
                 {
                     foreach (var kind in Kinds)
                     {
-                        var frozen = col == ContractColumns.ValueUsdFrozen || col == ContractColumns.ApprovalRound;
-                        var expected = kind == "unchanged" || (!frozen && status == ContractStatus.Draft);
+                        var editableInDraft = Array.IndexOf(LockedAfterSubmission, col) >= 0;
+                        var expected = kind == "unchanged" || (editableInDraft && status == ContractStatus.Draft);
                         yield return new object[] { col, status, kind, expected };
                     }
                 }
@@ -66,12 +68,13 @@ namespace Muwafaqa.Plugins.Tests
         {
             foreach (var status in Statuses)
             {
-                foreach (var col in LockedAfterSubmission)
+                var every = new List<string>(LockedAfterSubmission);
+                every.AddRange(SystemWritten);
+                every.Add(ContractColumns.Type);
+                foreach (var col in every)
                 {
                     Assert.True(LockedColumnsPolicy.CheckUpdate(status, Row(Col(col, ColumnValue.Null)), Row()).Allowed);
                 }
-                Assert.True(LockedColumnsPolicy.CheckUpdate(
-                    status, Row(Col(ContractColumns.ValueUsdFrozen, ColumnValue.Null)), Row()).Allowed);
             }
         }
 
@@ -116,26 +119,30 @@ namespace Muwafaqa.Plugins.Tests
         }
 
         [Fact]
-        public void Empty_string_over_null_is_allowed_in_draft()
+        public void Empty_string_over_null_is_denied_for_the_contract_number_in_every_status()
         {
-            var r = LockedColumnsPolicy.CheckUpdate(ContractStatus.Draft,
-                Row(Col(ContractColumns.Number, ColumnValue.FromText(string.Empty))), Row());
-            Assert.True(r.Allowed);
+            // the number is system-written (ADR-006): any change is rejected, in Draft too
+            foreach (var status in Statuses)
+            {
+                var r = LockedColumnsPolicy.CheckUpdate(status,
+                    Row(Col(ContractColumns.Number, ColumnValue.FromText(string.Empty))), Row());
+                Assert.False(r.Allowed);
+            }
         }
 
         // ---- Create ----
         [Fact]
         public void Create_with_a_frozen_value_is_denied_including_zero()
         {
-            Assert.False(LockedColumnsPolicy.CheckCreate(Row(Col(ContractColumns.ValueUsdFrozen, ColumnValue.FromDecimal(1m)))).Allowed);
-            Assert.False(LockedColumnsPolicy.CheckCreate(Row(Col(ContractColumns.ValueUsdFrozen, ColumnValue.FromDecimal(0m)))).Allowed);
+            Assert.False(LockedColumnsPolicy.CheckCreate(ValidCreateRow(Col(ContractColumns.ValueUsdFrozen, ColumnValue.FromDecimal(1m)))).Allowed);
+            Assert.False(LockedColumnsPolicy.CheckCreate(ValidCreateRow(Col(ContractColumns.ValueUsdFrozen, ColumnValue.FromDecimal(0m)))).Allowed);
         }
 
         [Fact]
         public void Create_with_an_approval_round_is_denied_including_zero()
         {
-            var one = LockedColumnsPolicy.CheckCreate(Row(Col(ContractColumns.ApprovalRound, ColumnValue.FromInt(1))));
-            var zero = LockedColumnsPolicy.CheckCreate(Row(Col(ContractColumns.ApprovalRound, ColumnValue.FromInt(0))));
+            var one = LockedColumnsPolicy.CheckCreate(ValidCreateRow(Col(ContractColumns.ApprovalRound, ColumnValue.FromInt(1))));
+            var zero = LockedColumnsPolicy.CheckCreate(ValidCreateRow(Col(ContractColumns.ApprovalRound, ColumnValue.FromInt(0))));
             Assert.False(one.Allowed);
             Assert.False(zero.Allowed);
             Assert.StartsWith("Approval Round cannot be changed.", one.Message);
@@ -144,7 +151,7 @@ namespace Muwafaqa.Plugins.Tests
         [Fact]
         public void Create_with_approval_round_null_or_absent_is_allowed()
         {
-            Assert.True(LockedColumnsPolicy.CheckCreate(Row(Col(ContractColumns.ApprovalRound, ColumnValue.Null))).Allowed);
+            Assert.True(LockedColumnsPolicy.CheckCreate(ValidCreateRow(Col(ContractColumns.ApprovalRound, ColumnValue.Null))).Allowed);
         }
 
         [Fact]
@@ -187,8 +194,8 @@ namespace Muwafaqa.Plugins.Tests
         [Fact]
         public void Create_with_frozen_null_or_absent_is_allowed()
         {
-            Assert.True(LockedColumnsPolicy.CheckCreate(Row(Col(ContractColumns.ValueUsdFrozen, ColumnValue.Null))).Allowed);
-            Assert.True(LockedColumnsPolicy.CheckCreate(Row()).Allowed);
+            Assert.True(LockedColumnsPolicy.CheckCreate(ValidCreateRow(Col(ContractColumns.ValueUsdFrozen, ColumnValue.Null))).Allowed);
+            Assert.True(LockedColumnsPolicy.CheckCreate(ValidCreateRow()).Allowed);
         }
 
         [Fact]
@@ -196,7 +203,7 @@ namespace Muwafaqa.Plugins.Tests
         {
             var cols = new List<Tuple<string, ColumnValue>>();
             foreach (var c in LockedAfterSubmission) cols.Add(Col(c, TwoValues(c).Item1));
-            Assert.True(LockedColumnsPolicy.CheckCreate(Row(cols.ToArray())).Allowed);
+            Assert.True(LockedColumnsPolicy.CheckCreate(ValidCreateRow(cols.ToArray())).Allowed);
         }
 
         // ---- messages ----
@@ -204,24 +211,120 @@ namespace Muwafaqa.Plugins.Tests
         public void Locked_message_lists_the_display_names_and_the_status()
         {
             var v = TwoValues(ContractColumns.Value);
-            var t = TwoValues(ContractColumns.Type);
+            var t = TwoValues(ContractColumns.Direction);
             var r = LockedColumnsPolicy.CheckUpdate(ContractStatus.PendingApproval,
-                Row(Col(ContractColumns.Value, v.Item2), Col(ContractColumns.Type, t.Item2)),
-                Row(Col(ContractColumns.Value, v.Item1), Col(ContractColumns.Type, t.Item1)));
+                Row(Col(ContractColumns.Value, v.Item2), Col(ContractColumns.Direction, t.Item2)),
+                Row(Col(ContractColumns.Value, v.Item1), Col(ContractColumns.Direction, t.Item1)));
             Assert.Equal(
-                "Cannot change Value, Contract Type while the contract status is Pending Approval. Return the contract to Draft first.",
+                "Cannot change Value, Contract Direction while the contract status is Pending Approval. Return the contract to Draft first.",
                 r.Message);
         }
 
         [Fact]
         public void In_force_message_says_the_contract_cannot_be_edited()
         {
-            var v = TwoValues(ContractColumns.Number);
+            var v = TwoValues(ContractColumns.Value);
             var r = LockedColumnsPolicy.CheckUpdate(ContractStatus.InForce,
-                Row(Col(ContractColumns.Number, v.Item2)), Row(Col(ContractColumns.Number, v.Item1)));
+                Row(Col(ContractColumns.Value, v.Item2)), Row(Col(ContractColumns.Value, v.Item1)));
             Assert.Equal(
-                "Cannot change Contract Number while the contract status is In Force. An In Force contract cannot be edited.",
+                "Cannot change Value while the contract status is In Force. An In Force contract cannot be edited.",
                 r.Message);
+        }
+
+        // ---- ADR-006: contract number (system-written) and contract type (set once) ----
+        [Fact]
+        public void Create_with_a_contract_number_is_denied()
+        {
+            var r = LockedColumnsPolicy.CheckCreate(ValidCreateRow(Col(ContractColumns.Number, ColumnValue.FromText("MNT-0001"))));
+            Assert.False(r.Allowed);
+            Assert.StartsWith("Contract Number cannot be changed. It is generated by the system when the contract is created.", r.Message);
+        }
+
+        [Fact]
+        public void Create_with_an_empty_or_null_contract_number_counts_as_not_supplied()
+        {
+            Assert.True(LockedColumnsPolicy.CheckCreate(ValidCreateRow(Col(ContractColumns.Number, ColumnValue.FromText(string.Empty)))).Allowed);
+            Assert.True(LockedColumnsPolicy.CheckCreate(ValidCreateRow(Col(ContractColumns.Number, ColumnValue.Null))).Allowed);
+            Assert.True(LockedColumnsPolicy.CheckCreate(ValidCreateRow()).Allowed);
+        }
+
+        [Fact]
+        public void Create_without_a_contract_type_is_denied_when_absent_or_null()
+        {
+            var absent = LockedColumnsPolicy.CheckCreate(Row());
+            var nul = LockedColumnsPolicy.CheckCreate(Row(Col(ContractColumns.Type, ColumnValue.Null)));
+            Assert.False(absent.Allowed);
+            Assert.False(nul.Allowed);
+            Assert.Equal("Contract Type is required. The contract number is built from it.", absent.Message);
+        }
+
+        [Fact]
+        public void Create_with_a_contract_type_is_allowed()
+        {
+            Assert.True(LockedColumnsPolicy.CheckCreate(Row(Col(ContractColumns.Type, ColumnValue.FromInt(867640003)))).Allowed);
+        }
+
+        [Fact]
+        public void Update_changing_the_contract_type_is_denied_in_every_status_including_draft()
+        {
+            var v = TwoValues(ContractColumns.Type);
+            foreach (var status in Statuses)
+            {
+                var r = LockedColumnsPolicy.CheckUpdate(status,
+                    Row(Col(ContractColumns.Type, v.Item2)), Row(Col(ContractColumns.Type, v.Item1)));
+                Assert.False(r.Allowed);
+                Assert.StartsWith("Contract Type cannot be changed after the contract is created.", r.Message);
+                Assert.Contains("Delete the Draft contract and create a new one", r.Message);
+            }
+        }
+
+        [Fact]
+        public void Update_changing_the_contract_number_is_denied_in_every_status_including_draft()
+        {
+            var v = TwoValues(ContractColumns.Number);
+            foreach (var status in Statuses)
+            {
+                var r = LockedColumnsPolicy.CheckUpdate(status,
+                    Row(Col(ContractColumns.Number, v.Item2)), Row(Col(ContractColumns.Number, v.Item1)));
+                Assert.False(r.Allowed);
+                Assert.StartsWith("Contract Number cannot be changed. It is generated by the system when the contract is created.", r.Message);
+            }
+        }
+
+        [Fact]
+        public void Update_writing_the_same_type_or_number_is_a_no_op_in_every_status()
+        {
+            foreach (var status in Statuses)
+            {
+                foreach (var col in new[] { ContractColumns.Type, ContractColumns.Number })
+                {
+                    var v = TwoValues(col);
+                    Assert.True(LockedColumnsPolicy.CheckUpdate(status, Row(Col(col, v.Item1)), Row(Col(col, v.Item1))).Allowed);
+                }
+            }
+        }
+
+        [Fact]
+        public void A_legacy_number_stays_and_another_column_can_still_be_edited_in_draft()
+        {
+            var s = TwoValues(ContractColumns.Subject);
+            var r = GuardEvaluator.EvaluateUpdate(ContractStatus.Draft, null, null,
+                Row(Col(ContractColumns.Subject, s.Item2)), Row(Col(ContractColumns.Number, ColumnValue.FromText("TEST-CT-0001"))));
+            Assert.True(r.Allowed);
+        }
+
+        [Fact]
+        public void The_system_written_and_set_once_columns_are_the_expected_ones()
+        {
+            var systemWritten = new List<string>();
+            var setOnce = new List<string>();
+            foreach (var c in LockedColumnsPolicy.Columns)
+            {
+                if (c.Lock == ColumnLock.SystemWritten) systemWritten.Add(c.LogicalName);
+                if (c.Lock == ColumnLock.SetOnce) setOnce.Add(c.LogicalName);
+            }
+            Assert.Equal(new[] { ContractColumns.Number, ContractColumns.ValueUsdFrozen, ContractColumns.ApprovalRound }, systemWritten);
+            Assert.Equal(new[] { ContractColumns.Type }, setOnce);
         }
 
         [Fact]

@@ -116,7 +116,7 @@ async function option(col, label) {
 }
 function body(key, extra = {}) {
   return {
-    mwf_name: `${PREFIX} ${key}`, mwf_contractnumber: `${PREFIX}-${key}`, mwf_value: 1000,
+    mwf_name: `${PREFIX} ${key}`, mwf_value: 1000,
     mwf_contracttype: FX.type, mwf_direction: FX.dir,
     'mwf_counterpartyid@odata.bind': `/mwf_counterparties(${FX.cp})`,
     'transactioncurrencyid@odata.bind': `/transactioncurrencies(${FX.usd})`,
@@ -184,8 +184,8 @@ async function cases() {
   for (const v of [5, 0]) {
     const key = `C${v}`;
     const r = await call('POST', 'mwf_contracts', body(key, { mwf_approvalround: v }));
-    const found = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`mwf_contractnumber eq '${PREFIX}-${key}'`)}`)).j.value.length;
-    if (found) FX.ids.push((await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`mwf_contractnumber eq '${PREFIX}-${key}'`)}`)).j.value[0].mwf_contractid);
+    const found = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`mwf_name eq '${PREFIX} ${key}'`)}`)).j.value.length;
+    if (found) FX.ids.push((await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`mwf_name eq '${PREFIX} ${key}'`)}`)).j.value[0].mwf_contractid);
     out(r.status === 400 && found === 0 && /Approval Round cannot be changed/.test(msgOf(r)) ? 'PASS' : 'FAIL', '8',
       `client sets mwf_approvalround = ${v} on Create`, 'HTTP 400 "Approval Round cannot be changed...", no row created', `HTTP ${r.status}; ${msgOf(r)}; rows created ${found}`);
   }
@@ -195,7 +195,7 @@ async function cases() {
   if (!p.ok) {
     out('FAIL', '9', 'Create directly as Pending Approval', 'created', `HTTP ${p.status}; ${msgOf(p)}`);
   } else {
-    const row = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`mwf_contractnumber eq '${PREFIX}-D'`)}`)).j.value[0];
+    const row = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`mwf_name eq '${PREFIX} D'`)}`)).j.value[0];
     FX.ids.push(row.mwf_contractid);
     g = await read(row.mwf_contractid);
     out('OBS', '9', 'Create directly as Pending Approval (API)', 'observation; expected round 1 and frozen 1000.00',
@@ -204,7 +204,7 @@ async function cases() {
 }
 
 async function cleanupAll() {
-  const rows = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`startswith(mwf_name,'${PREFIX}') or startswith(mwf_contractnumber,'${PREFIX}')`)}`)).j.value;
+  const rows = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`startswith(mwf_name,'${PREFIX}')`)}`)).j.value;
   const res = await deleteContracts(io, rows.map((r) => r.mwf_contractid));
   console.log(`contracts: found ${rows.length}, deleted ${res.deleted}${res.failed.length ? `, FAILED ${JSON.stringify(res.failed)}` : ''}`);
   const cps = (await must('GET', `mwf_counterparties?$select=mwf_name&$filter=${q(`startswith(mwf_name,'${PREFIX}')`)}`)).j.value;
@@ -242,7 +242,7 @@ async function cleanupAll() {
       if (TOKEN) {
         console.log('\n--- cleanup (shared helper)');
         const ok = await cleanupAll();
-        const a = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`startswith(mwf_name,'TEST-TMP') or startswith(mwf_contractnumber,'TEST-TMP')`)}`)).j.value.length;
+        const a = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`startswith(mwf_name,'TEST-TMP')`)}`)).j.value.length;
         const b = (await must('GET', `mwf_counterparties?$select=mwf_counterpartyid&$filter=${q(`startswith(mwf_name,'TEST-TMP')`)}`)).j.value.length;
         const total = (await must('GET', `mwf_contracts?$select=mwf_contractid&$count=true&$top=1`)).j['@odata.count'];
         console.log(`check-clean: TEST-TMP contracts ${a}, TEST-TMP counterparties ${b}, total contracts ${total} (expected 0, 0, 11)`);

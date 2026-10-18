@@ -12,11 +12,25 @@ namespace Muwafaqa.Plugins.Tests
             ContractStatus.Draft, ContractStatus.PendingApproval, ContractStatus.InForce, ContractStatus.Rejected
         };
 
+        /// <summary>Editable in Draft, locked in the other statuses.</summary>
         public static readonly string[] LockedAfterSubmission =
         {
-            ContractColumns.Value, ContractColumns.Currency, ContractColumns.Type,
-            ContractColumns.Direction, ContractColumns.Counterparty, ContractColumns.Number
+            ContractColumns.Value, ContractColumns.Currency, ContractColumns.Direction, ContractColumns.Counterparty
         };
+
+        /// <summary>Written by plug-ins only: a client may not set them on Create or change them on Update (ADR-006 adds the number).</summary>
+        public static readonly string[] SystemWritten =
+        {
+            ContractColumns.Number, ContractColumns.ValueUsdFrozen, ContractColumns.ApprovalRound
+        };
+
+        /// <summary>A Create row as a client sends it: the Contract Type is required (ADR-006).</summary>
+        public static IDictionary<string, ColumnValue> ValidCreateRow(params Tuple<string, ColumnValue>[] more)
+        {
+            var d = new Dictionary<string, ColumnValue> { [ContractColumns.Type] = ColumnValue.FromInt(867640000) };
+            foreach (var c in more) d[c.Item1] = c.Item2;
+            return d;
+        }
 
         public static readonly Guid IdA = new Guid("00000000-0000-0000-0000-00000000000a");
         public static readonly Guid IdB = new Guid("00000000-0000-0000-0000-00000000000b");

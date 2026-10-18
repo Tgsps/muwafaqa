@@ -22,6 +22,12 @@
  *   delete-by-subject  deletes only the contracts with the subjects "TEST-TMP-FLOW-01 edited", "TEST-TMP-FLOW-02", "TEST-TMP-FLOW-03"
  *   check-clean  read-only: no TEST-TMP rows remain
  *
+ * Contract number generator (ADR-006): the server generates the Contract Number, so no test here sends one and rows are found by
+ * Subject (mwf_name). Every contract create consumes a number of its type counter: the first create snapshots the counters and
+ * cleanup() restores them only if counter == snapshot + the numbers this run consumed (scripts/lib/counter-snapshot.mjs).
+ * The old `key-tests` mode (alternate key tests with client-chosen numbers) is OBSOLETE and stops with a note. The duplicate-number
+ * rejection (HTTP 412) is covered by T8 of scripts/test-contract-number.mjs (direct counter manipulation).
+ *
  * Contract State Guard (ADR-004): t4 reaches Rejected by allowed transitions (Draft -> Pending -> Rejected) and therefore needs the
  * approval flow OFF (it reads the flow state and stops if it is ON; add --flow-off-confirmed if it cannot be read). Every delete
  * goes through scripts/lib/contract-cleanup.mjs: Pending rows are withdrawn to Draft first, In Force rows (none are created
@@ -34,6 +40,7 @@
 import { execSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { deleteContract, deleteContracts, findGuardDeleteStepId, requireFlowOff } from './lib/contract-cleanup.mjs';
+import { snapshotCounters, restoreCounters } from './lib/counter-snapshot.mjs';
 
 const argOf = (name) => (process.argv.find((a) => a.startsWith(`--${name}=`)) || '').slice(name.length + 3);
 if (!process.argv.includes('--confirm-mutates-environment')) {
@@ -98,12 +105,17 @@ async function tmpCounterparty() {
   const r = await must('POST', 'mwf_counterparties', { mwf_name: 'TEST-TMP Fictional Counterparty (delete me)', mwf_counterpartytype: 867640000 });
   return idOf(r.entityId);
 }
-async function tmpContract(cp, { number, name, value, iso }) {
+// counter snapshot (ADR-006): taken before the first create of this run, restored by cleanup() when it is safe
+let counterSnap = null;
+const consumedByType = {};
+async function tmpContract(cp, { name, value, iso }) {   // no contract number is sent: the plug-in generates it
+  if (!counterSnap) counterSnap = await snapshotCounters(io);
   const c = await currency(iso);
   const r = await must('POST', 'mwf_contracts', {
-    mwf_name: name, mwf_contractnumber: number, mwf_contracttype: 867640000, mwf_direction: 867640001, mwf_value: value,
+    mwf_name: name, mwf_contracttype: 867640000, mwf_direction: 867640001, mwf_value: value,
     'mwf_counterpartyid@odata.bind': `/mwf_counterparties(${cp})`, 'transactioncurrencyid@odata.bind': `/transactioncurrencies(${c.transactioncurrencyid})`,
   });
+  consumedByType[867640000] = (consumedByType[867640000] || 0) + 1;
   return idOf(r.entityId);
 }
 async function readContract(id) {
@@ -111,7 +123,7 @@ async function readContract(id) {
   const j = r.json; return { value: j.mwf_value, base: j.mwf_value_base, rate: j.exchangerate, state: j.statecode, status: j.statuscode, name: j.mwf_name };
 }
 async function tmpCount() {
-  const a = await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q("startswith(mwf_contractnumber,'TEST-TMP')")}`);
+  const a = await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q("startswith(mwf_name,'TEST-TMP')")}`);
   const b = await must('GET', `mwf_counterparties?$select=mwf_counterpartyid&$filter=${q("startswith(mwf_name,'TEST-TMP')")}`);
   return { contracts: a.json.value.length, counterparties: b.json.value.length };
 }
@@ -121,7 +133,8 @@ async function cleanup(contractIds, cp) {
   if (cp) await must('DELETE', `mwf_counterparties(${cp})`);
   const left = await tmpCount();
   if (left.contracts || left.counterparties) throw new Error(`cleanup verification FAILED, TEST-TMP rows remain: ${JSON.stringify(left)}`);
-  return { deleted: contractIds.length + (cp ? 1 : 0), remainingTestTmp: left };
+  const counters = counterSnap ? await restoreCounters(io, counterSnap, consumedByType) : null;
+  return { deleted: contractIds.length + (cp ? 1 : 0), remainingTestTmp: left, counters: counters ? { restored: counters.restored, unchanged: counters.unchanged, refused: counters.refused, lines: counters.lines } : 'no contract was created' };
 }
 async function statusOptions() {
   const r = await must('GET', "EntityDefinitions(LogicalName='mwf_contract')/Attributes(LogicalName='statuscode')/Microsoft.Dynamics.CRM.StatusAttributeMetadata?$select=LogicalName&$expand=OptionSet($select=Options)");
@@ -167,7 +180,7 @@ try {
       const cases = [['K1', 'KWD', 6500.25, 'item step 3 (6500.250)'], ['K2', 'KWD', 6500.255, 'EXTRA: makes the 3rd decimal observable'], ['U1', 'USD', 100.255, 'item step 5']];
       R.cases = [];
       for (const [k, iso, v, why] of cases) {
-        const id = await tmpContract(cp, { number: `TEST-TMP-PREC-${k}`, name: `TEST-TMP precision ${k}`, value: v, iso }); ids.push(id);
+        const id = await tmpContract(cp, { name: `TEST-TMP precision ${k}`, value: v, iso }); ids.push(id);
         const g = await readContract(id);
         R.cases.push({ case: k, why, currency: iso, sent: v, storedValue: g.value, storedBase: g.base, rate: g.rate });
       }
@@ -180,7 +193,7 @@ try {
     R.existingAedRowsBefore = (await must('GET', `mwf_contracts?$select=mwf_contractnumber,mwf_value_base,exchangerate,modifiedon&$filter=${q("startswith(mwf_contractnumber,'TEST-CT') and _transactioncurrencyid_value eq " + aed.transactioncurrencyid)}&$orderby=mwf_contractnumber`)).json.value.map((x) => ({ n: x.mwf_contractnumber, base: x.mwf_value_base, rate: x.exchangerate, modifiedon: x.modifiedon }));
     const cp = await tmpCounterparty(); const ids = []; let changed = false;
     try {
-      const A = await tmpContract(cp, { number: 'TEST-TMP-FX-A', name: 'TEST-TMP FX A', value: 367250, iso: 'AED' }); ids.push(A);
+      const A = await tmpContract(cp, { name: 'TEST-TMP FX A', value: 367250, iso: 'AED' }); ids.push(A);
       const s2 = await readContract(A);
       R.steps.step2_createA = { ...s2, expectedBase_value_div_R0: 367250 / R0, matches: Math.abs(s2.base - 367250 / R0) < 1 };
       await must('PATCH', `transactioncurrencies(${aed.transactioncurrencyid})`, { exchangerate: R1 }); changed = true;
@@ -191,7 +204,7 @@ try {
       await must('PATCH', `mwf_contracts(${A})`, { mwf_value: 367251 });
       R.steps.step7_A_after_value_edit = await readContract(A);
       R.steps.step7_expectedBase = { withOldRate: 367251 / R0, withNewRate: 367251 / R1 };
-      const B = await tmpContract(cp, { number: 'TEST-TMP-FX-B', name: 'TEST-TMP FX B', value: 367250, iso: 'AED' }); ids.push(B);
+      const B = await tmpContract(cp, { name: 'TEST-TMP FX B', value: 367250, iso: 'AED' }); ids.push(B);
       R.steps.step8_B = { ...(await readContract(B)), expectedBase_value_div_R1: 367250 / R1 };
       R.steps.step9_patchExchangeRateViaApi = await observe('PATCH', `mwf_contracts(${A})`, { exchangerate: 0.5 });
       R.steps.step9_A_after = await readContract(A);
@@ -214,7 +227,7 @@ try {
     await requireFlowOff(io, { confirmedByUser: process.argv.includes('--flow-off-confirmed') });
     const cp = await tmpCounterparty(); const ids = [];
     try {
-      const id = await tmpContract(cp, { number: 'TEST-TMP-REJ', name: 'TEST-TMP rejected', value: 1000, iso: 'USD' }); ids.push(id);
+      const id = await tmpContract(cp, { name: 'TEST-TMP rejected', value: 1000, iso: 'USD' }); ids.push(id);
       await must('PATCH', `mwf_contracts(${id})`, { statuscode: 867640000 }, { 'If-Match': '*' });
       R.steps.step0_afterPending = await readContract(id);
       await must('PATCH', `mwf_contracts(${id})`, { statecode: 1, statuscode: 2 }, { 'If-Match': '*' });
@@ -235,7 +248,7 @@ try {
     const PENDING = 867640000;
     const cp = await tmpCounterparty(); const ids = [];
     try {
-      const id = await tmpContract(cp, { number: 'TEST-TMP-SAME-01', name: 'TEST-TMP same-status save', value: 1000, iso: 'USD' }); ids.push(id);
+      const id = await tmpContract(cp, { name: 'TEST-TMP same-status save', value: 1000, iso: 'USD' }); ids.push(id);
       await must('PATCH', `mwf_contracts(${id})`, { statuscode: PENDING }, { 'If-Match': '*' });
       const read = async () => {
         const r = await must('GET', `mwf_contracts(${id})?$select=statuscode,statecode,modifiedon,mwf_valueusdfrozen,mwf_approvalround`);
@@ -259,7 +272,7 @@ try {
     await requireFlowOff(io, { confirmedByUser: process.argv.includes('--flow-off-confirmed') });
     const cp = await tmpCounterparty(); const ids = [];
     try {
-      const id = await tmpContract(cp, { number: 'TEST-TMP-ZERO-01', name: 'TEST-TMP value zero', value: 0, iso: 'USD' }); ids.push(id);
+      const id = await tmpContract(cp, { name: 'TEST-TMP value zero', value: 0, iso: 'USD' }); ids.push(id);
       const read = async () => {
         const r = await must('GET', `mwf_contracts(${id})?$select=mwf_value,statuscode,statecode,mwf_valueusdfrozen,mwf_approvalround`);
         return { value: r.json.mwf_value, statuscode: r.json.statuscode, statecode: r.json.statecode, valueUsdFrozen: r.json.mwf_valueusdfrozen, approvalRound: r.json.mwf_approvalround };
@@ -348,7 +361,11 @@ try {
   }
 
   else if (test === 'key-tests') {
-    // Alternate key "Contract Number Key" on mwf_contractnumber. Writes only TEST-TMP-KEY-* rows. Clean up afterwards with
+    throw new Error('key-tests is OBSOLETE since ADR-006: a client can no longer choose the Contract Number (the guard rejects it on Create and on Update), so the GET/PATCH-by-key and restricted-character cases cannot be built any more. Duplicate-number rejection (HTTP 412) is covered by T8 of scripts/test-contract-number.mjs. The restricted-character results of 2026-10-11 stay documented in ADR-002. Nothing was run.');
+  }
+
+  else if (test === 'key-tests-legacy') {
+    // (kept for reference only, never reachable: the mode above stops first) Alternate key "Contract Number Key" on mwf_contractnumber. Writes only TEST-TMP-KEY-* rows. Clean up afterwards with
     //   delete-by-subject --prefix=TEST-TMP-KEY-
     // PATCH by key is an upsert, so every PATCH here sends If-Match: * (update only, never create).
     const noGuid = (t) => (t == null ? t : t.replace(/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g, '<id>'));

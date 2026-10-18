@@ -126,7 +126,6 @@ async function setup() {
 async function mk(key, o = {}) {
   const body = {
     mwf_name: o.name || `${PREFIX} ${key}`,
-    mwf_contractnumber: o.noNumber ? undefined : (o.number || `${PREFIX}-${key}`),
     mwf_contracttype: FX.T[0], mwf_direction: FX.D[0],
     'mwf_counterpartyid@odata.bind': `/mwf_counterparties(${FX.cp.A})`,
     'transactioncurrencyid@odata.bind': `/transactioncurrencies(${FX.cur.USD})`,
@@ -220,9 +219,8 @@ async function g1() {
 }
 
 async function createAttempt(label, body, expect, mustSay) {
-  const num = body.mwf_contractnumber;
   const r = await call('POST', 'mwf_contracts', body);
-  const found = (await must('GET', `mwf_contracts?$select=mwf_contractid,statuscode,statecode&$filter=${q(`mwf_contractnumber eq '${num}'`)}`)).j.value;
+  const found = (await must('GET', `mwf_contracts?$select=mwf_contractid,statuscode,statecode&$filter=${q(`mwf_name eq '${body.mwf_name}'`)}`)).j.value;
   const msg = msgOf(r);
   let pass;
   if (expect === 'ok') pass = r.ok && found.length === 1;
@@ -234,7 +232,7 @@ async function createAttempt(label, body, expect, mustSay) {
 }
 function createBody(key, extra = {}) {
   return {
-    mwf_name: `${PREFIX} ${key}`, mwf_contractnumber: `${PREFIX}-${key}`, mwf_contracttype: FX.T[0], mwf_direction: FX.D[0],
+    mwf_name: `${PREFIX} ${key}`, mwf_contracttype: FX.T[0], mwf_direction: FX.D[0],
     'mwf_counterpartyid@odata.bind': `/mwf_counterparties(${FX.cp.A})`,
     'transactioncurrencyid@odata.bind': `/transactioncurrencies(${FX.cur.USD})`, mwf_value: 1000, ...extra,
   };
@@ -244,7 +242,7 @@ async function g2() {
   await createAttempt('Create without a status (Draft)', createBody('G2-DRAFT'), 'ok');
   const p = await createAttempt('Create as Pending (with currency and Value)', createBody('G2-PEND', { statuscode: ST.Pending }), 'ok');
   if (p) {
-    const g = await snap((await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`mwf_contractnumber eq '${PREFIX}-G2-PEND'`)}`)).j.value[0].mwf_contractid);
+    const g = await snap((await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`mwf_name eq '${PREFIX} G2-PEND'`)}`)).j.value[0].mwf_contractid);
     const ok = Number(g.mwf_valueusdfrozen).toFixed(2) === '1000.00' && g.statuscode === ST.Pending;
     out(ok ? 'PASS' : 'FAIL', 'Create as Pending: plug-in 1 still writes the frozen value', 'GET the row', 200, '', 'status Pending and mwf_valueusdfrozen 1000.00',
       `status ${g.statuscode}, frozen ${g.mwf_valueusdfrozen}`);
@@ -255,7 +253,7 @@ async function g2() {
   {
     const body = createBody('G2-ST1', { statecode: 1 });
     const r = await call('POST', 'mwf_contracts', body);
-    const f = (await must('GET', `mwf_contracts?$select=statuscode,statecode&$filter=${q(`mwf_contractnumber eq '${PREFIX}-G2-ST1'`)}`)).j.value[0];
+    const f = (await must('GET', `mwf_contracts?$select=statuscode,statecode&$filter=${q(`mwf_name eq '${PREFIX} G2-ST1'`)}`)).j.value[0];
     out('OBS', 'Create with {statecode 1} and no statuscode', 'POST {statecode: 1, ...}', r.status, msgOf(r),
       'observation only (the guard reads state 1 as Rejected, so a rejection is expected)', f ? `row created: statecode ${f.statecode}, statuscode ${f.statuscode} (${NAME[f.statuscode] || '?'})` : 'no row created');
   }
@@ -265,10 +263,9 @@ async function g2() {
 const COLUMNS = [
   { key: 'Value', display: 'Value', other: () => ({ mwf_value: 2000 }), same: () => ({ mwf_value: 1000 }) },
   { key: 'Currency', display: 'Currency', other: () => ({ 'transactioncurrencyid@odata.bind': `/transactioncurrencies(${FX.cur.KWD})` }), same: () => ({ 'transactioncurrencyid@odata.bind': `/transactioncurrencies(${FX.cur.USD})` }) },
-  { key: 'Contract Type', display: 'Contract Type', other: () => ({ mwf_contracttype: FX.T[1] }), same: () => ({ mwf_contracttype: FX.T[0] }) },
   { key: 'Contract Direction', display: 'Contract Direction', other: () => ({ mwf_direction: FX.D[1] }), same: () => ({ mwf_direction: FX.D[0] }) },
   { key: 'Counterparty', display: 'Counterparty', other: () => ({ 'mwf_counterpartyid@odata.bind': `/mwf_counterparties(${FX.cp.B})` }), same: () => ({ 'mwf_counterpartyid@odata.bind': `/mwf_counterparties(${FX.cp.A})` }) },
-  { key: 'Contract Number', display: 'Contract Number', other: (n) => ({ mwf_contractnumber: `${n}-X` }), same: (n) => ({ mwf_contractnumber: n }) },
+  // Contract Type (set once) and Contract Number (system-written) are tested by scripts/test-contract-number.mjs (ADR-006)
 ];
 
 async function lockedRow(label, key, toState) {
@@ -354,10 +351,10 @@ async function g7() {
   const p = await mk('G7-P', { noNumber: true });
   await toPending(p);
   await attempt('Pending row, contract number null: PATCH mwf_contractnumber ""', p, { mwf_contractnumber: '' }, 'observe',
-    { expected: 'observation only (strict "" against null, ADR-004 decision 2: a rejection is expected)' });
+    { expected: 'observation only (the number is system-written since ADR-006: a rejection is expected)' });
   const d = await mk('G7-D', { noNumber: true });
   await attempt('Draft row, contract number null: PATCH mwf_contractnumber ""', d, { mwf_contractnumber: '' }, 'observe',
-    { expected: 'observation only (allowed in Draft)' });
+    { expected: 'observation only (the number is system-written since ADR-006: a rejection is expected, in Draft too)' });
 }
 
 async function g8() {

@@ -18,7 +18,7 @@ Two behaviors were proven earlier on the server, and a third follows from them:
 | Q1 | After Rejected | **Rejected to Draft** is the only way out |
 | Q2 | After In Force | **In Force is final** for now. No status change leaves it |
 | Q3 | Value, currency, Contract Type, Contract Direction, Counterparty | **Locked after submission** (Pending Approval, In Force, Rejected). Editable in Draft |
-| Q4 | Contract Number | **Fixed after submission**, editable in Draft |
+| Q4 | Contract Number | **Fixed after submission**, editable in Draft. **Superseded by ADR-006:** system-written (generated on Create), never editable; Contract Type is set once |
 | Q5 | Delete | **Nobody deletes** Pending Approval or In Force. Draft and Rejected may be deleted |
 
 ### Allowed status changes (decided by `statuscode` only)
@@ -44,7 +44,7 @@ Evaluated with the status the row has **before** the request (PreImage `pre`).
 | Contract Type `mwf_contracttype` | editable | locked | locked | locked |
 | Contract Direction `mwf_direction` | editable | locked | locked | locked |
 | Counterparty `mwf_counterpartyid` | editable | locked | locked | locked |
-| Contract Number `mwf_contractnumber` | editable | locked | locked | locked |
+| Contract Number `mwf_contractnumber` | editable (**superseded by ADR-006: never editable, generated on Create**) | locked | locked | locked |
 | Value (USD, Frozen) `mwf_valueusdfrozen` | **locked** | **locked** | **locked** | **locked** |
 | Contract Subject `mwf_name` | editable | editable | editable | editable |
 

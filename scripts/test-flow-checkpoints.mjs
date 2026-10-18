@@ -102,8 +102,8 @@ const io = {
 
 const SEL = 'mwf_name,mwf_contractnumber,statuscode,statecode,mwf_valueusdfrozen,createdon';
 const two = (v) => (v === null || v === undefined ? 'null' : Number(v).toFixed(2));
-const rows = async () => (await must('GET', `mwf_contracts?$select=${SEL}&$filter=${q(`startswith(mwf_contractnumber,'${PREFIX}')`)}&$orderby=mwf_contractnumber`)).j.value;
-const byNumber = (list, n) => list.find((r) => r.mwf_contractnumber === `${PREFIX}${n}`);
+const rows = async () => (await must('GET', `mwf_contracts?$select=${SEL}&$filter=${q(`startswith(mwf_name,'${PREFIX}')`)}&$orderby=mwf_name`)).j.value;
+const byNumber = (list, n) => list.find((r) => r.mwf_name.startsWith(`${PREFIX}${n} `));   // found by Subject (the number is generated)
 
 async function requireFlowOn() {
   const f = await approvalFlowState(io);
@@ -132,7 +132,7 @@ async function setup() {
   const ids = {};
   for (const c of CONTRACTS) {
     ids[c.n] = (await must('POST', 'mwf_contracts', {
-      mwf_name: c.subject, mwf_contractnumber: `${PREFIX}${c.n}`, mwf_value: 1000, mwf_contracttype: type, mwf_direction: dir,
+      mwf_name: c.subject, mwf_value: 1000, mwf_contracttype: type, mwf_direction: dir,
       'mwf_counterpartyid@odata.bind': `/mwf_counterparties(${cp})`,
       'transactioncurrencyid@odata.bind': `/transactioncurrencies(${usd[0].transactioncurrencyid})`,
     })).id;
@@ -244,7 +244,7 @@ async function cleanup() {
   }
   const cps = (await must('GET', `mwf_counterparties?$select=mwf_name&$filter=${q(`startswith(mwf_name,'${PREFIX}')`)}`)).j.value;
   for (const c of cps) { const d = await call('DELETE', `mwf_counterparties(${c.mwf_counterpartyid})`); console.log(`counterparty: HTTP ${d.status}`); }
-  const a = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`startswith(mwf_name,'TEST-TMP') or startswith(mwf_contractnumber,'TEST-TMP')`)}`)).j.value.length;
+  const a = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`startswith(mwf_name,'TEST-TMP')`)}`)).j.value.length;
   const b = (await must('GET', `mwf_counterparties?$select=mwf_counterpartyid&$filter=${q(`startswith(mwf_name,'TEST-TMP')`)}`)).j.value.length;
   const total = (await must('GET', `mwf_contracts?$select=mwf_contractid&$count=true&$top=1`)).j['@odata.count'];
   console.log(`check-clean: TEST-TMP contracts ${a}, TEST-TMP counterparties ${b}, total contracts ${total} (expected 0, 0, 11)`);

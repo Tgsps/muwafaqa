@@ -96,7 +96,7 @@ namespace Muwafaqa.Plugins.Tests
         [InlineData(1, false)]
         public void Create_with_state_only(int state, bool expectedAllowed)
         {
-            Assert.Equal(expectedAllowed, GuardEvaluator.EvaluateCreate(null, state, Row()).Allowed);
+            Assert.Equal(expectedAllowed, GuardEvaluator.EvaluateCreate(null, state, ValidCreateRow()).Allowed);
         }
     }
 }

@@ -34,6 +34,9 @@ namespace Muwafaqa.Plugins.Contract
 
         public bool IsNull { get { return _kind == Kind.Null; } }
 
+        /// <summary>True for null and for the empty string (the platform stores "" as null in Draft).</summary>
+        public bool IsNullOrEmptyText { get { return _kind == Kind.Null || (_kind == Kind.Text && _text.Length == 0); } }
+
         public bool Equals(ColumnValue other)
         {
             if (ReferenceEquals(other, null) || _kind != other._kind) return false;

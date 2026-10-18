@@ -166,7 +166,7 @@ async function countRunsSince(ts) {
     if (usd.length !== 1) throw new Stop(`active USD currency: expected 1, found ${usd.length}`);
     fx.cp = (await must('POST', 'mwf_counterparties', { mwf_name: `${PREFIX} Fictional Counterparty (delete me)`, mwf_counterpartytype: cpType })).id;
     fx.id = (await must('POST', 'mwf_contracts', {
-      mwf_name: `${PREFIX}1`, mwf_contractnumber: `${PREFIX}1`, mwf_value: 1000,
+      mwf_name: `${PREFIX}1`, mwf_value: 1000,
       mwf_contracttype: await opt('mwf_contract', 'mwf_contracttype', 'Maintenance'), mwf_direction: await opt('mwf_contract', 'mwf_direction', 'Expense'),
       'mwf_counterpartyid@odata.bind': `/mwf_counterparties(${fx.cp})`,
       'transactioncurrencyid@odata.bind': `/transactioncurrencies(${usd[0].transactioncurrencyid})`,
@@ -201,7 +201,7 @@ async function countRunsSince(ts) {
           console.log(`contract: deleted ${res.deleted}${res.failed.length ? `, FAILED ${JSON.stringify(res.failed)}` : ''}`);
         }
         if (fx.cp) { const d = await call('DELETE', `mwf_counterparties(${fx.cp})`); console.log(`counterparty: HTTP ${d.status}`); }
-        const a = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`startswith(mwf_name,'TEST-TMP') or startswith(mwf_contractnumber,'TEST-TMP')`)}`)).j.value.length;
+        const a = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`startswith(mwf_name,'TEST-TMP')`)}`)).j.value.length;
         const b = (await must('GET', `mwf_counterparties?$select=mwf_counterpartyid&$filter=${q(`startswith(mwf_name,'TEST-TMP')`)}`)).j.value.length;
         const total = (await must('GET', `mwf_contracts?$select=mwf_contractid&$count=true&$top=1`)).j['@odata.count'];
         console.log(`check-clean: TEST-TMP contracts ${a}, TEST-TMP counterparties ${b}, total contracts ${total} (expected 0, 0, 11)`);

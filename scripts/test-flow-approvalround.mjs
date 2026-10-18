@@ -96,7 +96,7 @@ const io = {
 
 const SEL = 'mwf_name,statuscode,statecode,mwf_approvalround,mwf_valueusdfrozen,createdon';
 const show = (v) => (v === null || v === undefined ? 'null' : String(v));
-const testRows = async () => (await must('GET', `mwf_contracts?$select=${SEL}&$filter=${q(`mwf_contractnumber eq '${NUMBER}'`)}`)).j.value;
+const testRows = async () => (await must('GET', `mwf_contracts?$select=${SEL}&$filter=${q(`mwf_name eq '${SUBJECT}'`)}`)).j.value;
 const stateLine = (r) => `status ${NAME[r.statuscode] || r.statuscode} | statecode ${r.statecode} | mwf_approvalround ${show(r.mwf_approvalround)}`;
 
 async function requireFlowOn() {
@@ -108,7 +108,7 @@ async function requireFlowOn() {
 
 async function setup() {
   await requireFlowOn();
-  const pre = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`startswith(mwf_name,'TEST-TMP') or startswith(mwf_contractnumber,'TEST-TMP')`)}`)).j.value.length;
+  const pre = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`startswith(mwf_name,'TEST-TMP')`)}`)).j.value.length;
   if (pre) throw new Stop(`${pre} TEST-TMP row(s) already exist. Run --mode=cleanup first. Nothing was changed.`);
   const total0 = (await must('GET', `mwf_contracts?$select=mwf_contractid&$count=true&$top=1`)).j['@odata.count'];
   console.log(`before: total contracts ${total0}`);
@@ -125,7 +125,7 @@ async function setup() {
 
   const cp = (await must('POST', 'mwf_counterparties', { mwf_name: CP_NAME, mwf_counterpartytype: cpType })).id;
   const id = (await must('POST', 'mwf_contracts', {
-    mwf_name: SUBJECT, mwf_contractnumber: NUMBER, mwf_value: 1000,
+    mwf_name: SUBJECT, mwf_value: 1000,
     mwf_contracttype: await opt('mwf_contracttype', 'Maintenance'), mwf_direction: await opt('mwf_direction', 'Expense'),
     'mwf_counterpartyid@odata.bind': `/mwf_counterparties(${cp})`,
     'transactioncurrencyid@odata.bind': `/transactioncurrencies(${usd[0].transactioncurrencyid})`,
@@ -198,7 +198,7 @@ async function cleanup() {
   }
   const cps = (await must('GET', `mwf_counterparties?$select=mwf_name&$filter=${q(`mwf_name eq '${CP_NAME}'`)}`)).j.value;
   for (const c of cps) { const d = await call('DELETE', `mwf_counterparties(${c.mwf_counterpartyid})`); console.log(`counterparty: HTTP ${d.status}`); }
-  const a = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`startswith(mwf_name,'TEST-TMP') or startswith(mwf_contractnumber,'TEST-TMP')`)}`)).j.value.length;
+  const a = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`startswith(mwf_name,'TEST-TMP')`)}`)).j.value.length;
   const b = (await must('GET', `mwf_counterparties?$select=mwf_counterpartyid&$filter=${q(`startswith(mwf_name,'TEST-TMP')`)}`)).j.value.length;
   const total = (await must('GET', `mwf_contracts?$select=mwf_contractid&$count=true&$top=1`)).j['@odata.count'];
   console.log(`check-clean: TEST-TMP contracts ${a}, TEST-TMP counterparties ${b}, total contracts ${total} (expected 0, 0, 11)`);

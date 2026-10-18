@@ -103,7 +103,7 @@ async function part1() {
   console.log('--- a. create one counterparty and two Draft contracts');
   const cp = await must('POST', 'mwf_counterparties', { mwf_name: `${PREFIX} Fictional Counterparty (delete me)`, mwf_counterpartytype: cpType });
   const mk = async (n, subject) => (await must('POST', 'mwf_contracts', {
-    mwf_name: subject, mwf_contractnumber: `${PREFIX}${n}`, mwf_contracttype: type, mwf_direction: dir, mwf_value: 1000,
+    mwf_name: subject, mwf_contracttype: type, mwf_direction: dir, mwf_value: 1000,
     'mwf_counterpartyid@odata.bind': `/mwf_counterparties(${cp.id})`,
     'transactioncurrencyid@odata.bind': `/transactioncurrencies(${cur[0].transactioncurrencyid})`,
   })).id;
@@ -176,7 +176,7 @@ async function part2() {
 }
 
 async function checkClean() {
-  const a = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`startswith(mwf_name,'TEST-TMP') or startswith(mwf_contractnumber,'TEST-TMP')`)}`)).j.value.length;
+  const a = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`startswith(mwf_name,'TEST-TMP')`)}`)).j.value.length;
   const b = (await must('GET', `mwf_counterparties?$select=mwf_counterpartyid&$filter=${q(`startswith(mwf_name,'TEST-TMP')`)}`)).j.value.length;
   const total = (await must('GET', `mwf_contracts?$select=mwf_contractid&$count=true&$top=1`)).j['@odata.count'];
   console.log(`check-clean: TEST-TMP contracts ${a}, TEST-TMP counterparties ${b}, total contracts ${total} (expected 0, 0, 11)`);

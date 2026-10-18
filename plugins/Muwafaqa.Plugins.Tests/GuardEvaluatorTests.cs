@@ -17,14 +17,14 @@ namespace Muwafaqa.Plugins.Tests
         [InlineData(ContractStatus.Rejected, 1, false)]
         public void Create_by_requested_status(int? status, int? state, bool expectedAllowed)
         {
-            Assert.Equal(expectedAllowed, GuardEvaluator.EvaluateCreate(status, state, Row()).Allowed);
+            Assert.Equal(expectedAllowed, GuardEvaluator.EvaluateCreate(status, state, ValidCreateRow()).Allowed);
         }
 
         [Fact]
         public void Create_with_a_frozen_value_is_denied_even_with_an_allowed_status()
         {
             var r = GuardEvaluator.EvaluateCreate(ContractStatus.Draft, 0,
-                Row(Col(ContractColumns.ValueUsdFrozen, ColumnValue.FromDecimal(5m))));
+                ValidCreateRow(Col(ContractColumns.ValueUsdFrozen, ColumnValue.FromDecimal(5m))));
             Assert.False(r.Allowed);
         }
 

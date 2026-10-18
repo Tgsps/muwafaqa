@@ -447,3 +447,43 @@ Part 2 reads rows that part 1 created and that the owner answered by hand, so pa
 - The run-to-contract mapping of the guard-flow test is inferred (owner, Run history), not read from the run pages.
 - A contract with Value = 0 enters approval today (accepted, frozen USD 0, round 1). Whether this is intended and which ApprovalMatrix band applies is a business decision, not taken.
 - The flow behaviour for a frozen USD value of 0 (which matrix row applies). (not tested)
+
+## Contract number generator (ADR-006, 2026-10-13)
+
+Everything below was built and run against the development environment. `src/` is **not** synced (separate task).
+
+### Counter table (script: `scripts/create-contractnumbercounter-table.mjs`, idempotent, `--confirm-mutates-environment`)
+
+- Table `mwf_contractnumbercounter`, Organization-owned, in the solution `Muwafaqa`; columns `mwf_name`, `mwf_contracttypevalue` (alternate key `mwf_ContractNumberCounterKey`, index Active), `mwf_prefix`, `mwf_lastnumber`, `mwf_lockstamp` (text, a new GUID on every pre-lock write) (script).
+- Seed: 5 rows, one per Contract Type, `mwf_lastnumber` 0 (script).
+- The first version of `mwf_lockstamp` was Date and Time; it was replaced by a text column because a date has about one second of resolution and the pre-lock write must change a value every time. The table had no data, so nothing was lost (script).
+- Security roles with any privilege on the table (names only, script): System Administrator (6), System Customizer (6), Service Writer (5), Service Reader (1), Service Deleter (1); all managed platform roles. No project role exists. **Decision (owner):** accepted; no project role may be granted a privilege on this table (ADR-006).
+
+### Plug-in package (assembly 1.0.3.0)
+
+- Build: `dotnet build -c Release` in `plugins/Muwafaqa.Plugins` (no other build script). Package SHA-256 `591e13160403fdb615a8c1b81ec3aa29bb4a175375555793433a5e934db2492d`, assembly DLL SHA-256 `b3953a6f7c819f5601248f556e28d6ae611f416ef6e00a1050733de16e8206c5`.
+- `node scripts/register-plugin-package.mjs --mode=package-update --nupkg=<path> --auth=az --confirm-mutates-environment` (content PATCH, package version stays 1.0.0): assembly 1.0.3.0 and the type `GenerateContractNumberOnCreate` present (script).
+- `--mode=steps-number`: Create step of `GenerateContractNumberOnCreate` on `mwf_contract`, PreOperation (20), synchronous, rank 10, no filtering, no image, solution component (script).
+- Read-back of all six steps (`--mode=readback`): all Enabled, solution components. The only failing line is the known guard PreImage deviation (9 columns instead of 10, ADR-005; owner decision to keep) (script). No step was disabled; the flow was not touched.
+
+### Guard
+
+- Contract Number: system-written (Create: non-empty value rejected; Update: any change rejected). Contract Type: set once (Create: required; Update: any change rejected). New category `SetOnce` in `LockedColumnsPolicy`. Messages in ADR-006.
+- Unit tests: 295 passed, 0 failed (unit).
+
+### Server tests (`scripts/test-contract-number.mjs`, script, flow OFF)
+
+- T1 to T8c all PASS (details in ADR-006): consecutive numbers, independent counters, 20 parallel creates of one type three times in a row and once with two types mixed: unique, consecutive, 0 errors; client number rejected (HTTP 400); number change rejected; type change rejected; missing type rejected (HTTP 400); duplicate number rejected by the alternate key (HTTP 412) after the plug-in ran, and the counter was **unchanged** after the failed create (rollback shown for this failure point) (script).
+- One incident: the connection dropped (`fetch failed`) after T8, during the cleanup of the single run. The tests were not re-run. The script's `--mode=cleanup` removed the remaining rows and restored the counters (counter == snapshot + consumed). Final: 0 TEST-TMP contracts, 0 counterparties, 11 contracts; counters 0/0/0/0/0 (script).
+- `scripts/lib/counter-snapshot.mjs` snapshots and restores the counters (ADR-006, "Test helper").
+
+### Loader and the other scripts
+
+- `scripts/load-test-data.mjs` and `data/contracts.csv`: the number column was removed from the CSV, contracts are keyed by Subject, the summary prints the generated number as a pattern. **Not run against the environment** (owner decision). (not tested)
+- `scripts/verification-api-tests.mjs`: `same-status-save` and `value-zero` re-run after the change (script); `key-tests` is obsolete and stops with a note; the other modes (`t1`..`t4`) edited, not re-run (not tested).
+- `test-state-guard`, `test-usd-freeze`, `test-approval-round`, `test-flow-approvalround`, `test-flow-checkpoints`, `test-flow-trigger`, `test-guard-flow`: numbers removed from create bodies, lookups by Subject. Syntax checked only (not tested). They do not use the counter helper yet, so running them burns Maintenance numbers.
+
+### Open items
+
+- `src/` sync (table, key, step, package) and the form field made read-only (owner click-work).
+- Not tested: a normal user without privileges on the counter table creating a contract; the flow with generated numbers; other failure points after PreOperation; volumes above 20 parallel creates; import of the solution containing the table into a clean environment.

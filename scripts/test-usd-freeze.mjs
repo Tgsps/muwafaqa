@@ -130,7 +130,7 @@ async function setup() {
 }
 async function contract({ key, iso, value, status, noCurrency = false, noValue = false }) {
   const body = {
-    mwf_name: `${PREFIX} ${key}`, mwf_contractnumber: `${PREFIX}-${key}`,
+    mwf_name: `${PREFIX} ${key}`,
     mwf_contracttype: FX.ctType, mwf_direction: FX.ctDir,
     'mwf_counterpartyid@odata.bind': `/mwf_counterparties(${FX.cp})`,
   };
@@ -149,7 +149,7 @@ async function cleanup() {
   let removed = 0;
   // contracts by number or by name, each id once. Pending rows are withdrawn to Draft first (the guard forbids deleting them).
   const ids = new Set();
-  for (const f of [`startswith(mwf_contractnumber,'TEST-TMP')`, `startswith(mwf_name,'TEST-TMP')`]) {
+  for (const f of [`startswith(mwf_name,'TEST-TMP')`]) {
     for (const r of (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(f)}`)).j.value) ids.add(r.mwf_contractid);
   }
   const res = await deleteContracts(io, [...ids]);
@@ -160,7 +160,7 @@ async function cleanup() {
   return removed;
 }
 async function counts() {
-  const a = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`startswith(mwf_contractnumber,'TEST-TMP') or startswith(mwf_name,'TEST-TMP')`)}`)).j.value.length;
+  const a = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`startswith(mwf_name,'TEST-TMP')`)}`)).j.value.length;
   const b = (await must('GET', `mwf_counterparties?$select=mwf_counterpartyid&$filter=${q(`startswith(mwf_name,'TEST-TMP')`)}`)).j.value.length;
   const total = (await must('GET', `mwf_contracts?$select=mwf_contractid&$count=true&$top=1`)).j['@odata.count'];
   return { contracts: a, counterparties: b, totalContracts: total };
