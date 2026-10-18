@@ -294,7 +294,7 @@ const NUMBER_TYPE = 'Muwafaqa.Plugins.Contract.GenerateContractNumberOnCreate';
 const NUMBER_STEP_RANK = 10;   // plug-in 1 has rank 1: the counter lock is taken as late as possible (ADR-006)
 const GUARD_UPDATE_COLUMNS = 'statuscode,statecode,mwf_value,transactioncurrencyid,mwf_contracttype,mwf_direction,mwf_counterpartyid,mwf_contractnumber,mwf_valueusdfrozen,mwf_approvalround';
 const SORT = (csv) => csv.split(',').map((x) => x.trim()).sort().join(',');
-const EXPECTED_ASSEMBLY_VERSION = argOf('expect-assembly-version') || '1.0.3.0';
+const EXPECTED_ASSEMBLY_VERSION = argOf('expect-assembly-version') || '1.0.4.0';
 
 async function getPackage() {
   const pk = (await get(`pluginpackages?$filter=uniquename eq '${PACKAGE_UNIQUE}'&$select=name,uniquename,version`)).value;

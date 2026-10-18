@@ -24,13 +24,13 @@
  */
 import { execSync } from 'node:child_process';
 import { deleteContracts, approvalFlowState } from './lib/contract-cleanup.mjs';
+import { ctrIo, trackCreate, snapshotCounters, restoreAfterRun, restoreFromArgs, printHandoff } from './lib/counter-snapshot.mjs';
 
 const argOf = (n) => (process.argv.find((a) => a.startsWith(`--${n}=`)) || '').slice(n.length + 3);
 const MODE = argOf('mode');
 const ENV = argOf('env').replace(/\/+$/, '');
 const AUTH = argOf('auth') || 'device';
 const CLIENT_ID = '04b07795-8ddb-461a-bbee-02f9e1bf7b46'; // public Azure CLI client id, same as the other scripts
-const NUMBER = 'TEST-TMP-RND-1';
 const SUBJECT = 'TEST-TMP-RND-1 stale run test';
 const CP_NAME = 'TEST-TMP-RND-1 Fictional Counterparty (delete me)';
 const PENDING = 867640000;
@@ -41,7 +41,7 @@ if (!['setup', 'read', 'cleanup'].includes(MODE)) { console.error('Missing or in
 if (!/^https:\/\/[^/]+$/.test(ENV)) { console.error('Missing or invalid --env=https://<org>.crm4.dynamics.com. Nothing was run.'); process.exit(2); }
 if (!['device', 'az'].includes(AUTH)) { console.error('Invalid --auth=device|az. Nothing was run.'); process.exit(2); }
 if (MODE !== 'read' && !process.argv.includes('--confirm-mutates-environment')) {
-  console.error(`WARNING: --mode=${MODE} creates, updates or deletes ${NUMBER} rows, and the moves to Pending Approval start REAL flow runs and approval requests. Add --confirm-mutates-environment to run it on purpose. Nothing was run.`);
+  console.error(`WARNING: --mode=${MODE} creates, updates or deletes the TEST-TMP-RND-1 rows, and the moves to Pending Approval start REAL flow runs and approval requests. Add --confirm-mutates-environment to run it on purpose. Nothing was run.`);
   process.exit(2);
 }
 
@@ -79,6 +79,7 @@ async function call(method, path, body, extra = {}) {
   const t = await r.text();
   let j = null; try { j = t ? JSON.parse(t) : null; } catch { /* not json */ }
   const m = /\(([0-9a-fA-F-]{36})\)/.exec(r.headers.get('OData-EntityId') || '');
+  trackCreate(method, path, body, r.ok);   // counts committed contract creates (counter helper, ADR-006)
   return { ok: r.ok, status: r.status, j, text: t, id: m ? m[1] : null };
 }
 class Stop extends Error {}
@@ -106,12 +107,15 @@ async function requireFlowOn() {
   console.log('INFO  approval flow is ON (read only check)');
 }
 
+const ctr = ctrIo(call);
+
 async function setup() {
   await requireFlowOn();
   const pre = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`startswith(mwf_name,'TEST-TMP')`)}`)).j.value.length;
   if (pre) throw new Stop(`${pre} TEST-TMP row(s) already exist. Run --mode=cleanup first. Nothing was changed.`);
   const total0 = (await must('GET', `mwf_contracts?$select=mwf_contractid&$count=true&$top=1`)).j['@odata.count'];
   console.log(`before: total contracts ${total0}`);
+  const ctrSnap = await snapshotCounters(ctr);
 
   const opt = async (col, label) => {
     const a = await must('GET', `EntityDefinitions(LogicalName='mwf_contract')/Attributes(LogicalName='${col}')/Microsoft.Dynamics.CRM.PicklistAttributeMetadata?$select=LogicalName&$expand=OptionSet($select=Options)`);
@@ -154,6 +158,7 @@ async function setup() {
   const fin = await now();
   console.log(`after submission 2: ${stateLine(fin)}   (expected round 2)`);
 
+  printHandoff(ctrSnap);
   console.log(`
 === WHAT TO DO NEXT (in Power Automate / the approvals app)
  Two runs should have started: run 1 at about ${t1.toISOString()} and run 2 at about ${t2.toISOString()}.
@@ -202,6 +207,7 @@ async function cleanup() {
   const b = (await must('GET', `mwf_counterparties?$select=mwf_counterpartyid&$filter=${q(`startswith(mwf_name,'TEST-TMP')`)}`)).j.value.length;
   const total = (await must('GET', `mwf_contracts?$select=mwf_contractid&$count=true&$top=1`)).j['@odata.count'];
   console.log(`check-clean: TEST-TMP contracts ${a}, TEST-TMP counterparties ${b}, total contracts ${total} (expected 0, 0, 11)`);
+  if (a === 0 && b === 0) await restoreFromArgs(ctr);
 }
 
 (async () => {

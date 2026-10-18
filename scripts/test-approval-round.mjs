@@ -27,6 +27,7 @@
  */
 import { execSync } from 'node:child_process';
 import { deleteContracts, requireFlowOff, GUARD_DELETE_STEP_NAME } from './lib/contract-cleanup.mjs';
+import { ctrIo, trackCreate, snapshotCounters, restoreAfterRun, restoreFromArgs, printHandoff } from './lib/counter-snapshot.mjs';
 
 const argOf = (n) => (process.argv.find((a) => a.startsWith(`--${n}=`)) || '').slice(n.length + 3);
 const ENV = argOf('env').replace(/\/+$/, '');
@@ -80,6 +81,7 @@ async function call(method, path, body, extra = {}) {
   const t = await r.text();
   let j = null; try { j = t ? JSON.parse(t) : null; } catch { /* not json */ }
   const m = /\(([0-9a-fA-F-]{36})\)/.exec(r.headers.get('OData-EntityId') || '');
+  trackCreate(method, path, body, r.ok);   // counts committed contract creates (counter helper, ADR-006)
   return { ok: r.ok, status: r.status, j, text: t, id: m ? m[1] : null };
 }
 class Stop extends Error {}
@@ -212,8 +214,10 @@ async function cleanupAll() {
   return res.failed.length === 0;
 }
 
+const ctr = ctrIo(call);
 (async () => {
   let exit = 0;
+  let ctrSnap = null;
   try {
     TOKEN = AUTH === 'az'
       ? execSync(`az account get-access-token --resource ${ENV} --query accessToken -o tsv`, { encoding: 'utf8', shell: true }).trim()
@@ -224,6 +228,7 @@ async function cleanupAll() {
     if (pre) throw new Stop(`${pre} TEST-TMP row(s) already exist. Nothing was changed.`);
     const total0 = (await must('GET', `mwf_contracts?$select=mwf_contractid&$count=true&$top=1`)).j['@odata.count'];
     console.log(`before: total contracts ${total0}`);
+    ctrSnap = await snapshotCounters(ctr);
 
     const cpType = (await must('GET', `EntityDefinitions(LogicalName='mwf_counterparty')/Attributes(LogicalName='mwf_counterpartytype')/Microsoft.Dynamics.CRM.PicklistAttributeMetadata?$select=LogicalName&$expand=OptionSet($select=Options)`)).j.OptionSet.Options[0].Value;
     const usd = (await must('GET', `transactioncurrencies?$select=isocurrencycode&$filter=isocurrencycode eq 'USD' and statecode eq 0`)).j.value;
@@ -247,6 +252,7 @@ async function cleanupAll() {
         const total = (await must('GET', `mwf_contracts?$select=mwf_contractid&$count=true&$top=1`)).j['@odata.count'];
         console.log(`check-clean: TEST-TMP contracts ${a}, TEST-TMP counterparties ${b}, total contracts ${total} (expected 0, 0, 11)`);
         if (!ok || a || b) exit = exit || 5;
+        if (ctrSnap) { const rs = await restoreAfterRun(ctr, ctrSnap); if (rs.refused) exit = exit || 6; }
 
         // the guard Update step registration must be unchanged (filtering 10, PreImage 9)
         const st = (await must('GET', `sdkmessageprocessingsteps?$filter=${q(`name eq '${GUARD_UPDATE_STEP_NAME}'`)}&$select=name,filteringattributes`)).j.value;

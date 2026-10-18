@@ -23,6 +23,7 @@
  */
 import { execSync } from 'node:child_process';
 import { deleteContracts, approvalFlowState } from './lib/contract-cleanup.mjs';
+import { ctrIo, trackCreate, snapshotCounters, restoreAfterRun, restoreFromArgs, printHandoff } from './lib/counter-snapshot.mjs';
 
 const argOf = (n) => (process.argv.find((a) => a.startsWith(`--${n}=`)) || '').slice(n.length + 3);
 const ENV = argOf('env').replace(/\/+$/, '');
@@ -73,6 +74,7 @@ async function call(method, path, body, extra = {}) {
   const t = await r.text();
   let j = null; try { j = t ? JSON.parse(t) : null; } catch { /* not json */ }
   const m = /\(([0-9a-fA-F-]{36})\)/.exec(r.headers.get('OData-EntityId') || '');
+  trackCreate(method, path, body, r.ok);   // counts committed contract creates (counter helper, ADR-006)
   return { ok: r.ok, status: r.status, j, text: t, id: m ? m[1] : null };
 }
 class Stop extends Error {}
@@ -140,6 +142,8 @@ async function countRunsSince(ts) {
   const table = [];
   let exit = 0;
   const fx = { cp: null, id: null };
+  const ctr = ctrIo(call);
+  let ctrSnap = null;
   try {
     TOKEN = AUTH === 'az'
       ? execSync(`az account get-access-token --resource ${ENV} --query accessToken -o tsv`, { encoding: 'utf8', shell: true }).trim()
@@ -153,6 +157,7 @@ async function countRunsSince(ts) {
     if (pre) throw new Stop(`${pre} row(s) with the prefix ${PREFIX} already exist. Nothing was changed.`);
     const total0 = (await must('GET', `mwf_contracts?$select=mwf_contractid&$count=true&$top=1`)).j['@odata.count'];
     console.log(`before: total contracts ${total0}`);
+    ctrSnap = await snapshotCounters(ctr);
 
     // fixtures
     const opt = async (table, col, label) => {
@@ -206,6 +211,7 @@ async function countRunsSince(ts) {
         const total = (await must('GET', `mwf_contracts?$select=mwf_contractid&$count=true&$top=1`)).j['@odata.count'];
         console.log(`check-clean: TEST-TMP contracts ${a}, TEST-TMP counterparties ${b}, total contracts ${total} (expected 0, 0, 11)`);
         if (a || b) exit = exit || 5;
+        if (ctrSnap) { const rs = await restoreAfterRun(ctr, ctrSnap); if (rs.refused) exit = exit || 6; }
       }
     } catch (e) { console.error(`cleanup FAILED: ${noGuid(e.message)}`); exit = exit || 5; }
     if (table.length) {

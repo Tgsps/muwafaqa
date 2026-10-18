@@ -19,6 +19,7 @@
  */
 import { execSync } from 'node:child_process';
 import { deleteContract } from './lib/contract-cleanup.mjs';
+import { ctrIo, trackCreate, snapshotCounters, restoreAfterRun, restoreFromArgs, printHandoff } from './lib/counter-snapshot.mjs';
 
 const argOf = (n) => (process.argv.find((a) => a.startsWith(`--${n}=`)) || '').slice(n.length + 3);
 const MODE = argOf('mode');
@@ -72,6 +73,7 @@ async function call(method, path, body, extra = {}) {
   const t = await r.text();
   let j = null; try { j = t ? JSON.parse(t) : null; } catch { /* not json */ }
   const m = /\(([0-9a-fA-F-]{36})\)/.exec(r.headers.get('OData-EntityId') || '');
+  trackCreate(method, path, body, r.ok);   // counts committed contract creates (counter helper, ADR-006)
   return { ok: r.ok, status: r.status, j, text: t, id: m ? m[1] : null };
 }
 class Stop extends Error {}
@@ -91,6 +93,8 @@ const fmt = (g) => `Subject "${g.mwf_name}" | status ${g.statuscode} (${NAME[g.s
 const read = async (id) => (await must('GET', `mwf_contracts(${id})?$select=${SEL}`)).j;
 const rowsByPrefix = async () => (await must('GET', `mwf_contracts?$select=${SEL}&$filter=${q(`startswith(mwf_name,'${PREFIX}')`)}&$orderby=mwf_name`)).j.value;
 
+const ctr = ctrIo(call);
+
 async function part1() {
   const cpType = (await must('GET', `EntityDefinitions(LogicalName='mwf_counterparty')/Attributes(LogicalName='mwf_counterpartytype')/Microsoft.Dynamics.CRM.PicklistAttributeMetadata?$select=LogicalName&$expand=OptionSet($select=Options)`)).j.OptionSet.Options[0].Value;
   const cur = (await must('GET', `transactioncurrencies?$select=isocurrencycode&$filter=isocurrencycode eq 'USD' and statecode eq 0`)).j.value;
@@ -100,6 +104,7 @@ async function part1() {
   const before = (await rowsByPrefix()).length;
   if (before) throw new Stop(`${before} row(s) with the prefix ${PREFIX} already exist. Run part2 or clean them first.`);
 
+  const ctrSnap = await snapshotCounters(ctr);
   console.log('--- a. create one counterparty and two Draft contracts');
   const cp = await must('POST', 'mwf_counterparties', { mwf_name: `${PREFIX} Fictional Counterparty (delete me)`, mwf_counterpartytype: cpType });
   const mk = async (n, subject) => (await must('POST', 'mwf_contracts', {
@@ -130,7 +135,8 @@ async function part1() {
   console.log('\n--- d. subjects');
   console.log(`FLOW1: ${g1.mwf_name}`);
   console.log(`FLOW2: ${g2b.mwf_name}`);
-  console.log('\nSTOP: nothing was cleaned. Answer the approval requests by hand, then run --mode=part2.');
+  printHandoff(ctrSnap);
+  console.log('\nSTOP: nothing was cleaned. Answer the approval requests by hand, then run --mode=part2 (pass the --counters-before / --counters-consumed values above to restore the counters).');
 }
 
 async function part2() {
@@ -172,6 +178,7 @@ async function part2() {
     console.log(`delete counterparty: HTTP ${d.status}`);
   }
   await checkClean();
+  await restoreFromArgs(ctr);
   console.log('\nh. nothing was committed.');
 }
 

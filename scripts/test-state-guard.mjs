@@ -20,6 +20,7 @@
  */
 import { execSync } from 'node:child_process';
 import { deleteContract, requireFlowOff } from './lib/contract-cleanup.mjs';
+import { ctrIo, trackCreate, snapshotCounters, restoreAfterRun, restoreFromArgs, printHandoff } from './lib/counter-snapshot.mjs';
 
 const argOf = (n) => (process.argv.find((a) => a.startsWith(`--${n}=`)) || '').slice(n.length + 3);
 const MODE = argOf('mode');
@@ -78,6 +79,7 @@ async function call(method, path, body, extra = {}) {
   const t = await r.text();
   let j = null; try { j = t ? JSON.parse(t) : null; } catch { /* not json */ }
   const m = /\(([0-9a-fA-F-]{36})\)/.exec(r.headers.get('OData-EntityId') || '');
+  trackCreate(method, path, body, r.ok);   // counts committed contract creates (counter helper, ADR-006)
   return { ok: r.ok, status: r.status, j, text: t, id: m ? m[1] : null };
 }
 class Unexpected extends Error {}
@@ -281,10 +283,9 @@ async function g3() {
   for (const state of ['Pending', 'In Force', 'Rejected']) {
     const id = await lockedRow(state, `G3-${state.replace(' ', '')}`, state);
     FX.lock[state] = id;
-    const num = `${PREFIX}-G3-${state.replace(' ', '')}`;
     for (const c of COLUMNS) {
-      await attempt(`${state}: ${c.key} DIFFERENT value`, id, c.other(num), '400', { mustSay: `Cannot change ${c.display}` });
-      await attempt(`${state}: ${c.key} IDENTICAL value`, id, c.same(num), 'ok', { platformMayBlock: state === 'Rejected', expected: 'HTTP 204 (no-op)' });
+      await attempt(`${state}: ${c.key} DIFFERENT value`, id, c.other(), '400', { mustSay: `Cannot change ${c.display}` });
+      await attempt(`${state}: ${c.key} IDENTICAL value`, id, c.same(), 'ok', { platformMayBlock: state === 'Rejected', expected: 'HTTP 204 (no-op)' });
     }
     await attempt(`${state}: mwf_valueusdfrozen different value`, id, { mwf_valueusdfrozen: 5 }, '400', { mustSay: 'Value (USD, Frozen) cannot be changed' });
     await attempt(`${state}: Subject`, id, { mwf_name: `${PREFIX} G3 ${state} renamed` }, 'ok', { platformMayBlock: state === 'Rejected' });
@@ -292,9 +293,8 @@ async function g3() {
   // Draft: every column is editable, the frozen one is not, the Subject is editable
   const d = await mk('G3-Draft');
   FX.lock.Draft = d;
-  const num = `${PREFIX}-G3-Draft`;
   for (const c of COLUMNS) {
-    await attempt(`Draft: ${c.key} DIFFERENT value`, d, c.other(num), 'ok', { expected: 'HTTP 204 (Draft is editable)' });
+    await attempt(`Draft: ${c.key} DIFFERENT value`, d, c.other(), 'ok', { expected: 'HTTP 204 (Draft is editable)' });
   }
   await attempt('Draft: mwf_valueusdfrozen different value', d, { mwf_valueusdfrozen: 5 }, '400', { mustSay: 'Value (USD, Frozen) cannot be changed' });
   await attempt('Draft: Subject', d, { mwf_name: `${PREFIX} G3 Draft renamed` }, 'ok');
@@ -368,7 +368,7 @@ async function g8() {
 
 async function uiRows() {
   group = 'UI rows';
-  const mkUi = async (letter, text) => mk(`UI-${letter}`, { name: `${UI_PREFIX} ${letter} ${text}`, number: `${UI_PREFIX}-${letter}` });
+  const mkUi = async (letter, text) => mk(`UI-${letter}`, { name: `${UI_PREFIX} ${letter} ${text}` });
   const a = await mkUi('A', 'Draft deactivate me');
   const b = await mkUi('B', 'Rejected activate me');
   await toPending(b); await toRejected(b);
@@ -415,8 +415,10 @@ async function remaining() {
 }
 
 // ------------------------------------------------------------------ main
+const ctr = ctrIo(call);
 (async () => {
   let exit = 0;
+  let ctrSnap = null;
   try {
     TOKEN = AUTH === 'az'
       ? execSync(`az account get-access-token --resource ${ENV} --query accessToken -o tsv`, { encoding: 'utf8', shell: true }).trim()
@@ -434,13 +436,15 @@ async function remaining() {
       const r = await remaining();
       console.log(`cleanup: removed ${c.removed}; could not remove: ${c.left.length ? c.left.join('; ') : 'none'}`);
       console.log(`remaining: contracts ${r.rows.length}, counterparties ${r.cps.length}; total contracts ${r.total}`);
-      process.exit(c.left.length ? 1 : 0);
+      const rsC = !c.left.length && !r.rows.length ? await restoreFromArgs(ctr) : { refused: 0 };
+      process.exit(c.left.length || rsC.refused ? 1 : 0);
     }
 
     await requireFlowOff(io, { confirmedByUser: FLOW_OFF_CONFIRMED });
     const before = await remaining();
     console.log(`before: rows with the prefix ${before.rows.length}, counterparties ${before.cps.length}; total contracts ${before.total}`);
     if (before.rows.length || before.cps.length) throw new Unexpected('Rows with the TEST-TMP-GUARD prefix already exist. Run --mode=cleanup --include-ui first.');
+    ctrSnap = await snapshotCounters(ctr);
     await setup();
     for (const f of [g1, g2, g3, g4, g5, g6, g7, g8, ...(SKIP_UI_ROWS ? [] : [uiRows])]) await f();
     console.log(SKIP_UI_ROWS ? '\n=== cleanup of every TEST-TMP-GUARD row (UI rows skipped)' : '\n=== cleanup of every TEST-TMP-GUARD row except the UI rows A, B, C');
@@ -451,6 +455,8 @@ async function remaining() {
     console.log(`remaining: contracts ${r.rows.length}, counterparties ${r.cps.length}; total contracts ${r.total}`);
     for (const x of r.rows) console.log(`  "${x.mwf_name}" (${NAME[x.statuscode] || x.statuscode})`);
     for (const x of r.cps) console.log(`  counterparty "${x.mwf_name}"`);
+    if (r.rows.length) printHandoff(ctrSnap);   // the UI rows keep their numbers: restore only after they are deleted (--mode=cleanup --include-ui)
+    else { const rs = await restoreAfterRun(ctr, ctrSnap); if (rs.refused) exit = exit || 6; }
   } catch (e) {
     exit = 4;
     console.error(`\nSTOPPED (unexpected): ${noGuid(e.message)}`);

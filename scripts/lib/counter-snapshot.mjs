@@ -59,10 +59,87 @@ export async function restoreCounters(io, snapshot, consumedByType) {
       out.lines.push(`${snap.prefix}: NOT restored. snapshot ${snap.last}, consumed by this test ${consumed}, now ${cur.last} (another number was used)`);
       continue;
     }
+    // never restore below a number that still exists on a contract (the next create would collide on the alternate key)
+    const ex = await io.get(`mwf_contracts?$select=mwf_contractnumber&$filter=${encodeURIComponent(`startswith(mwf_contractnumber,'${snap.prefix}-')`)}&$top=5000`);
+    if (!ex.ok) { out.refused++; out.lines.push(`${snap.prefix}: NOT restored. could not read the existing numbers: HTTP ${ex.status}`); continue; }
+    const maxExisting = Math.max(0, ...ex.json.value.map((r) => Number(String(r.mwf_contractnumber).split('-')[1]) || 0));
+    if (maxExisting > snap.last) {
+      out.refused++;
+      out.lines.push(`${snap.prefix}: NOT restored. a contract with number suffix ${maxExisting} still exists, above the snapshot ${snap.last}`);
+      continue;
+    }
     const w = await io.patch(`${snapshot.set}(${cur.id})`, { mwf_lastnumber: snap.last });
     if (!w.ok) { out.refused++; out.lines.push(`${snap.prefix}: restore failed HTTP ${w.status} ${w.message || ''}`); continue; }
     out.restored++;
     out.lines.push(`${snap.prefix}: restored ${cur.last} -> ${snap.last}`);
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Convenience layer for the test scripts (ADR-006). Each script has its own `call(method, path, body, extra)`.
+//   const ctr = ctrIo(call);                    adapter for the functions above
+//   trackCreate(method, path, body, ok)         one line inside call(): counts committed contract creates per type
+//   ctrSnap = await snapshotCounters(ctr)       at the start of a run (after the pre-checks)
+//   await restoreAfterRun(ctr, ctrSnap)         at the end of a run, AFTER the cleanup and the check-clean
+// Scripts that leave rows behind for a later step (setup/part1 ... cleanup/part2, run in other processes):
+//   printHandoff(ctrSnap)                       prints --counters-before=... --counters-consumed=... for the later step
+//   await restoreFromArgs(ctr)                  in the cleanup step: restores from those two arguments, same rule
+// ---------------------------------------------------------------------------------------------------------------
+const CONSUMED = {};
+
+export function ctrIo(call) {
+  const msg = (r) => String(r.j?.error?.message || (r.ok ? '' : r.text) || '').slice(0, 200);
+  return {
+    get: async (p) => { const r = await call('GET', p); return { ok: r.ok, status: r.status, json: r.j, message: msg(r) }; },
+    patch: async (p, b) => { const r = await call('PATCH', p, b, { 'If-Match': '*' }); return { ok: r.ok, status: r.status, message: msg(r) }; },
+  };
+}
+
+export function trackCreate(method, path, body, ok) {
+  if (method !== 'POST' || !ok || !body || !/^mwf_contracts(\?|$)/.test(path)) return;
+  const t = body.mwf_contracttype;
+  if (t !== undefined && t !== null) CONSUMED[t] = (CONSUMED[t] || 0) + 1;
+}
+
+const pfxOf = (snap, type) => snap.byType[type].prefix;
+const encode = (pairs) => Object.entries(pairs).map(([k, v]) => `${k}:${v}`).join(',');
+
+export function printHandoff(snap) {
+  const before = {}; const used = {};
+  for (const [type, c] of Object.entries(snap.byType)) { before[c.prefix] = c.last; if (CONSUMED[type]) used[c.prefix] = CONSUMED[type]; }
+  console.log(`
+COUNTERS handed to the cleanup step: --counters-before=${encode(before)} --counters-consumed=${encode(used) || 'NONE:0'}`);
+}
+
+function printRestore(rs) {
+  for (const l of rs.lines) console.log(`counter: ${l}`);
+  console.log(`counters: restored ${rs.restored}, unchanged ${rs.unchanged}, refused ${rs.refused}`);
+}
+
+export async function restoreAfterRun(ctr, snap) {
+  const rs = await restoreCounters(ctr, snap, CONSUMED);
+  printRestore(rs);
+  return rs;
+}
+
+export async function restoreFromArgs(ctr, argv = process.argv) {
+  const argOf = (n) => (argv.find((a) => a.startsWith(`--${n}=`)) || '').slice(n.length + 3);
+  const beforeStr = argOf('counters-before'); const usedStr = argOf('counters-consumed');
+  const cur = await snapshotCounters(ctr);
+  console.log('counters now: ' + Object.values(cur.byType).map((c) => `${c.prefix}=${c.last}`).join(' '));
+  if (!beforeStr || !usedStr) {
+    console.log('counters NOT restored: give --counters-before=... and --counters-consumed=... (printed by the step that created the rows).');
+    return { restored: 0, unchanged: 0, refused: 0, skipped: true };
+  }
+  const parse = (t) => Object.fromEntries(t.split(',').filter(Boolean).map((kv) => kv.split(':')));
+  const before = parse(beforeStr); const used = parse(usedStr);
+  const fake = { set: cur.set, byType: {} }; const consumed = {};
+  for (const [type, c] of Object.entries(cur.byType)) {
+    fake.byType[type] = { id: c.id, prefix: c.prefix, last: Number(before[c.prefix] ?? c.last) };
+    consumed[type] = Number(used[c.prefix] || 0);
+  }
+  const rs = await restoreCounters(ctr, fake, consumed);
+  printRestore(rs);
+  return rs;
 }

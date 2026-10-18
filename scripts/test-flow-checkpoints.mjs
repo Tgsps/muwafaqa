@@ -26,6 +26,7 @@
  */
 import { execSync } from 'node:child_process';
 import { deleteContract, findGuardDeleteStepId, approvalFlowState } from './lib/contract-cleanup.mjs';
+import { ctrIo, trackCreate, snapshotCounters, restoreAfterRun, restoreFromArgs, printHandoff } from './lib/counter-snapshot.mjs';
 
 const argOf = (n) => (process.argv.find((a) => a.startsWith(`--${n}=`)) || '').slice(n.length + 3);
 const MODE = argOf('mode');
@@ -85,6 +86,7 @@ async function call(method, path, body, extra = {}) {
   const t = await r.text();
   let j = null; try { j = t ? JSON.parse(t) : null; } catch { /* not json */ }
   const m = /\(([0-9a-fA-F-]{36})\)/.exec(r.headers.get('OData-EntityId') || '');
+  trackCreate(method, path, body, r.ok);   // counts committed contract creates (counter helper, ADR-006)
   return { ok: r.ok, status: r.status, j, text: t, id: m ? m[1] : null };
 }
 class Stop extends Error {}
@@ -112,6 +114,8 @@ async function requireFlowOn() {
   console.log('INFO  approval flow is ON (read only check)');
 }
 
+const ctr = ctrIo(call);
+
 async function setup() {
   await requireFlowOn();
   const existing = await rows();
@@ -128,6 +132,7 @@ async function setup() {
   const type = await opt('mwf_contracttype', 'Maintenance');
   const dir = await opt('mwf_direction', 'Expense');
 
+  const ctrSnap = await snapshotCounters(ctr);
   const cp = (await must('POST', 'mwf_counterparties', { mwf_name: `${PREFIX} Fictional Counterparty (delete me)`, mwf_counterpartytype: cpType })).id;
   const ids = {};
   for (const c of CONTRACTS) {
@@ -157,6 +162,7 @@ async function setup() {
   const chk2 = byNumber(await rows(), 2);
   console.log(`  ${chk2.mwf_name} | ${NAME[chk2.statuscode] || chk2.statuscode}  (expected Draft)`);
 
+  printHandoff(ctrSnap);
   console.log(`
 === WHAT TO DO NEXT (in Power Automate / the approvals app)
  Four runs should have started at about ${t0.toISOString()} (one per contract). Identify each approval by the contract
@@ -248,6 +254,7 @@ async function cleanup() {
   const b = (await must('GET', `mwf_counterparties?$select=mwf_counterpartyid&$filter=${q(`startswith(mwf_name,'TEST-TMP')`)}`)).j.value.length;
   const total = (await must('GET', `mwf_contracts?$select=mwf_contractid&$count=true&$top=1`)).j['@odata.count'];
   console.log(`check-clean: TEST-TMP contracts ${a}, TEST-TMP counterparties ${b}, total contracts ${total} (expected 0, 0, 11)`);
+  if (a === 0 && b === 0) await restoreFromArgs(ctr);
 }
 
 (async () => {
