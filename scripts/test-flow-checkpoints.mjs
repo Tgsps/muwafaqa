@@ -27,6 +27,7 @@
 import { execSync } from 'node:child_process';
 import { deleteContract, findGuardDeleteStepId, approvalFlowState } from './lib/contract-cleanup.mjs';
 import { ctrIo, trackCreate, snapshotCounters, restoreAfterRun, restoreFromArgs, printHandoff, requireStableConnection } from './lib/counter-snapshot.mjs';
+import { resilientFetch, enterCleanupPhase, recheckAfterWait } from './lib/resilient-fetch.mjs';
 
 const argOf = (n) => (process.argv.find((a) => a.startsWith(`--${n}=`)) || '').slice(n.length + 3);
 const MODE = argOf('mode');
@@ -82,7 +83,7 @@ async function deviceToken() {
 }
 const hdr = (extra = {}) => ({ Authorization: `Bearer ${TOKEN}`, Accept: 'application/json', 'OData-MaxVersion': '4.0', 'OData-Version': '4.0', 'Content-Type': 'application/json; charset=utf-8', ...extra });
 async function call(method, path, body, extra = {}) {
-  const r = await fetch(`${API}/${path}`, { method, headers: hdr(extra), body: body === undefined ? undefined : JSON.stringify(body) });
+  const r = await resilientFetch(`${API}/${path}`, { method, headers: hdr(extra), body: body === undefined ? undefined : JSON.stringify(body) });   // GET retried on network errors only (scripts/lib/resilient-fetch.mjs)
   const t = await r.text();
   let j = null; try { j = t ? JSON.parse(t) : null; } catch { /* not json */ }
   const m = /\(([0-9a-fA-F-]{36})\)/.exec(r.headers.get('OData-EntityId') || '');
@@ -220,6 +221,7 @@ async function read() {
     if (mine.length >= 4) break;
     console.log(`  attempt ${i + 1}: ${mine.length} finished run(s) listed so far, waiting 20 s`);
     await sleep(20000);
+    await recheckAfterWait(call, 'This is the read step: nothing is written by it. Run --mode=read again when the connection is stable.');
   }
   if (!readable) { console.log(`flowruns not readable: ${note}`); return; }
   console.log(`finished runs of this flow started after ${since.toISOString()}: ${mine.length}`);
@@ -232,6 +234,7 @@ async function read() {
 }
 
 async function cleanup() {
+  enterCleanupPhase();   // from here DELETE is retried (404 = already gone) and reads are more patient
   const list = await rows();
   console.log(`contracts found: ${list.length}`);
   if (list.length) {

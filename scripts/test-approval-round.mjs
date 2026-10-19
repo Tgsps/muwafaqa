@@ -28,6 +28,7 @@
 import { execSync } from 'node:child_process';
 import { deleteContracts, requireFlowOff, GUARD_DELETE_STEP_NAME } from './lib/contract-cleanup.mjs';
 import { ctrIo, trackCreate, snapshotCounters, restoreAfterRun, restoreFromArgs, printHandoff, requireStableConnection } from './lib/counter-snapshot.mjs';
+import { resilientFetch, enterCleanupPhase, recheckAfterWait } from './lib/resilient-fetch.mjs';
 
 const argOf = (n) => (process.argv.find((a) => a.startsWith(`--${n}=`)) || '').slice(n.length + 3);
 const ENV = argOf('env').replace(/\/+$/, '');
@@ -77,7 +78,7 @@ async function deviceToken() {
 }
 const hdr = (extra = {}) => ({ Authorization: `Bearer ${TOKEN}`, Accept: 'application/json', 'OData-MaxVersion': '4.0', 'OData-Version': '4.0', 'Content-Type': 'application/json; charset=utf-8', ...extra });
 async function call(method, path, body, extra = {}) {
-  const r = await fetch(`${API}/${path}`, { method, headers: hdr(extra), body: body === undefined ? undefined : JSON.stringify(body) });
+  const r = await resilientFetch(`${API}/${path}`, { method, headers: hdr(extra), body: body === undefined ? undefined : JSON.stringify(body) });   // GET retried on network errors only (scripts/lib/resilient-fetch.mjs)
   const t = await r.text();
   let j = null; try { j = t ? JSON.parse(t) : null; } catch { /* not json */ }
   const m = /\(([0-9a-fA-F-]{36})\)/.exec(r.headers.get('OData-EntityId') || '');
@@ -215,6 +216,7 @@ async function cases() {
 }
 
 async function cleanupAll() {
+  enterCleanupPhase();   // from here DELETE is retried (404 = already gone) and reads are more patient
   const rows = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`startswith(mwf_name,'${PREFIX}')`)}`)).j.value;
   const res = await deleteContracts(io, rows.map((r) => r.mwf_contractid));
   console.log(`contracts: found ${rows.length}, deleted ${res.deleted}${res.failed.length ? `, FAILED ${JSON.stringify(res.failed)}` : ''}`);

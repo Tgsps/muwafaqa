@@ -105,6 +105,18 @@ export function trackCreate(method, path, body, ok) {
 const pfxOf = (snap, type) => snap.byType[type].prefix;
 const encode = (pairs) => Object.entries(pairs).map(([k, v]) => `${k}:${v}`).join(',');
 
+/** The two arguments of the cleanup step, as text (for messages). */
+export function handoffArgs(snap) {
+  const before = {}; const used = {};
+  for (const [type, c] of Object.entries(snap.byType)) { before[c.prefix] = c.last; if (CONSUMED[type]) used[c.prefix] = CONSUMED[type]; }
+  return `--counters-before=${encode(before)} --counters-consumed=${encode(used) || 'NONE:0'}`;
+}
+
+/** What to run if a script stops half-way (the generic cleanup by Subject prefix, with the counters of this run). */
+export function cleanupHint(prefix, snap) {
+  return `To clean up, run: node scripts/cleanup-test-rows.mjs --prefix=${prefix} --env=<url> --auth=az --confirm-mutates-environment${snap ? ' ' + handoffArgs(snap) : ''}`;
+}
+
 export function printHandoff(snap) {
   const before = {}; const used = {};
   for (const [type, c] of Object.entries(snap.byType)) { before[c.prefix] = c.last; if (CONSUMED[type]) used[c.prefix] = CONSUMED[type]; }
@@ -155,7 +167,7 @@ export async function requireStableConnection(call, { need = 3, maxAttempts = 8,
   while (streak < need && attempts < maxAttempts) {
     attempts++;
     try {
-      const r = await call('GET', 'WhoAmI');
+      const r = await call('GET', 'WhoAmI', undefined, { __noRetry: true });   // the check is its own retry loop
       if (r.ok) streak++; else { streak = 0; last = `HTTP ${r.status}`; }
     } catch (e) { streak = 0; last = 'network error (fetch failed)'; }
     if (streak < need && attempts < maxAttempts) await new Promise((res) => setTimeout(res, pauseMs));

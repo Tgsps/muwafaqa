@@ -24,7 +24,8 @@
  */
 import { execSync } from 'node:child_process';
 import { deleteContracts, approvalFlowState } from './lib/contract-cleanup.mjs';
-import { ctrIo, trackCreate, snapshotCounters, restoreAfterRun, restoreFromArgs, printHandoff, requireStableConnection } from './lib/counter-snapshot.mjs';
+import { ctrIo, trackCreate, snapshotCounters, restoreAfterRun, restoreFromArgs, printHandoff, requireStableConnection, cleanupHint } from './lib/counter-snapshot.mjs';
+import { resilientFetch, enterCleanupPhase, recheckAfterWait } from './lib/resilient-fetch.mjs';
 
 const argOf = (n) => (process.argv.find((a) => a.startsWith(`--${n}=`)) || '').slice(n.length + 3);
 const MODE = argOf('mode');
@@ -76,7 +77,7 @@ async function deviceToken() {
 }
 const hdr = (extra = {}) => ({ Authorization: `Bearer ${TOKEN}`, Accept: 'application/json', 'OData-MaxVersion': '4.0', 'OData-Version': '4.0', 'Content-Type': 'application/json; charset=utf-8', ...extra });
 async function call(method, path, body, extra = {}) {
-  const r = await fetch(`${API}/${path}`, { method, headers: hdr(extra), body: body === undefined ? undefined : JSON.stringify(body) });
+  const r = await resilientFetch(`${API}/${path}`, { method, headers: hdr(extra), body: body === undefined ? undefined : JSON.stringify(body) });   // GET retried on network errors only (scripts/lib/resilient-fetch.mjs)
   const t = await r.text();
   let j = null; try { j = t ? JSON.parse(t) : null; } catch { /* not json */ }
   const m = /\(([0-9a-fA-F-]{36})\)/.exec(r.headers.get('OData-EntityId') || '');
@@ -147,12 +148,14 @@ async function setup() {
 
   console.log('waiting about 20 s ...');
   await sleep(20000);
+  await recheckAfterWait(call, cleanupHint(SCOPE, ctrSnap));   // connection back before the next write, else stop with nothing written
   console.log(`\n--- withdraw (PATCH Pending Approval -> Draft) at UTC ${new Date().toISOString()}`);
   await move(DRAFT);
   console.log(`after withdraw: ${stateLine(await now())}   (expected round stays 1)`);
 
   console.log('waiting about 10 s ...');
   await sleep(10000);
+  await recheckAfterWait(call, cleanupHint(SCOPE, ctrSnap));
   const t2 = new Date();
   console.log(`\n--- submission 2 at UTC ${t2.toISOString()}  (PATCH Draft -> Pending Approval, starts run 2)`);
   await move(PENDING);
@@ -195,6 +198,7 @@ async function read() {
 }
 
 async function cleanup() {
+  enterCleanupPhase();   // from here DELETE is retried (404 = already gone) and reads are more patient
   const rows = await testRows();
   console.log(`test contracts found: ${rows.length}`);
   for (const r of rows) {

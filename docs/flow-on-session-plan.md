@@ -47,7 +47,7 @@ All take `--env=<url> --auth=az` and, for anything that writes, `--confirm-mutat
 - **Real notifications:** every move to Pending Approval sends approval requests to the approver account configured in the flow. The account was not read. (not checked)
 - **A run left Running:** script 1 leaves one run waiting for an approval; if its contract is deleted and the approval is later answered, the run is expected to fail at "Get contract after stage 1" (Failed instead of Canceled). Not tested; cancel the run instead of answering it.
 - **Confusing the requests:** all requests look alike; use the contract Subject. The two stage-1 requests of script 2 differ only by creation time (older = run 1).
-- **A network fault** (seen twice on 2026-10-13/18): the connection check only protects the start of each script. If a script stops half-way, do not re-run it: the assistant cleans up with the `--mode=cleanup` of that script (or the helper) and reports.
+- **A network fault** (several times, last on 2026-10-19, see the section below): reads are now retried and every wait is followed by a connection recheck, but a long outage still stops the script. If a script stops half-way, do not re-run it: run the cleanup command it prints (`scripts/cleanup-test-rows.mjs`, or the `--mode=cleanup` of that script) and report.
 - **Counter rule broken:** if anything else creates a contract during the session, the helper refuses to restore and prints the numbers; the counters are then reset by hand-checked values, never blindly.
 - **Mixed-up cleanup order:** see rule 1; the assistant follows the order above.
 - **The flow must stay as the owner left it:** no script and no assistant turns it on or off.
@@ -55,3 +55,28 @@ All take `--env=<url> --auth=az` and, for anything that writes, `--confirm-mutat
 ## Not tested
 
 All five scripts after the prefix and counter-helper changes; the two-step handoff and restore path in a real session; whether the run of script 1 fails when its approval is answered after the contract was deleted.
+
+## Network incident of 2026-10-19 and what changed
+
+**What happened.** The first attempt of the flow-ON session stopped in `test-flow-trigger` after case 2: the read of the flow runs after the 60 s wait failed with `getaddrinfo ENOTFOUND` (the machine could not resolve the environment's name), and the script's own cleanup failed right after with the same error. The connection was back some time later (3 consecutive GET requests succeeded), and a read-only monitor of 60 cycles (5 minutes: DNS of the environment, DNS of a neutral public host, and a light GET) showed **0 failures** in that window, so the cause is not reproduced. The owner reports the computer was on a public Wi-Fi (owner). Earlier script interruptions with the same `fetch failed` message were recorded on 2026-10-18 (`test-contract-number` cleanup, the first `package-update`, `test-approval-round`): at least four interrupted scripts in all (the owner counted three). The cleanup after the 10-19 interruption was done by a one-time script, outside the project (counters restored by the helper's rule).
+
+**Proved cause of the gap (from the code):** the retry of reads existed only in `requireStableConnection`, which runs **once at the start** of a script. The wait loop of `flow-trigger` called `call()`, a direct `fetch` with no retry, so a drop during or right after a wait was not covered.
+
+**What changed (decided by the owner: options 1, 3 and 4):**
+1. **`scripts/lib/resilient-fetch.mjs`, used by every test script's `call()`:** GET is retried on **network errors only** (ENOTFOUND, EAI_AGAIN, ETIMEDOUT, ECONNRESET, a bare "fetch failed"): 5 retries waiting 2, 4, 6, 8 and 10 s. An HTTP answer is never retried. **PATCH and POST are never retried** (the outcome of a write that met a network error is unknown; the error says so). **DELETE is retried only in the cleanup phase**, where a 404 counts as success (already gone). In the cleanup phase GET and DELETE are more patient: 10 retries, up to 10 s apart. Every retry is logged (method, path without ids and query, error code, attempt), never a token, host or id.
+2. **Connection recheck after every wait** (`recheckAfterWait`: 3 consecutive GET requests, up to 15 attempts 4 s apart) before the first read or write after the wait, in `test-flow-trigger` (after the 60 s wait), `test-flow-approvalround` setup (after the 20 s and 10 s waits) and the wait loop of `test-flow-checkpoints --mode=read`. If the connection does not come back the script stops with a clear message, **writes nothing after the wait**, and prints the cleanup command.
+3. **Patient cleanup:** every cleanup routine enters the cleanup phase first (reads and DELETE retried more patiently), and still reads the state first (idempotent).
+4. **`scripts/cleanup-test-rows.mjs`:** a generic cleanup by Subject prefix (must start with `TEST-TMP-`) with the counter restore by the helper's rule; it is the command printed when a script stops half-way.
+5. **`scripts/check-connection.mjs`:** the read-only monitor used for the pre-session condition below.
+
+**Tested (script/unit):** 17 unit tests with injected network errors, no network (`node --test scripts/lib/resilient-fetch.test.mjs`): GET retried then succeeds; GET fails for good after the retries; PATCH and POST never retried (also in the cleanup phase); DELETE retried only in the cleanup phase; a 404 on DELETE in the cleanup phase is success (also after a retried DELETE) and a failure outside it; HTTP 404/429/500/503 never retried; a non-network error never retried; the internal no-retry marker is not sent; the log contains no token, host or id; `recheckAfterWait` succeeds after failures and gives up after 15 attempts with the hint, issuing only GET requests. A live run of `test-contract-number --only=T4,T5` (flow OFF) still passed (6 PASS) and restored the counters.
+
+**Not tested:** whether a **whole session survives a real outage** (the retries were exercised only with injected errors, never with a real drop); the recheck inside the live flow-ON scripts; the new cleanup tool against the environment.
+
+## Condition before the session
+
+**The connection must have been stable for about an hour before the session starts.** Check it with the read-only monitor, and start only if it reports 0 failures:
+
+`node scripts/check-connection.mjs --env=<url> --minutes=60`
+
+(a public Wi-Fi is a risk: use a stable network). The monitor writes nothing.

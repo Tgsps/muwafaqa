@@ -41,6 +41,7 @@ import { execSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { deleteContract, deleteContracts, findGuardDeleteStepId, requireFlowOff } from './lib/contract-cleanup.mjs';
 import { snapshotCounters, restoreCounters, requireStableConnection } from './lib/counter-snapshot.mjs';
+import { resilientFetch, enterCleanupPhase } from './lib/resilient-fetch.mjs';
 
 const argOf = (name) => (process.argv.find((a) => a.startsWith(`--${name}=`)) || '').slice(name.length + 3);
 if (!process.argv.includes('--confirm-mutates-environment')) {
@@ -70,7 +71,7 @@ const idOf = (e) => /\(([0-9a-f-]{36})\)/i.exec(e || '')?.[1];
 const msg = (r) => { try { return JSON.parse(r.text).error.message; } catch { return (r.text || '').slice(0, 400); } };
 
 async function call(method, path, body, headers = {}) {
-  const r = await fetch(`${API}/${path}`, {
+  const r = await resilientFetch(`${API}/${path}`, {
     method,
     headers: { Authorization: `Bearer ${TOKEN}`, 'OData-MaxVersion': '4.0', 'OData-Version': '4.0', Accept: 'application/json', 'Content-Type': 'application/json; charset=utf-8', ...headers },
     body: body ? JSON.stringify(body) : undefined,
@@ -128,6 +129,7 @@ async function tmpCount() {
   return { contracts: a.json.value.length, counterparties: b.json.value.length };
 }
 async function cleanup(contractIds, cp) {
+  enterCleanupPhase();
   const res = await deleteContracts(io, contractIds);
   if (res.failed.length) throw new Error(`cleanup FAILED, ${res.failed.length} contract row(s) were not deleted: ${JSON.stringify(res.failed)}`);
   if (cp) await must('DELETE', `mwf_counterparties(${cp})`);
@@ -322,6 +324,7 @@ try {
   }
 
   else if (test === 'delete-by-subject') {
+    enterCleanupPhase();
     // Deletes ONLY the three flow-test contracts below, found by their exact Subject. Anything else is untouched.
     const SUBJECTS = ['TEST-TMP-FLOW-01 edited', 'TEST-TMP-FLOW-02', 'TEST-TMP-FLOW-03'];
     const noGuid = (t) => (t == null ? t : t.replace(/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g, '<id>'));

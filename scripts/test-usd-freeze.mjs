@@ -31,6 +31,7 @@
 import { execSync } from 'node:child_process';
 import { deleteContracts, requireFlowOff } from './lib/contract-cleanup.mjs';
 import { ctrIo, trackCreate, snapshotCounters, restoreAfterRun, restoreFromArgs, printHandoff, requireStableConnection } from './lib/counter-snapshot.mjs';
+import { resilientFetch, enterCleanupPhase, leaveCleanupPhase, recheckAfterWait } from './lib/resilient-fetch.mjs';
 
 const argOf = (n) => (process.argv.find((a) => a.startsWith(`--${n}=`)) || '').slice(n.length + 3);
 const MODE = argOf('mode');
@@ -81,7 +82,7 @@ async function deviceToken() {
 
 const hdr = (extra = {}) => ({ Authorization: `Bearer ${TOKEN}`, Accept: 'application/json', 'OData-MaxVersion': '4.0', 'OData-Version': '4.0', 'Content-Type': 'application/json; charset=utf-8', ...extra });
 async function call(method, path, body, extra = {}) {
-  const r = await fetch(`${API}/${path}`, { method, headers: hdr(extra), body: body === undefined ? undefined : JSON.stringify(body) });
+  const r = await resilientFetch(`${API}/${path}`, { method, headers: hdr(extra), body: body === undefined ? undefined : JSON.stringify(body) });   // GET retried on network errors only (scripts/lib/resilient-fetch.mjs)
   const t = await r.text();
   let j = null; try { j = t ? JSON.parse(t) : null; } catch { /* not json */ }
   const m = /\(([0-9a-fA-F-]{36})\)/.exec(r.headers.get('OData-EntityId') || '');
@@ -148,6 +149,7 @@ const patch = (id, body) => call('PATCH', `mwf_contracts(${id})`, body, { 'If-Ma
 const snap = (g) => `statecode ${g.statecode}, statuscode ${g.statuscode}, mwf_value ${g.mwf_value}, mwf_valueusdfrozen ${two(g.mwf_valueusdfrozen)}`;
 
 async function cleanup() {
+  enterCleanupPhase();   // from here DELETE is retried (404 = already gone) and reads are more patient
   let removed = 0;
   // contracts by number or by name, each id once. Pending rows are withdrawn to Draft first (the guard forbids deleting them).
   const ids = new Set();
@@ -360,7 +362,7 @@ const ctr = ctrIo(call);
     }
     const before = await counts();
     console.log(`before (prefix ${PREFIX}): contracts ${before.contracts}, counterparties ${before.counterparties}; total contracts ${before.totalContracts}`);
-    if (before.contracts || before.counterparties) { console.log(`INFO  removing ${await cleanup()} leftover TEST-TMP-USD row(s) first`); }
+    if (before.contracts || before.counterparties) { console.log(`INFO  removing ${await cleanup()} leftover TEST-TMP-USD row(s) first`); leaveCleanupPhase(); }   // the cleanup phase must not cover the test steps that follow
     ctrSnap = await snapshotCounters(ctr);
     await setup();
     if (MODE === 'update-cases') await updateCases();

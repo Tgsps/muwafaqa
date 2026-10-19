@@ -554,3 +554,14 @@ Flow OFF, one script at a time, after the per-script prefixes and the system-onl
 **New operating rule:** No activity from the user interface while any test script runs: creating or editing a contract in the model-driven app takes a number from the same counter and breaks the counter rule (see the incident of 2026-10-18 in ADR-006).
 
 **Not tested:** the flow-ON scripts after the prefix change; the two-step handoff/restore path.
+
+## Network resilience of the test scripts (2026-10-19)
+
+Details in `docs/flow-on-session-plan.md` (section "Network incident of 2026-10-19 and what changed").
+
+- **Incident:** the flow-ON session stopped in `test-flow-trigger` after case 2: `getaddrinfo ENOTFOUND` on the read after the 60 s wait; the script's cleanup failed with the same error. A read-only monitor (60 cycles over 5 minutes: DNS of the environment, DNS of a neutral host, GET WhoAmI) found **0 failures**; the cause is not reproduced (the owner reports a public Wi-Fi). The leftovers were cleaned by a one-time script outside the project (counters restored 1 to 0 by the helper's rule); afterwards 0 TEST-TMP, 0 temporary counterparties, 11 contracts, counters 0/0/0/0/0, latest `modifiedon` of the 11 legacy contracts 2026-10-07T17:23:48Z (script).
+- **Proved cause of the gap (code):** the read retry (up to 8 attempts, 2 s apart) existed only in the start check; the wait loop used a direct `fetch`.
+- **Changed:** `scripts/lib/resilient-fetch.mjs` in every test script's `call()` (GET retried on network errors only, 5 retries 2 to 10 s; PATCH/POST never; DELETE only in the cleanup phase, 404 = success; patient cleanup: 10 retries; every retry logged without token/host/id); `recheckAfterWait` (3 GET in a row, up to 15 x 4 s) after every wait in `test-flow-trigger`, `test-flow-approvalround` setup and the wait loop of `test-flow-checkpoints --mode=read`, stopping with nothing written and the cleanup command; new tools `scripts/cleanup-test-rows.mjs` and `scripts/check-connection.mjs`.
+- **Tested:** 17 unit tests with injected network errors (all pass); syntax of every script; `test-contract-number --only=T4,T5` live (6 PASS, counters restored to 0).
+- **Not tested:** a whole session surviving a real outage; the recheck in the live flow-ON scripts; the cleanup tool against the environment.
+- **Condition:** the connection stable for about an hour before the flow-ON session (`node scripts/check-connection.mjs --env=<url> --minutes=60`).

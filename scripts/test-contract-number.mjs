@@ -30,6 +30,7 @@
 import { execSync } from 'node:child_process';
 import { approvalFlowState, deleteContracts } from './lib/contract-cleanup.mjs';
 import { snapshotCounters, readCounters, restoreCounters, requireStableConnection } from './lib/counter-snapshot.mjs';
+import { resilientFetch, enterCleanupPhase, recheckAfterWait } from './lib/resilient-fetch.mjs';
 
 const argOf = (n) => (process.argv.find((a) => a.startsWith(`--${n}=`)) || '').slice(n.length + 3);
 const ENV = argOf('env').replace(/\/+$/, '');
@@ -83,7 +84,7 @@ async function deviceToken() {
 }
 const hdr = (extra = {}) => ({ Authorization: `Bearer ${TOKEN}`, Accept: 'application/json', 'OData-MaxVersion': '4.0', 'OData-Version': '4.0', 'Content-Type': 'application/json; charset=utf-8', ...extra });
 async function call(method, path, body, extra = {}) {
-  const r = await fetch(`${API}/${path}`, { method, headers: hdr(extra), body: body === undefined ? undefined : JSON.stringify(body) });
+  const r = await resilientFetch(`${API}/${path}`, { method, headers: hdr(extra), body: body === undefined ? undefined : JSON.stringify(body) });   // GET retried on network errors only (scripts/lib/resilient-fetch.mjs)
   const t = await r.text();
   let j = null; try { j = t ? JSON.parse(t) : null; } catch { /* not json */ }
   const m = /\(([0-9a-fA-F-]{36})\)/.exec(r.headers.get('OData-EntityId') || '');
@@ -143,6 +144,7 @@ async function printCounters() {
 }
 
 async function cleanupOnly() {
+  enterCleanupPhase();
   const rows = (await must('GET', `mwf_contracts?$select=mwf_name&$filter=${q(`startswith(mwf_name,'${PREFIX}')`)}`)).j.value;
   const del = await deleteContracts(io, rows.map((r) => r.mwf_contractid));
   console.log(`INFO  cleanup: ${rows.length} contract row(s) found, ${del.deleted} deleted, ${del.failed.length} failed`);
@@ -303,6 +305,7 @@ async function run() {
     }
   } finally {
     // cleanup by Subject (mwf_name prefix), never by number
+    enterCleanupPhase();
     const rows = (await must('GET', `mwf_contracts?$select=mwf_name&$filter=${q(`startswith(mwf_name,'${PREFIX}')`)}`)).j.value;
     const del = await deleteContracts(io, rows.map((r) => r.mwf_contractid));
     console.log(`INFO  cleanup: ${del.deleted} contract row(s) deleted, ${del.failed.length} failed`);
