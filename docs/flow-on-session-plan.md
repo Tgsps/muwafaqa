@@ -1,6 +1,6 @@
 # Plan for the flow-ON test session
 
-Status: **plan only, nothing has been run.** It covers the five scripts that need the approval flow ON. The flow is turned on and off **by the owner**; no script and no assistant turns it on or off.
+Status: **executed on 2026-10-19; results at the end of this file.** It covers the five scripts that need the approval flow ON. The flow is turned on and off **by the owner**; no script and no assistant turns it on or off.
 
 Tags: **(from code)** = read from the scripts; **(observed)** = seen in earlier runs recorded in `docs/flow-approval-v1.md` and ADR-005/006; **(estimate)** = a guess from earlier runs, not a measurement.
 
@@ -75,8 +75,48 @@ All five scripts after the prefix and counter-helper changes; the two-step hando
 
 ## Condition before the session
 
-**The connection must have been stable for about an hour before the session starts.** Check it with the read-only monitor, and start only if it reports 0 failures:
+**Before the session, the connection monitor must report 15 minutes without errors:** run it and start only if it reports 0 failures:
 
-`node scripts/check-connection.mjs --env=<url> --minutes=60`
+`node scripts/check-connection.mjs --env=<url> --minutes=15`
 
-(a public Wi-Fi is a risk: use a stable network). The monitor writes nothing.
+This is a **practical criterion, not statistically proven**: a clean 15 minutes does not guarantee that no outage happens during a session of 30 to 45 minutes (the connection had dropped several times before). Result before the 2026-10-19 session: 180 cycles, 0 failures in DNS (environment), DNS (neutral host) and GET, median GET time 670 ms, maximum 5095 ms (script). A public Wi-Fi is a risk: use a stable network. The monitor writes nothing.
+
+## Session results, 2026-10-19 (flow ON, executed by the owner and the assistant)
+
+Rules followed: the owner alone turned the flow on and off and cancelled runs; the assistant never touched the flow; one owner action at a time, each followed by a read from Dataverse before the next step; no automatic re-run after an unexpected failure; no UI activity other than answering approvals. Every answer time below is the approval's `completedon` (UTC; the owner's local time is UTC+3). Run states come from the owner's run-history screenshots and, afterwards, from the `flowruns` table (the two agree in status and duration for every run).
+
+**Precondition:** connection monitor 15 minutes, 180 cycles, 0 failures (median GET 670 ms, max 5095 ms) (script). Two approvals of the interrupted `flow-trigger` attempt (`TEST-TMP-TRIG1`) stayed Pending for the whole session and were never answered (cancelling a run does not close its approval).
+
+| Script | Verdicts | Source |
+|---|---|---|
+| `test-flow-trigger` (second attempt; the first stopped on a DNS failure and was cleaned up by a one-time script) | 4 cases: HTTP 204 each, with the connection recheck passing after every 60 s wait. Run-history reading: **1 / 0 / 0 / 0** runs after cases 1 to 4: **PASS** | the run counts are the **owner's reading of the run history**, not a script verdict (the script gives none: `flowruns` lists finished runs only) |
+| `test-flow-approvalround --mode=setup` | submission 1 (round 1), withdraw (round stays 1), submission 2 (round 2): **PASS**. Run 1 (oldest, answered first) ended **Cancelled** (3:18, `errorcode Terminated`); run 2 **Succeeded** (9:19); contract **In Force**, round 2, frozen 1000.00; 3 approvals Completed/Approve, no fourth: **PASS** | script (contract, approvals); owner + `flowruns` (runs) |
+| `test-guard-flow --mode=part1` and `part2` | FLOW1 two stages approved: **In Force**; FLOW2 (withdrawn, its approval answered): stays **Draft**, no stage-2 request: **PASS**. Runs: FLOW1 **Succeeded** (5:11), FLOW2 **Cancelled** (6:22, `Terminated`): **PASS** | script + owner + `flowruns` |
+| `test-flow-checkpoints` (`setup`, `withdraw3` at 17:46:36 UTC, `read`) | rows MATCH: CHK1 In Force, CHK2 Draft, CHK3 Draft, CHK4 Rejected (state Inactive), all frozen 1000.00. Runs attributed **by end time**: CHK1 Succeeded 3:37; CHK2 **Cancelled** 5:34 (`Terminated`); CHK3 **Cancelled** 14:20 (`Terminated`); CHK4 **Succeeded** 8:58 (`Terminated`, the reject path); 0 Failed: **PASS** | script (rows, approvals); owner + `flowruns` (runs) |
+| `test-usd-freeze --mode=flow-case` | Draft to Pending with the flow ON: frozen 1000.00; the flow sent the stage-1 request; both stages approved; contract **In Force**, round 1; run **Succeeded** (13:03, `errorcode` empty): **PASS** | script (contract, approvals); owner + `flowruns` (run) |
+
+**Cleanup (reverse order, each step read before the next):** `usd-freeze --mode=cleanup` (MNT 8 to 7), `flow-checkpoints --mode=cleanup` (7 to 3), `guard-flow --mode=part2` (3 to 1; it first verified FLOW1 In Force and FLOW2 Draft), `flow-approvalround --mode=cleanup` (1 to 0). In Force rows were deleted with the bypass of the guard Delete step only. **Final state (script):** flow OFF, 11 contracts, 0 TEST-TMP, 0 temporary counterparties, counters 0/0/0/0/0, the 11 legacy contracts' latest `modifiedon` still 2026-10-07T17:23:48Z, active approvals: only the two `TEST-TMP-TRIG1` orphans.
+
+**Observations (none is a failure):**
+1. **Runs 19:14 and 19:56 local (the two `flow-trigger` runs).** In `flowruns`: 16:14:14 to 17:14:25 UTC (1:00:11) and 16:56:30 to 17:56:37 UTC (1:00:07), both **Cancelled with an empty `errorcode`**, unlike every run cancelled by a checkpoint (`Terminated`, minutes long). Both were left waiting for an approval and cancelled from outside the flow. The owner reports that the 19:56 run was cancelled by hand at about 20:03 and that its displayed duration changed from 7:47 to about 1:00:06 afterwards. **Hypothesis, not proven:** the recorded end of a run cancelled by hand while waiting for an approval appears about an hour after its start. The owner has not confirmed that the 19:14 run was cancelled by hand too. **No evidence of a timeout in the flow definition (`clientdata`, read only: no timeout, limit, retry, duration or delay setting); the cause is unproven. The strongest hypothesis is a manual cancel with the displayed duration changing, based on the 19:56 run, which the owner did cancel (7:47, then 1:00:06), without confirmation for the 19:14 run.** The 45-minute rule (answer every run's approvals within 45 minutes of its start) stays only a precaution.
+2. **`errorcode = Terminated` does not identify the checkpoint alone.** The flow has **four** Terminate actions: `Stop - contract no longer Pending (stage 1)` and `(stage 2)` (status Cancelled) and, in the reject paths, `Terminate` and `Terminate_2` (status Succeeded). So CHK4 (a Succeeded run) also has `Terminated`. **Cancelled together with Terminated** points to a checkpoint stop (the only Cancelled Terminate actions), **which of the two stages is not in the table and was not seen.**
+3. **`flowruns` lags:** a run appears after it ends (the 19:56 run was missing from the table in the morning because it was not yet recorded as ended); the field `duration` of a run cancelled while waiting (4:04) does not equal end minus start (1:00:11).
+4. **The old attribution of runs to contracts was wrong** and was fixed (below): two runs started in the same second (17:34:14), so the start order cannot pair runs with contracts.
+5. **`flow-approvalround --mode=read` counted by time window:** it printed 14 approvals (13 Approve, 1 Reject), those of all the scripts of the session, not of its own contract (3 + 3 + 6 + 2 = 14). Fixed (below).
+6. **`test-usd-freeze` has no read mode:** `--mode=check-clean` is its only read-only mode, plus a direct read of the row.
+7. **One answer was announced before it was given** (USD C9-FLOW, stage 1): the read showed the request still Pending, the assistant stopped, and the owner answered afterwards. The rule "read Dataverse before the next step" caught it.
+8. **Network:** a DNS failure (`ENOTFOUND`) during the first `flow-trigger` attempt; none in the second attempt or in the rest of the session, so the new retries and rechecks were **not stressed by a real outage** (the rechecks after the waits did run and passed).
+
+**Fixes made after the session (code):**
+- `scripts/test-flow-checkpoints.mjs --mode=read` now attributes runs to contracts **by end time** (the run ends within 5 s after the last approval of its contract; the attribution must be unique in both directions, otherwise no verdict) and no verdict depends on the start order. The logic is in `scripts/lib/run-attribution.mjs` with 8 unit tests built on this session's real timings, including the tie at 17:34:14 (`node --test scripts/lib/run-attribution.test.mjs`: all pass). It also prints the Terminated note above.
+- `scripts/test-flow-approvalround.mjs --mode=read` now counts **only the approvals whose title ends with its own Subject** and prints how many approvals of other contracts were excluded.
+- `scripts/check-connection.mjs` now prints the median and maximum GET time.
+
+**Not tested:**
+- **Which checkpoint (stage 1 or stage 2) ended each Cancelled run:** the action was not seen (screenshots show duration and status only).
+- A withdraw and resubmit **after stage 1** with a stale round at the stage-2 checkpoint (still open in ADR-005); two concurrent submissions; Rejected to Draft to Pending.
+- What happens if an orphan approval is answered after its contract was deleted (expected: the run fails at "Get contract after stage 1"; not tested; the two orphans were deliberately left alone).
+- The **new run attribution and the new approval count against the live environment** (the test rows were deleted before the fixes; the attribution logic is unit-tested on the recorded timings only; the approvalround change is syntax-checked only).
+- `scripts/cleanup-test-rows.mjs` against the environment.
+- Whether a whole session **survives a real outage**.
+- The notifications sent to the approver account (not checked).

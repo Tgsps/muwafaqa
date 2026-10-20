@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
- * READ-ONLY connection monitor, to run BEFORE a long test session (for example the flow-ON session needs a connection that was stable
- * for about an hour). Every <interval> seconds for <minutes> minutes it logs (i) the DNS lookup of the environment host, (ii) the DNS
+ * READ-ONLY connection monitor, to run BEFORE a long test session (the flow-ON session requires 15 minutes without errors, a practical
+ * criterion that is not statistically proven). Every <interval> seconds for <minutes> minutes it logs (i) the DNS lookup of the environment host, (ii) the DNS
  * lookup of a neutral public host, (iii) a light GET (WhoAmI) to the environment, with the literal error code on failure. It never
  * writes anything and prints no token and no host. It prints only the failures and a summary, and exits with code 1 if anything failed.
  *
  * Usage:
- *   node scripts/check-connection.mjs --env=https://<org>.crm4.dynamics.com [--minutes=60] [--interval=5] [--neutral=example.com]
+ *   node scripts/check-connection.mjs --env=https://<org>.crm4.dynamics.com [--minutes=15] [--interval=5] [--neutral=example.com]
  *
  * Auth: a token from `az account get-access-token` (kept in memory, never printed).
  */
@@ -15,7 +15,7 @@ import dns from 'node:dns/promises';
 
 const argOf = (n) => (process.argv.find((a) => a.startsWith(`--${n}=`)) || '').slice(n.length + 3);
 const ENV = argOf('env').replace(/\/+$/, '');
-const MINUTES = Number(argOf('minutes') || 60);
+const MINUTES = Number(argOf('minutes') || 15);
 const INTERVAL = Number(argOf('interval') || 5);
 const NEUTRAL = argOf('neutral') || 'example.com';
 if (!/^https:\/\/[^/]+$/.test(ENV)) { console.error('Missing or invalid --env=https://<org>.crm4.dynamics.com. Nothing was run.'); process.exit(2); }
@@ -62,5 +62,7 @@ for (const [k, f] of Object.entries(kinds)) {
 }
 const codes = {}; for (const r of rows) for (const v of [r.dnsEnv, r.dnsNeutral, r.get]) if (v !== 'ok') codes[v] = (codes[v] || 0) + 1;
 console.log(`literal error codes seen: ${JSON.stringify(codes)}`);
+const okMs = rows.filter((r) => r.get === 'ok').map((r) => r.ms).sort((x, y) => x - y);
+console.log(`GET latency when ok: median ${okMs[Math.floor(okMs.length / 2)] ?? '-'} ms, max ${okMs[okMs.length - 1] ?? '-'} ms (${okMs.length} successful requests)`);
 console.log(failed ? 'RESULT: the connection was NOT stable in this window.' : 'RESULT: stable in this window (0 failures).');
 process.exit(failed ? 1 : 0);

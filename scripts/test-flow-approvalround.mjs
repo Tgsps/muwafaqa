@@ -184,16 +184,18 @@ async function read() {
 
   // approvals created since the test contract was created, counts only (read independently of the flow run history)
   const since = new Date(new Date(r.createdon).getTime() - 60000).toISOString();
-  const resp = await call('GET', `msdyn_flow_approvals?$select=statuscode,statecode,msdyn_flow_approval_result,createdon&$filter=${q(`createdon ge ${since}`)}&$top=100`, undefined,
+  const resp = await call('GET', `msdyn_flow_approvals?$select=statuscode,statecode,msdyn_flow_approval_result,msdyn_flow_approval_title,createdon&$filter=${q(`createdon ge ${since}`)}&$top=200`, undefined,
     { Prefer: 'odata.include-annotations="OData.Community.Display.V1.FormattedValue"' });
   if (!resp.ok) { console.log(`approvals: not readable (HTTP ${resp.status})`); return; }
-  const list = resp.j.value || [];
+  const everything = resp.j.value || [];
+  // only the approvals of THIS contract (the title ends with its Subject); others created in the same window are excluded and counted separately
+  const list = everything.filter((x) => String(x.msdyn_flow_approval_title || '').split(':').pop().trim() === SUBJECT);
   const fv = (x, k) => x[`${k}@OData.Community.Display.V1.FormattedValue`] ?? x[k];
   const by = {};
   for (const x of list) { const k = `${fv(x, 'statuscode')} / result ${fv(x, 'msdyn_flow_approval_result') ?? 'none'}`; by[k] = (by[k] || 0) + 1; }
-  console.log(`approvals created since the test contract was created: ${list.length}`);
+  console.log(`approvals of this contract (matched by title) created since it was created: ${list.length}   (approvals of other contracts in the same window, excluded: ${everything.length - list.length})`);
   for (const [k, n] of Object.entries(by)) console.log(`   ${k}: ${n}`);
-  console.log('Counts by time window only: the table does not name the contract here, and other approvals created in the same window would be counted.');
+  console.log('Matched by the approval title (the Subject); the title is the only link the table gives to the contract, so this is an attribution by name, not by id.');
   console.log('The flow runs are not read here (flowruns lists finished runs only); check the flow run history.');
 }
 

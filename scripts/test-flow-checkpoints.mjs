@@ -28,6 +28,7 @@ import { execSync } from 'node:child_process';
 import { deleteContract, findGuardDeleteStepId, approvalFlowState } from './lib/contract-cleanup.mjs';
 import { ctrIo, trackCreate, snapshotCounters, restoreAfterRun, restoreFromArgs, printHandoff, requireStableConnection } from './lib/counter-snapshot.mjs';
 import { resilientFetch, enterCleanupPhase, recheckAfterWait } from './lib/resilient-fetch.mjs';
+import { lastApprovalByContract, attributeRuns } from './lib/run-attribution.mjs';
 
 const argOf = (n) => (process.argv.find((a) => a.startsWith(`--${n}=`)) || '').slice(n.length + 3);
 const MODE = argOf('mode');
@@ -225,10 +226,33 @@ async function read() {
   }
   if (!readable) { console.log(`flowruns not readable: ${note}`); return; }
   console.log(`finished runs of this flow started after ${since.toISOString()}: ${mine.length}`);
-  mine.forEach((x, i) => console.log(`  run ${i + 1} (by start order) | start ${x.starttime} | end ${x.endtime} | ${x.status}${x.errormessage ? ` | ${noGuid(x.errormessage).replace(/\s+/g, ' ').slice(0, 200)}` : ''}`));
-  console.log('The flowruns table does not say which contract a run belongs to: the order above is the START order, and the four');
-  console.log('runs started in the order CHK1, CHK2, CHK3, CHK4 (inferred from the order of the moves, not read from the table).');
+  mine.forEach((x, i) => console.log(`  run ${i + 1} (by start order, NOT a contract order) | start ${x.starttime} | end ${x.endtime} | ${x.status} | errorcode ${x.errorcode ?? 'none'}${x.errormessage ? ` | ${noGuid(x.errormessage).replace(/\s+/g, ' ').slice(0, 200)}` : ''}`));
   if (mine.length < 4) console.log(`NOT AVAILABLE: only ${mine.length} of the 4 expected runs are listed (a run appears after it ends). Check the run history.`);
+
+  // Attribution of runs to contracts: NOT by start order (two runs can start in the same second). A run is attributed to the contract whose
+  // LAST approval was completed within TOL_S seconds before the run's end time (a run ends when its last approval is answered, or a few
+  // seconds after). The attribution must be unique in both directions; otherwise no verdict is given for that contract.
+  const TOL_S = 5;
+  const ap = await call('GET', `msdyn_flow_approvals?$select=msdyn_flow_approval_title,msdyn_flow_approval_completedon&$filter=${q(`createdon ge ${since.toISOString()}`)}&$top=200`);
+  if (!ap.ok) { console.log(`approvals not readable (HTTP ${ap.status}): no attribution, no run verdict.`); return; }
+  const lastDone = lastApprovalByContract((ap.j.value || []).map((a) => ({ title: a.msdyn_flow_approval_title, completedon: a.msdyn_flow_approval_completedon })));
+  const attributed = attributeRuns(mine, lastDone, CONTRACTS.map((c) => c.subject), TOL_S);
+  console.log(`
+=== runs attributed to contracts by END time (the run ends within ${TOL_S} s after the last approval of its contract)`);
+  let runsOk = true;
+  for (const c of CONTRACTS) {
+    const at = attributed[c.subject];
+    if (!at.unique) { runsOk = false; console.log(`${c.subject} | NO VERDICT: ${at.candidates.length} candidate run(s) by end time (the attribution is not unique or the data is missing)`); continue; }
+    const x = at.run;
+    const wantSucceeded = /^succeeded/i.test(c.expect.run);
+    const good = wantSucceeded ? /succeed/i.test(String(x.status)) : /cancel/i.test(String(x.status));
+    runsOk = runsOk && good;
+    const secs = Math.round((Date.parse(x.endtime) - Date.parse(x.starttime)) / 1000);
+    console.log(`${c.subject} | run ${String(x.starttime).slice(11, 19)}Z to ${String(x.endtime).slice(11, 19)}Z (${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}) | ${x.status} | errorcode ${x.errorcode ?? 'none'} | expected ${c.expect.run} | ${good ? 'PASS' : 'FAIL'}`);
+  }
+  console.log(`runs match the expected final states (attributed by end time): ${runsOk ? 'yes' : 'NO or not all attributable'}`);
+  console.log('Note: errorcode Terminated means a Terminate action ended the run. The flow has FOUR Terminate actions: two checkpoint stops (status Cancelled)');
+  console.log('and two reject paths (status Succeeded), so Terminated alone does not identify the checkpoint; Cancelled + Terminated does. Which checkpoint (stage 1 or 2) is not in the table.');
   const failed = mine.filter((x) => /fail/i.test(String(x.status)));
   console.log(`runs with status Failed: ${failed.length} (expected 0)`);
 }
