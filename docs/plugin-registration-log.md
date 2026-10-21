@@ -599,3 +599,12 @@ Details, rules and the server test table: [ADR-007](decisions/ADR-007-approval-c
 - **Rollback:** disable the step (PATCH `statecode` of the step row) or register the 1.0.5.0 package again from the commit before this one. The chain tables stay.
 - **Not tested:** see ADR-007, "What was not tested". The older flow-OFF scripts were not re-run with the new step. `src/` is not synced (it still names assembly 1.0.5.0 and has no chain step).
 
+## Regression pass after the chain builder step (2026-10-22, assembly 1.0.6.0, flow OFF)
+
+Full table, verdicts and the two observations: [ADR-007](decisions/ADR-007-approval-chain.md), "Regression pass". Summary (script, one script at a time, state read after each: 11 contracts, 0 TEST-TMP, counters 0, 0 steps, 110 active matrix rows, 5 active assignments):
+
+- `test-approval-round` 12 / 0 / 2 (same as before); `test-usd-freeze` update-cases 10, create-case 1, guard-smoke 5 (same); `test-state-guard --skip-ui-rows` 75 / 0 / 4 (same); `test-contract-number` 18 passed, 0 failed; `verification-api-tests` same-status-save, value-zero and t4 completed. Unit tests 338 + 25 passed. **No failure; no old test was edited.**
+- **Correction of an earlier reading:** `same-status-save` was recorded as "`modifiedon` unchanged (same second)"; a same-status save does update `modifiedon` (the earlier run was simply inside one second).
+- **Gap found:** a contract created directly as Pending Approval gets round 1 and a frozen value but no chain (the builder is on Update only). Not fixed; decision pending (ADR-007, open items).
+- **Not re-run:** all flow-ON scripts, `verification-api-tests` quick-toggle, t1, t2, t3, and `test-usd-freeze --mode=flow-case`.
+

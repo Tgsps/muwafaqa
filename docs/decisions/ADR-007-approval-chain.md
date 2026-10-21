@@ -133,6 +133,32 @@ A loop over the steps of the round, ordered by `mwf_steporder`: read the assignm
 | T10 five parallel submissions (1, 2, 3, 5, 2 steps): all HTTP 204, each contract has exactly its own chain, about 1 s | PASS |
 | Cleanup: 26 contracts deleted, their steps deleted by the cascade (0 steps left); counterparty deleted; counters restored (MNT 22 to 0, the others 1 to 0); 11 contracts, 0 TEST-TMP, 110 active matrix rows, 5 active assignments | PASS |
 
+## Regression pass of the flow-OFF scripts (2026-10-22, assembly 1.0.6.0, chain step enabled)
+
+Flow OFF, one script at a time. Before the pass: 338 + 25 unit tests passed; 3 GET requests; 11 contracts (latest `modifiedon` 2026-10-07T17:23:48Z); 0 TEST-TMP; counters 0/0/0/0/0; 0 steps; 110 active matrix rows; 5 active assignments. After **each** script the same state was read again and was identical. No old test was edited, and no matrix or assignment row was touched by these scripts.
+
+| Script (mode) | Result now | Previous result | Verdict |
+|---|---|---|---|
+| unit tests (`dotnet test`, `node --test` of the two lib test files) | 338 passed + 25 passed | 300 + 25 | PASS (38 new tests) |
+| `test-approval-round` | 12 PASS, 0 FAIL, 2 OBS | 12 / 0 / 2 | same |
+| `test-usd-freeze --mode=update-cases` | 10 PASS | 10 | same |
+| `test-usd-freeze --mode=create-case` | 1 PASS | 1 | same |
+| `test-usd-freeze --mode=guard-smoke` | 5 PASS | 5 | same |
+| `test-state-guard --mode=integration --skip-ui-rows` | 75 PASS, 0 FAIL, 4 OBS (the same 4 observations) | 75 / 0 / 4 | same |
+| `test-contract-number` (full) | 18 PASS, 0 FAIL | no recorded total for a full run to compare (the T4/T5 subset passed before) | PASS |
+| `verification-api-tests same-status-save` | completed, HTTP 204, status, frozen value (1000) and round (1) unchanged | HTTP 204, same values | same, one difference below |
+| `verification-api-tests value-zero` | HTTP 204, frozen 0, round 1 | same | same |
+| `verification-api-tests t4` | completed (Rejected row back to Draft through the API, renamed) | edited, not re-run before | PASS (an observation script: no verdict lines) |
+
+**No failure.** Each script that submits a contract now builds a chain in the same transaction; none of them was rejected by the new rules, and each deleted its rows (the steps went with the cascade) and restored the counters (`refused 0`).
+
+### Two observations from the pass (not failures, nothing was changed)
+
+1. **`same-status-save` and `modifiedon`:** the earlier record says `modifiedon` was "unchanged (same second)". This time it differed by one second. A separate probe (scratch script, not in the repository) showed that a same-status save **does** update `modifiedon` (about 10 s after the submission, `modifiedon` moved to the time of the save), while nothing changes it in between. So the earlier "unchanged" was a timing artifact of a very fast run, not a rule of the platform, and the chain builder does not write to the contract. The status, frozen value and round are unchanged, as before. The old record is not rewritten; this note corrects its reading.
+2. **A contract created directly as Pending Approval gets round 1 and a frozen value, but NO chain.** Probe (script outside the repository, flow OFF): a Create with `statuscode` Pending Approval was accepted (HTTP 2xx), round 1, frozen 1000, **0 approval steps**. Reason: the chain builder is registered on **Update** only, while the guard and plug-in 1 also accept a Create as Pending (`test-approval-round` [9] and `test-usd-freeze` case 3 observe the same entry path). With the flow, such a contract would have no steps to loop over. This is a **gap**, found by the regression pass and **not fixed**: options are (a) also register the builder on Create (PostOperation, no image), (b) make the guard reject a Create as Pending (changes ADR-004), (c) accept it and let the flow fail closed on an empty chain. To be decided by the owner before batch 3.
+
+The probe consumed two Maintenance numbers because it did not register its creates with the counter helper; the counter was put back from 2 to 0 afterwards by the helper rule (now == snapshot 0 + consumed 2, no contract with that prefix exists). Final state read again: flow OFF, 11 contracts, 0 TEST-TMP, 0 temporary counterparties, counters 0/0/0/0/0, 0 steps.
+
 ## Corrected: the Min description of the ApprovalMatrix
 
 The live description of `mwf_minvalueusd` said "inclusive" while the documentation, the CSV, the loader and the 110 rows use **Min exclusive**. Nothing read the column, so nothing was wrong in behavior. Both descriptions are now: Min "lower bound of the value band, exclusive", Max "upper bound, inclusive; empty means no upper limit" (script, 2026-10-22). The earlier convention "a value of exactly 0 matches no band" is **replaced by decision 2**: 0 falls on the first band.
@@ -146,7 +172,8 @@ The live description of `mwf_minvalueusd` said "inclusive" while the documentati
 - A repeated call of the same Update operation (the idempotence guard of the plug-in) and a concurrent submission of the **same** contract by two clients (T10 submits five different contracts).
 - The planner branches for a negative or empty frozen value, no matrix rows, an invalid row, overlapping bands and non-contiguous step orders **on the server** (unit tests only; the server tests used the real, valid fictional matrix, plus the missing-assignment case).
 - A real matrix with a gap or an overlap: validated only by unit tests.
-- The older flow-OFF test scripts (`test-usd-freeze`, `test-state-guard`, `test-approval-round`, ...) were **not re-run** with the new step active. They submit contracts, so each now builds a chain; whether any of them submits a contract that the new rules reject was not checked.
+- The flow-ON scripts (`test-guard-flow`, `test-flow-trigger`, `test-flow-checkpoints`, `test-flow-approvalround`, `test-usd-freeze --mode=flow-case`) and `verification-api-tests` modes `quick-toggle`, `t1`, `t2`, `t3` were **not re-run** after the plug-in step (the first need the flow ON; `t1`/`t3` change option and exchange-rate metadata unrelated to the chain). The other flow-OFF scripts were re-run, see the regression section.
+- A contract **created directly as Pending Approval** (API) gets **no chain** (see the open item).
 - Import of the two tables and of the new plug-in step with the solution into another environment (`src/` is not synced; the pack was not run).
 - The delegation columns (`mwf_delegated`, `mwf_actualapprover`) are created but nothing writes them.
 
@@ -158,6 +185,8 @@ The live description of `mwf_minvalueusd` said "inclusive" while the documentati
 - The step table keeps the history of every round; it grows with resubmissions.
 
 ## Open items
+
+- **Create as Pending Approval has no chain** (regression pass, section above). Decision needed before batch 3: register the builder on Create too, reject such a Create in the guard, or let the flow fail closed.
 
 - **Security (decided in the security phase):** the read privilege of the submitter's roles on `mwf_approvalstep` is decided there. **No project role is given write privilege on either table.** Who writes: the plug-in (system) and the identity of the flow connection; that identity's privileges are to be defined in the same phase.
 - ~~Whether an Inform-only chain, or a missing assignment, should reject~~ Accepted by the owner on 2026-10-22: both reject.
