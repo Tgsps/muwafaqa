@@ -107,7 +107,7 @@ Trade-off of Restrict: a counterparty cannot be deleted while it has contracts. 
 
 | Item | Reason for deferral | Phase |
 |---|---|---|
-| ApprovalMatrix | Needs a stable status model first, plus the approval flow design. **The table and fictional seed data exist since 2026-10-11** (see "ApprovalMatrix table" below). The flow that uses it is still Phase 2 | 2 |
+| ApprovalMatrix | Needs a stable status model first, plus the approval flow design. **The table and fictional seed data exist since 2026-10-11** (see "ApprovalMatrix table" below). The chain design and its two supporting tables (`mwf_approvalstep`, `mwf_approverassignment`) are in [ADR-007](decisions/ADR-007-approval-chain.md); the plug-in and the flow that use them are not built yet | 2 |
 | USD value, frozen at submission | The base amount is in TRY, but the approval authority threshold is in USD. A plugin computes an independent USD value and freezes it when the contract enters Pending Approval. **The column exists** (`mwf_valueusdfrozen`). The plugin is registered and integration tested (see "Value (USD, Frozen)" below and [ADR-003](decisions/ADR-003-usd-value-at-submission.md)) | 2 |
 | Value Type | Changes the meaning of the Value column. Settle the base first | 2 |
 | Type/Direction combination rule (plugin) | Independent columns allow illogical combinations (decision D10) | 2 |
@@ -138,15 +138,53 @@ The table exists in the solution and holds **fictional** seed rows. It is not us
 | `mwf_rulename` | Text (primary name) | ApplicationRequired | Format `<Type> - <Direction> - Band <n> - Step <k>` |
 | `mwf_contracttype` | Choice (local) | ApplicationRequired | Maintenance 867640000, Procurement …01, Insurance …02, Sales …03, Services …04 |
 | `mwf_contractdirection` | Choice (local) | ApplicationRequired | Income 867640000, Expense 867640001 |
-| `mwf_minvalueusd` | Decimal, 2 decimals | ApplicationRequired | Exclusive lower bound, in USD |
-| `mwf_maxvalueusd` | Decimal, 2 decimals | **None** (optional) | Inclusive upper bound, in USD. Empty means unbounded |
+| `mwf_minvalueusd` | Decimal, 2 decimals | ApplicationRequired | Lower bound, **exclusive**, in USD. Description: "lower bound of the value band, exclusive" (corrected 2026-10-22) |
+| `mwf_maxvalueusd` | Decimal, 2 decimals | **None** (optional) | Upper bound, **inclusive**, in USD. Empty means unbounded. Description: "upper bound, inclusive; empty means no upper limit" (corrected 2026-10-22) |
 | `mwf_steporder` | Whole number | ApplicationRequired | Step within a band, 1..n |
 | `mwf_approverrole` | Choice (local) | ApplicationRequired | Department Head 867640000, Finance Manager …01, General Manager …02, Regional Office …03, Owner …04 |
 | `mwf_actiontype` | Choice (local) | ApplicationRequired | Approve 867640000, Inform 867640001 |
 
-**Convention:** Min is **exclusive**, Max is **inclusive**, an empty Max means **unbounded**, and a value of exactly 0 matches no band. The seeded bands (0 to 10,000, 10,000 to 50,000, 50,000 to 100,000, above 100,000) are **fictional** and must be replaced when the real thresholds are known. Details and the validation result: [data/README.md](../data/README.md), section "Approval matrix".
+**Convention:** bands are **(Min, Max]**: Min is **exclusive**, Max is **inclusive** ("up to Max"), an empty Max means **unbounded**. **A value of exactly 0 falls on the band whose Min is 0 (the first band)** (decision 2 of [ADR-007](decisions/ADR-007-approval-chain.md), 2026-10-22; it replaces the earlier "0 matches no band"). A negative value, or a value with no matching band, rejects the submission. The comparison is made on the frozen USD value. The seeded bands (0 to 10,000, 10,000 to 50,000, 50,000 to 100,000, above 100,000) are **fictional** and must be replaced when the real thresholds are known. Details and the validation result: [data/README.md](../data/README.md), section "Approval matrix".
 
-The Min and Max are in USD while the platform base amount is TRY (see ADR-001). They are meant to be compared with the independent USD value computed in Phase 2. That is a design intention, not implemented.
+**Resolved conflict (2026-10-22):** until then the live description of `mwf_minvalueusd` said "inclusive" while this document, the CSV, the loader and the 110 rows use Min exclusive. Nothing read the column, so no behavior was wrong. The two descriptions were corrected to match this convention (script `scripts/create-approval-chain-tables.mjs`, read back by `scripts/verify-approval-chain-schema.mjs`, check S6).
+
+The Min and Max are in USD while the platform base amount is TRY (see ADR-001). They are compared with the independent frozen USD value (`mwf_valueusdfrozen`). The comparison is decided in ADR-007 and **not implemented yet** (the plug-in that builds the chain is batch 2).
+
+### Approval Step table (`mwf_approvalstep`, created 2026-10-22, decision: [ADR-007](decisions/ADR-007-approval-chain.md))
+
+One row per step of the approval chain of one contract and one approval round. Built by a plug-in at submission (**not built yet**, batch 2) and updated by the approval flow (**not built yet**, batch 3). Organization-owned, no notes, no activities. **No row exists yet** except during tests (the test rows are deleted).
+
+| Logical name | Type | Required (read from the API) | Note |
+|---|---|---|---|
+| `mwf_name` | Text 200 (primary name) | ApplicationRequired | For people only |
+| `mwf_contract` | Lookup to `mwf_contract` | ApplicationRequired | Delete **Cascade**; assign, share, unshare, reparent, merge, rollup: no cascade |
+| `mwf_approvalround` | Whole number, min 1 | ApplicationRequired | |
+| `mwf_steporder` | Whole number, min 1 | ApplicationRequired | |
+| `mwf_approverrole` | Choice (local) | ApplicationRequired | Same values as in the ApprovalMatrix |
+| `mwf_actiontype` | Choice (local) | ApplicationRequired | Approve 867640000, Inform 867640001 |
+| `mwf_decision` | Choice (local) | ApplicationRequired | Pending 867640000, Waiting ...01, Approved ...02, Rejected ...03, Informed ...04, Cancelled ...05 |
+| `mwf_originalapprover`, `mwf_actualapprover` | Lookup to `systemuser` | None | Remove link on delete |
+| `mwf_decidedon` | Date and Time (user local) | None | |
+| `mwf_comments` | Multiple lines, 4000 | None | |
+| `mwf_delegated` | Yes/No, default No | None | Phase 3; nothing writes it yet |
+
+**Alternate key** `mwf_ApprovalStepKey` on (`mwf_contract`, `mwf_approvalround`, `mwf_steporder`), index Active. A Lookup is a valid alternate key column type (from Learn, "Work with alternate keys"), so no text key column was added.
+
+**Verified (script):** columns and types, the three lookups and their delete behavior in the metadata, the key, and a live test: a duplicate step is rejected (HTTP 412), and deleting a Draft contract deletes its steps. Details: [ADR-007](decisions/ADR-007-approval-chain.md), section "Verified". **Not tested:** anything that writes the rows (the plug-in and the flow).
+
+### Approver Assignment table (`mwf_approverassignment`, created 2026-10-22, decision: ADR-007)
+
+Maps an approver role to a user. Read by the flow when a step starts. Organization-owned. **5 rows exist** (one per role), all pointing to one development test account that is **not recorded in this repository**: the loader `scripts/load-approver-assignment.mjs` reads it from the environment variable `MWF_APPROVER_TEST_USER`.
+
+| Logical name | Type | Required (read from the API) | Note |
+|---|---|---|---|
+| `mwf_name` | Text 200 (primary name) | ApplicationRequired | |
+| `mwf_approverrole` | Choice (local) | ApplicationRequired | Same values as in the ApprovalMatrix |
+| `mwf_user` | Lookup to `systemuser` | ApplicationRequired | Remove link on delete |
+
+**Alternate key** `mwf_ApproverAssignmentKey` on `mwf_approverrole`, index Active: one row per role. The key ignores the state (an inactive row still holds the role); change the approver by updating the row.
+
+**Rows are data, not solution content.** The 110 ApprovalMatrix rows and these 5 rows do not travel with the solution; each environment needs both loaders run. **Open (security phase):** the read privilege of the submitter's roles on `mwf_approvalstep`; no project role gets write privilege on either table. Managed platform roles do hold privileges on both tables, as on the counter table (ADR-006).
 
 ### Value (USD, Frozen) (`mwf_valueusdfrozen`)
 

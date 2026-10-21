@@ -97,7 +97,7 @@ Columns: `mwf_rulename`, `mwf_contracttype`, `mwf_contractdirection`, `mwf_minva
 **Convention:**
 - **Min is exclusive, Max is inclusive.** A contract of value `v` is in the band where `Min < v <= Max`.
 - **An empty Max means unbounded** (no upper limit).
-- **A value of exactly 0 is excluded**: it falls in no band, because the first band starts at Min 0 (exclusive).
+- **A value of exactly 0 falls on the first band** (the band whose Min is 0), by decision 2 of ADR-007 (2026-10-22). This replaces the earlier rule "0 matches no band". A negative value, or a value with no band, rejects the submission. The loader only checks the rows; it does not evaluate values.
 - Min and Max are in **US dollars**. They are meant to be compared with the independent USD value that Phase 2 computes, not with the TRY base amount. That comparison is not implemented yet.
 - `mwf_steporder` is the approval step within a band (1, 2, ...). `mwf_actiontype` is Approve or Inform.
 

@@ -436,7 +436,7 @@ Marked **(script)** when read by the script and **(owner)** when seen by the own
 
 - **Tested once** (one contract, one withdraw and resubmit).
 - The final status of run 2 is Succeeded (owner, Run history).
-- A contract with Value = 0 enters approval today (accepted, frozen USD 0, round 1). Whether this is intended and which ApprovalMatrix band applies is a business decision, not taken.
+- A contract with Value = 0 enters approval today (accepted, frozen USD 0, round 1). Whether this is intended and which ApprovalMatrix band applies is a business decision, not taken. **Update 2026-10-22:** ADR-007 decides the band (a value of 0 falls on the first band); whether a zero-value contract should enter approval at all stays open.
 - Not tested: a withdraw and resubmit that happens after stage 1 was answered (stage 2 checkpoint with a stale round), two concurrent submissions, Rejected to Draft to Pending Approval.
 - The short window between the check and the write is not covered by this check (section 13, point a): the guard of ADR-004 still rejects a write that is not allowed, and the run fails loudly.
 

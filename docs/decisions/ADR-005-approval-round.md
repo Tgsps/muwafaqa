@@ -85,7 +85,7 @@ The guard Update step has the round in its **filtering attributes** (10 columns)
 
 - **A short race between the check and the write:** the round is compared at the checkpoint, not again just before the write. If the contract is withdrawn and resubmitted inside that window, the guard still rejects a write that is not allowed, otherwise the stale run could write. (not tested)
 - **The final status of the run of submission 2:** Succeeded (owner, Run history).
-- **Value = 0:** A contract with Value = 0 enters approval today (accepted, frozen USD 0, round 1). Whether this is intended and which ApprovalMatrix band applies is a business decision, not taken.
+- **Value = 0:** A contract with Value = 0 enters approval today (accepted, frozen USD 0, round 1). Whether this is intended and which ApprovalMatrix band applies is a business decision, not taken. **Update 2026-10-22:** ADR-007 decides the band (a value of 0 falls on the first band); whether a zero-value contract should enter approval at all stays open.
 - **The Terminate action names** still say "no longer Pending" although they now also cover a stale run (cosmetic, not renamed).
 - **Two submissions at the same instant:** the round is read and written in two steps (Retrieve, then the write of the PreOperation). (not tested) whether two concurrent updates could produce the same round.
 - **Rejected to Draft to Pending Approval:** the round should go up like any other resubmission. (not tested)

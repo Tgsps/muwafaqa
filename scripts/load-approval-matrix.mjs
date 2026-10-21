@@ -13,7 +13,7 @@
  *   node scripts/load-approval-matrix.mjs --mode=check|load|validate --env=https://<org>.crm4.dynamics.com [--confirm-mutates-environment] [--csv=<path>]
  *
  * Convention (fictional bands, to be replaced when the real thresholds are known):
- *   Min is EXCLUSIVE, Max is INCLUSIVE, an empty Max means unbounded. A value of exactly 0 matches no band.
+ *   Min is EXCLUSIVE, Max is INCLUSIVE, an empty Max means unbounded. A value of exactly 0 falls on the first band (Min 0), ADR-007.
  *
  * The access token comes from `az` and stays in memory. It is never printed. No URL, address or id is stored in this file.
  */

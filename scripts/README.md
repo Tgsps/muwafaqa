@@ -73,3 +73,23 @@ node scripts/create-contract-table.mjs --env=https://<org>.crm4.dynamics.com [--
 - Does **not** change Status Reason options (see [data model section 8](../docs/data-model-phase1.md)); it only reads them.
 - The FX test creates one test counterparty and two test contracts (100 USD, 100 KWD), reads back the base amounts, and deletes only the rows it created. It needs currency records USD and KWD and creates none.
 - Keep any `--export` zip outside the repository (`*.zip` is git-ignored anyway).
+
+## Approval chain scripts (ADR-007)
+
+Run in this order on a new environment. Replace `<org>` with the environment; the examples use `--auth=az` (a token from `az`, kept in memory, never printed). `--auth=device` uses the device code flow instead.
+
+```bash
+node scripts/create-approval-chain-tables.mjs --env=https://<org>.crm4.dynamics.com --auth=az --confirm-mutates-environment
+node scripts/load-approval-matrix.mjs --mode=load --env=https://<org>.crm4.dynamics.com --confirm-mutates-environment
+MWF_APPROVER_TEST_USER=<test account sign-in name> node scripts/load-approver-assignment.mjs --mode=load --env=https://<org>.crm4.dynamics.com --auth=az --confirm-mutates-environment
+node scripts/verify-approval-chain-schema.mjs --env=https://<org>.crm4.dynamics.com --auth=az [--cascade-test --confirm-mutates-environment]
+```
+
+| Script | What it does |
+|---|---|
+| `create-approval-chain-tables.mjs` | Creates `mwf_approvalstep` and `mwf_approverassignment` (columns, lookups, alternate keys) in the solution, and corrects the descriptions of `mwf_minvalueusd` and `mwf_maxvalueusd`. Idempotent: existing objects are only read back; descriptions are updated only when they differ. Stops on any error |
+| `load-approver-assignment.mjs` | Modes `check`, `load`, `validate`. Loads one row per role. The user comes from the environment variable **`MWF_APPROVER_TEST_USER`** (sign-in name or user id of the development test account); its value, the resolved id and any address are never printed, only counts. `load` never changes an existing row. The rows are data and do not travel with the solution |
+| `verify-approval-chain-schema.mjs` | Read-back with PASS / FAIL / OBS: columns, Choice values, lookup delete behavior, alternate keys, approver rows (counts), matrix descriptions, solution membership, roles with privileges on the two tables. With `--cascade-test` it also runs a live test on `TEST-TMP-STEP*` rows (duplicate key rejected, cascade delete), flow must be OFF, counters restored by the helper rule. `--mode=cleanup` removes those rows after a crash |
+| `lib/dv-session.mjs` | Shared sign-in and Web API caller of these three scripts (GET retried on network errors only; a write is never retried) |
+
+Notes: the two ApprovalMatrix and approver loaders must both be run once per environment (the rows are not part of the solution). No script here writes an email, id or host into any file.
