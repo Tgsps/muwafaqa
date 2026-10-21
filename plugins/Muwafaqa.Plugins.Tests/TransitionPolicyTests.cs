@@ -86,9 +86,12 @@ namespace Muwafaqa.Plugins.Tests
         [Theory]
         [InlineData(null, true)]
         [InlineData(Draft, true)]
-        [InlineData(Pending, true)]
+        [InlineData(Pending, false)]      // changed 2026-10-22 (ADR-004): was true
         [InlineData(InForce, false)]
         [InlineData(Rejected, false)]
+        [InlineData(0, false)]
+        [InlineData(-1, false)]
+        [InlineData(867640099, false)]
         public void Create_status_rules(int? status, bool expectedAllowed)
         {
             Assert.Equal(expectedAllowed, TransitionPolicy.CheckCreate(status).Allowed);
@@ -98,6 +101,22 @@ namespace Muwafaqa.Plugins.Tests
         public void Create_denied_message_names_the_status()
         {
             Assert.Contains("Cannot create a contract with status In Force.", TransitionPolicy.CheckCreate(InForce).Message);
+        }
+
+        [Theory]
+        [InlineData(Pending)]
+        [InlineData(InForce)]
+        [InlineData(Rejected)]
+        public void Create_denied_message_tells_the_user_what_to_do(int status)
+        {
+            Assert.EndsWith("A contract must be created as Draft; submit it for approval afterwards.", TransitionPolicy.CheckCreate(status).Message);
+        }
+
+        [Fact]
+        public void Create_pending_message_names_pending_approval()
+        {
+            Assert.Equal("Cannot create a contract with status Pending Approval. A contract must be created as Draft; submit it for approval afterwards.",
+                TransitionPolicy.CheckCreate(Pending).Message);
         }
     }
 }

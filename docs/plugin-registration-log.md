@@ -605,6 +605,30 @@ Full table, verdicts and the two observations: [ADR-007](decisions/ADR-007-appro
 
 - `test-approval-round` 12 / 0 / 2 (same as before); `test-usd-freeze` update-cases 10, create-case 1, guard-smoke 5 (same); `test-state-guard --skip-ui-rows` 75 / 0 / 4 (same); `test-contract-number` 18 passed, 0 failed; `verification-api-tests` same-status-save, value-zero and t4 completed. Unit tests 338 + 25 passed. **No failure; no old test was edited.**
 - **Correction of an earlier reading:** `same-status-save` was recorded as "`modifiedon` unchanged (same second)"; a same-status save does update `modifiedon` (the earlier run was simply inside one second).
-- **Gap found:** a contract created directly as Pending Approval gets round 1 and a frozen value but no chain (the builder is on Update only). Not fixed; decision pending (ADR-007, open items).
+- **Gap found:** a contract created directly as Pending Approval gets round 1 and a frozen value but no chain (the builder is on Update only). Not fixed at the time; **closed on 2026-10-22** by the guard change below (ADR-004 update).
 - **Not re-run:** all flow-ON scripts, `verification-api-tests` quick-toggle, t1, t2, t3, and `test-usd-freeze --mode=flow-case`.
+
+## Create must be Draft: guard change, assembly 1.0.7.0 (2026-10-22)
+
+Decision, before/after table of the guard and the list of changed tests: [ADR-004](decisions/ADR-004-contract-state-guard.md), "Update 2026-10-22". The approval flow was OFF and was not touched. `src/` was not synced.
+
+- **Before (script):** flow OFF; 11 contracts (latest `modifiedon` 2026-10-07T17:23:48Z); 0 TEST-TMP; counters 0/0/0/0/0; 0 steps; 110 active matrix rows; 5 active assignments; git clean.
+- **Code:** only `TransitionPolicy.CheckCreate` (Draft or absent allowed, everything else denied with "A contract must be created as Draft; submit it for approval afterwards."). **Plug-in 1 (`FreezeUsdValueOnSubmission`) is unchanged**: its Create branch stays as a second line of defense and is now unreachable through the guard. Unit tests: **346 passed, 0 failed** (338 before).
+- **Package:** assembly **1.0.7.0**, package version unchanged at 1.0.0, package SHA-256 `e731512527bf95eea6e74a227864bc6c9edce55cce950d1cd7658d97db2042ec`, DLL SHA-256 `c311a57a66a2a741ffec233ec88cd7ef1bdc5455117f982336d6249577498b89`. `--mode=package-update` then passed with a **17 passed, 0 failed** read-back (seven steps unchanged: guard Update filtering 10 and PreImage 9 columns, chain step PostOperation 40). The default expected assembly version of `register-plugin-package.mjs` is now 1.0.7.0.
+- **Incident (package update):** the first call of `--mode=package-update` printed only its first line to my filtered view and the assembly stayed at 1.0.6.0 (the outcome of that call is not known: I had filtered its output). I read the state with `--mode=readback` (assembly 1.0.6.0, seven steps) and ran `package-update` once more with the full output; it passed. The PATCH replaces the same content, so a repeat is harmless.
+- **Network:** during the re-run, `test-state-guard` stopped once with `ETIMEDOUT` on a POST (a temporary counterparty had been created: removed with `--mode=cleanup`; counters were 0). A 3-minute `check-connection` run showed 2 `ETIMEDOUT` failures in 36 GET cycles (cause not known); `test-approval-chain` stopped once the same way on its first POST (nothing created, cleanup clean). Both scripts were re-run once after the cleanup and the state read; nothing was retried silently.
+
+### Re-run after the change (script, flow OFF, one script at a time, state read after each: 11 contracts, 0 TEST-TMP, counters 0, 0 steps, 110 / 5)
+
+| Script | Now | Before the change | Note |
+|---|---|---|---|
+| unit | 346 + 25 | 338 + 25 | +8 (guard Create) |
+| `test-state-guard --skip-ui-rows` | **76 PASS, 0 FAIL, 4 OBS** | 75 / 0 / 4 | group 2: 6 to 7 PASS (changed and new cases); the other groups unchanged |
+| `test-approval-round` | **13 PASS, 0 FAIL, 1 OBS** | 12 / 0 / 2 | [9] OBS became PASS |
+| `test-usd-freeze` update-cases / create-case / guard-smoke | 10 / 1 / 5 | 10 / 1 / 5 | case 3 now asserts the rejection |
+| `test-contract-number` | 18 PASS, 0 FAIL | 18 / 0 | |
+| `verification-api-tests` same-status-save, value-zero, t4 | completed, `refused 0` | completed | |
+| `test-approval-chain` | 37 PASS, 0 FAIL, 3 OBS | 37 / 0 / 3 | chain builder unaffected |
+
+**Not tested:** the flow-ON scripts (they never create a contract as Pending); `verification-api-tests` t1, t2, t3, quick-toggle; `test-usd-freeze --mode=flow-case`; `test-guard-flow`; the plug-in 1 Create branch; a bulk Create. The app form was not exercised (it creates a Draft).
 

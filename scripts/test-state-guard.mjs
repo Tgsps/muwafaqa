@@ -243,13 +243,14 @@ function createBody(key, extra = {}) {
 async function g2() {
   group = '2 create';
   await createAttempt('Create without a status (Draft)', createBody('G2-DRAFT'), 'ok');
-  const p = await createAttempt('Create as Pending (with currency and Value)', createBody('G2-PEND', { statuscode: ST.Pending }), 'ok');
-  if (p) {
-    const g = await snap((await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`mwf_name eq '${PREFIX} G2-PEND'`)}`)).j.value[0].mwf_contractid);
-    const ok = Number(g.mwf_valueusdfrozen).toFixed(2) === '1000.00' && g.statuscode === ST.Pending;
-    out(ok ? 'PASS' : 'FAIL', 'Create as Pending: plug-in 1 still writes the frozen value', 'GET the row', 200, '', 'status Pending and mwf_valueusdfrozen 1000.00',
-      `status ${g.statuscode}, frozen ${g.mwf_valueusdfrozen}`);
-  }
+  // CHANGED 2026-10-22 on purpose (ADR-004 update, option b): a Create as Pending Approval is now REJECTED by the guard. It used to be accepted
+  // and this test then checked that plug-in 1 wrote the frozen value; that second check is replaced by "no counter moved by the rejected create".
+  const ctrBefore = await snapshotCounters(ctr);
+  await createAttempt('Create as Pending (with currency and Value): rejected since 2026-10-22', createBody('G2-PEND', { statuscode: ST.Pending }), '400', 'A contract must be created as Draft; submit it for approval afterwards.');
+  const ctrAfter = await snapshotCounters(ctr);
+  const moved = Object.keys(ctrBefore.byType).filter((t) => ctrBefore.byType[t].last !== ctrAfter.byType[t].last);
+  out(moved.length === 0 ? 'PASS' : 'FAIL', 'Create as Pending: the rejected create did not move any counter', 'GET the five counters before and after', 200, '', 'all counters unchanged', `${moved.length} counter(s) moved`);
+  await createAttempt('Create with an explicit statuscode Draft (new 2026-10-22)', createBody('G2-DRAFT2', { statuscode: ST.Draft }), 'ok');
   await createAttempt('Create as In Force', createBody('G2-INF', { statuscode: ST.InForce }), '400', 'Cannot create a contract with status In Force');
   await createAttempt('Create as Rejected {statuscode only}', createBody('G2-REJ', { statuscode: ST.Rejected }), '400', 'Cannot create a contract with status Rejected');
   // statecode 1 on create: report what the platform does (not a PASS/FAIL expectation)

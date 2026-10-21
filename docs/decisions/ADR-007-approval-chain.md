@@ -157,6 +157,8 @@ Flow OFF, one script at a time. Before the pass: 338 + 25 unit tests passed; 3 G
 1. **`same-status-save` and `modifiedon`:** the earlier record says `modifiedon` was "unchanged (same second)". This time it differed by one second. A separate probe (scratch script, not in the repository) showed that a same-status save **does** update `modifiedon` (about 10 s after the submission, `modifiedon` moved to the time of the save), while nothing changes it in between. So the earlier "unchanged" was a timing artifact of a very fast run, not a rule of the platform, and the chain builder does not write to the contract. The status, frozen value and round are unchanged, as before. The old record is not rewritten; this note corrects its reading.
 2. **A contract created directly as Pending Approval gets round 1 and a frozen value, but NO chain.** Probe (script outside the repository, flow OFF): a Create with `statuscode` Pending Approval was accepted (HTTP 2xx), round 1, frozen 1000, **0 approval steps**. Reason: the chain builder is registered on **Update** only, while the guard and plug-in 1 also accept a Create as Pending (`test-approval-round` [9] and `test-usd-freeze` case 3 observe the same entry path). With the flow, such a contract would have no steps to loop over. This is a **gap**, found by the regression pass and **not fixed**: options are (a) also register the builder on Create (PostOperation, no image), (b) make the guard reject a Create as Pending (changes ADR-004), (c) accept it and let the flow fail closed on an empty chain. To be decided by the owner before batch 3.
 
+   **Resolved on 2026-10-22 (option b, assembly 1.0.7.0):** the guard now rejects any Create that is not Draft, so a contract can only enter approval through the Draft to Pending Update, where the chain is built. See ADR-004, "Update 2026-10-22".
+
 The probe consumed two Maintenance numbers because it did not register its creates with the counter helper; the counter was put back from 2 to 0 afterwards by the helper rule (now == snapshot 0 + consumed 2, no contract with that prefix exists). Final state read again: flow OFF, 11 contracts, 0 TEST-TMP, 0 temporary counterparties, counters 0/0/0/0/0, 0 steps.
 
 ## Corrected: the Min description of the ApprovalMatrix
@@ -173,7 +175,7 @@ The live description of `mwf_minvalueusd` said "inclusive" while the documentati
 - The planner branches for a negative or empty frozen value, no matrix rows, an invalid row, overlapping bands and non-contiguous step orders **on the server** (unit tests only; the server tests used the real, valid fictional matrix, plus the missing-assignment case).
 - A real matrix with a gap or an overlap: validated only by unit tests.
 - The flow-ON scripts (`test-guard-flow`, `test-flow-trigger`, `test-flow-checkpoints`, `test-flow-approvalround`, `test-usd-freeze --mode=flow-case`) and `verification-api-tests` modes `quick-toggle`, `t1`, `t2`, `t3` were **not re-run** after the plug-in step (the first need the flow ON; `t1`/`t3` change option and exchange-rate metadata unrelated to the chain). The other flow-OFF scripts were re-run, see the regression section.
-- A contract **created directly as Pending Approval** (API) gets **no chain** (see the open item).
+- A Create as Pending Approval no longer exists (rejected by the guard since assembly 1.0.7.0, ADR-004). The chain builder has no Create step by design; a bulk `CreateMultiple` is not covered by the guard (as before).
 - Import of the two tables and of the new plug-in step with the solution into another environment (`src/` is not synced; the pack was not run).
 - The delegation columns (`mwf_delegated`, `mwf_actualapprover`) are created but nothing writes them.
 
@@ -186,7 +188,7 @@ The live description of `mwf_minvalueusd` said "inclusive" while the documentati
 
 ## Open items
 
-- **Create as Pending Approval has no chain** (regression pass, section above). Decision needed before batch 3: register the builder on Create too, reject such a Create in the guard, or let the flow fail closed.
+- ~~Create as Pending Approval has no chain~~ **Closed 2026-10-22:** the guard rejects it (ADR-004 update; option b chosen by the owner).
 
 - **Security (decided in the security phase):** the read privilege of the submitter's roles on `mwf_approvalstep` is decided there. **No project role is given write privilege on either table.** Who writes: the plug-in (system) and the identity of the flow connection; that identity's privileges are to be defined in the same phase.
 - ~~Whether an Inform-only chain, or a missing assignment, should reject~~ Accepted by the owner on 2026-10-22: both reject.

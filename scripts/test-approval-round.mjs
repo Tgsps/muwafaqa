@@ -16,7 +16,7 @@
  *       without mwf_approvalround, so an equal non-null value reads as a change; fail closed)
  *   7   Pending -> In Force: round unchanged
  *   8   client sets mwf_approvalround on Create (5, and 0): rejected, no row created
- *   9   Create directly as Pending Approval: round value (observation, expected 1) and frozen 1000.00
+ *   9   Create directly as Pending Approval: REJECTED by the guard (changed 2026-10-22, ADR-004 update); it used to be an observation (round 1, frozen 1000.00)
  * After the cases: cleanup with the shared helper (scripts/lib/contract-cleanup.mjs), check-clean, and a read of the guard
  * Update step registration (filtering attributes count and PreImage attributes count).
  *
@@ -202,17 +202,14 @@ async function cases() {
       `client sets mwf_approvalround = ${v} on Create`, 'HTTP 400 "Approval Round cannot be changed...", no row created', `HTTP ${r.status}; ${msgOf(r)}; rows created ${found}`);
   }
 
-  // 9: Create directly as Pending Approval
+  // 9: Create directly as Pending Approval. CHANGED 2026-10-22 on purpose (ADR-004 update, option b): the guard now rejects it.
+  // It used to be an observation (accepted, round 1, frozen 1000.00); a contract created that way had no approval chain (ADR-007).
   const p = await call('POST', 'mwf_contracts', body('D', { statuscode: PENDING }));
-  if (!p.ok) {
-    out('FAIL', '9', 'Create directly as Pending Approval', 'created', `HTTP ${p.status}; ${msgOf(p)}`);
-  } else {
-    const row = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`mwf_name eq '${PREFIX} D'`)}`)).j.value[0];
-    FX.ids.push(row.mwf_contractid);
-    g = await read(row.mwf_contractid);
-    out('OBS', '9', 'Create directly as Pending Approval (API)', 'observation; expected round 1 and frozen 1000.00',
-      `round ${show(g.mwf_approvalround)}, status ${g.statuscode}, frozen ${two(g.mwf_valueusdfrozen)} (the flow is OFF: nothing is claimed about runs)`);
-  }
+  const madeRows = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q(`mwf_name eq '${PREFIX} D'`)}`)).j.value;
+  for (const r of madeRows) FX.ids.push(r.mwf_contractid);
+  out(p.status === 400 && madeRows.length === 0 && /A contract must be created as Draft; submit it for approval afterwards\./.test(msgOf(p)) ? 'PASS' : 'FAIL', '9',
+    'Create directly as Pending Approval is rejected', 'HTTP 400 "A contract must be created as Draft; submit it for approval afterwards.", no row created',
+    `HTTP ${p.status}; ${msgOf(p)}; rows created ${madeRows.length}`);
 }
 
 async function cleanupAll() {

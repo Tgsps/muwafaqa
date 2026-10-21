@@ -5,7 +5,8 @@
  *
  * Modes:
  *   --mode=update-cases  cases 1, 2, 4, 5, 6, 6b, 6c, 7, 8, 10 (the Update path). Needs the Update step registered.
- *   --mode=create-case   case 3: create a contract directly as Pending Approval without a currency. Needs the Create step.
+ *   --mode=create-case   case 3: create a contract directly as Pending Approval without a currency. CHANGED 2026-10-22 (ADR-004 update): the guard now
+ *                        rejects any Create that is not Draft, so the case checks that rejection (it used to be an observation of the Create path of plug-in 1).
  *   --mode=guard-smoke   smoke test of the Contract State Guard (ADR-004), no Pending and no In Force row is created:
  *                        create a Draft, PATCH it to In Force (must fail with the guard message), PATCH the Subject,
  *                        PATCH Value, DELETE it. Cleans up and runs check-clean.
@@ -320,10 +321,12 @@ async function flowCase() {
 async function createCase() {
   const c = await contract({ key: 'C3', value: 1000, noCurrency: true, status: PENDING });
   if (!c.ok) {
-    report('3', 'POST contract with statuscode=Pending, Value 1000, NO transactioncurrencyid', 'created (frozen written) or a clear plug-in error',
-      `HTTP ${c.status}; ${noGuid(c.j?.error?.message || c.text).slice(0, 400)}`, true, 'OBSERVATION: the create was rejected. Read the message above.');
+    const m = noGuid(c.j?.error?.message || c.text);
+    report('3', 'POST contract with statuscode=Pending, Value 1000, NO transactioncurrencyid', 'HTTP 400 from the guard: "A contract must be created as Draft; submit it for approval afterwards." (changed 2026-10-22)',
+      `HTTP ${c.status}; ${m.slice(0, 400)}`, c.status === 400 && /A contract must be created as Draft; submit it for approval afterwards\./.test(m));
     return;
   }
+  report('3', 'POST contract with statuscode=Pending, Value 1000, NO transactioncurrencyid', 'HTTP 400 from the guard (changed 2026-10-22)', `ACCEPTED: HTTP ${c.status}, which is no longer expected`, false);
   const g = await read(c.id);
   const iso = [...FX.iso.entries()].find(([, id]) => id === g._transactioncurrencyid_value)?.[0] ?? '(none)';
   report('3', 'POST contract with statuscode=Pending, Value 1000, NO transactioncurrencyid',

@@ -301,7 +301,7 @@ const GUARD_UPDATE_COLUMNS = 'statuscode,statecode,mwf_value,transactioncurrency
 // with 0x80040216 "An unexpected error occurred", cause unknown; the design makes it unnecessary.)
 const GUARD_IMAGE_COLUMNS = GUARD_UPDATE_COLUMNS.split(',').filter((c) => c !== 'mwf_approvalround').join(',');
 const SORT = (csv) => csv.split(',').map((x) => x.trim()).sort().join(',');
-const EXPECTED_ASSEMBLY_VERSION = argOf('expect-assembly-version') || '1.0.6.0';
+const EXPECTED_ASSEMBLY_VERSION = argOf('expect-assembly-version') || '1.0.7.0';
 
 async function getPackage() {
   const pk = (await get(`pluginpackages?$filter=uniquename eq '${PACKAGE_UNIQUE}'&$select=name,uniquename,version`)).value;

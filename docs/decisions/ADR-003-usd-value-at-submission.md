@@ -11,7 +11,7 @@ The authority threshold in the approval matrix is in USD. The environment base c
 
 A plugin writes `mwf_valueusdfrozen` (Decimal, 2 decimals) on `mwf_contract` when the contract **enters Pending Approval**.
 
-- **Trigger.** Create with status Pending Approval, or Update where the status changes to Pending Approval. A save that keeps Pending Approval does not recompute. Every re-entry (Pending, Draft, Pending) recomputes.
+- **Trigger.** Create with status Pending Approval, or Update where the status changes to Pending Approval. A save that keeps Pending Approval does not recompute. Every re-entry (Pending, Draft, Pending) recomputes. **Since 2026-10-22 (assembly 1.0.7.0, ADR-004 update) the guard rejects a Create with status Pending Approval, so the Create branch of this plug-in is an unreachable second line of defense; it is left unchanged.**
 - **Stage.** PreOperation (20), synchronous, so the value is written in the same transaction as the status change. The approval flow, which starts after commit, always sees the frozen value.
 - **Rate source: current rates at submission.** `USD = Value * rate(USD) / rate(contract currency)`, with `rate` read from the currency table at that moment. The `exchangerate` stored on the contract is **not** used.
 - **Rounding.** 2 decimals, `MidpointRounding.AwayFromZero`.

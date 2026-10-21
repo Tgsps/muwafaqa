@@ -49,14 +49,17 @@ namespace Muwafaqa.Plugins.Contract
                 + ContractStatus.NameOf(to) + ". " + tail);
         }
 
-        /// <summary>On Create the status may be absent (platform default Draft), Draft or Pending Approval.</summary>
+        /// <summary>
+        /// On Create the status may be absent (platform default Draft) or Draft. Every other status is rejected (ADR-004 update of 2026-10-22):
+        /// a contract enters approval only by a real submission (Draft to Pending Approval on Update), which is where the approval chain is built (ADR-007).
+        /// </summary>
         public static PolicyResult CheckCreate(int? requestedStatus)
         {
             if (!requestedStatus.HasValue) return PolicyResult.Allow;
             var s = requestedStatus.Value;
-            if (s == ContractStatus.Draft || s == ContractStatus.PendingApproval) return PolicyResult.Allow;
+            if (s == ContractStatus.Draft) return PolicyResult.Allow;
             return PolicyResult.Deny("Cannot create a contract with status " + ContractStatus.NameOf(s)
-                + ". A new contract starts as Draft or Pending Approval.");
+                + ". A contract must be created as Draft; submit it for approval afterwards.");
         }
     }
 }

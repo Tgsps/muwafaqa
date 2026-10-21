@@ -12,7 +12,8 @@ namespace Muwafaqa.Plugins.Tests
         [Theory]
         [InlineData(null, null, true)]                              // status absent: platform default Draft
         [InlineData(ContractStatus.Draft, 0, true)]
-        [InlineData(ContractStatus.PendingApproval, 0, true)]
+        [InlineData(ContractStatus.PendingApproval, 0, false)]      // changed 2026-10-22 (ADR-004): was true
+        [InlineData(null, 0, true)]                                 // state only, Active: platform default Draft
         [InlineData(ContractStatus.InForce, 0, false)]
         [InlineData(ContractStatus.Rejected, 1, false)]
         public void Create_by_requested_status(int? status, int? state, bool expectedAllowed)

@@ -31,7 +31,7 @@ Two behaviors were proven earlier on the server, and a third follows from them:
 | **Rejected** | allowed | rejected | rejected | same (no-op) |
 
 - **Same status to the same status is not a transition** (allowed, no-op).
-- **Create:** the status may be absent (platform default Draft), Draft or Pending Approval. In Force and Rejected on Create are rejected.
+- **Create:** the status may be absent (platform default Draft) or Draft. **Every other status is rejected** (changed 2026-10-22, see "Update 2026-10-22" below; until then Pending Approval was also accepted).
 
 ### Locked columns
 
@@ -142,3 +142,39 @@ This is a **risk**, not a pending item.
 3. **`ownerid` and the dates** are revisited later (decision 3 above). Assign is not covered by the guard.
 4. **The end-to-end test with the approval flow ON:** done on 2026-10-13 (see "Not verified yet").
 5. **Security roles phase:** do not grant `prvBypassCustomBusinessLogic` to any role other than System Administrator.
+
+## Update 2026-10-22: Create must be Draft
+
+**Decision (owner, option b of three):** a Create is accepted only with the status absent (the platform default Draft) or Draft. Pending Approval, Rejected, In Force and any other value are rejected at PreValidation with: "Cannot create a contract with status <status>. A contract must be created as Draft; submit it for approval afterwards." (assembly 1.0.7.0).
+
+**What the guard accepted on Create before (read from the code `TransitionPolicy.CheckCreate`, and observed by `test-state-guard` group 2):**
+
+| Requested status on Create | Before | After |
+|---|---|---|
+| absent (platform default Draft) | accepted | accepted |
+| Draft | accepted | accepted |
+| Pending Approval | **accepted** | **rejected** |
+| Rejected (statuscode, or `statecode` 1 alone, which the guard reads as Rejected) | rejected | rejected (new text) |
+| In Force | rejected | rejected (new text) |
+| any other value | rejected | rejected (new text) |
+
+**Why.** The approval chain (ADR-007) is built by a plug-in on the Update that moves a contract from Draft to Pending Approval. A contract created directly as Pending Approval got a frozen value and round 1 from plug-in 1 but **no chain** (found by the regression pass of 2026-10-22, probe: round 1, frozen 1000, 0 approval steps). Options were: also build the chain on Create (a), reject such a Create (b, chosen), or let the flow fail on an empty chain (c).
+
+**Trade-off.** (b) keeps one entry into approval (the Draft to Pending Update), so the chain, the frozen USD value and the round are produced by one path. The cost: a record cannot be imported or created already submitted; it must be created as Draft and then updated, which is one more request. The app form already creates a Draft, so no screen changes. `scripts/load-test-data.mjs` is not affected (it creates Draft rows); it was not re-run.
+
+**Plug-in 1 is not changed.** Its Create branch (freeze the value and set the round when a Create has status Pending Approval) stays as an additional defense. It is now unreachable through the guard; it can only run if the guard Create step is bypassed or disabled. It is not tested live any more (the live cases that exercised it were changed, see below).
+
+**Unit tests (346 passed, 0 failed; 338 before):** Create by status: absent and Draft allowed; Pending Approval, Rejected, In Force, 0, -1 and an unknown value denied; the message ends with the new sentence and names the status; a `statecode` 0 request alone is still the default Draft.
+
+**Old tests changed on purpose (and only these):**
+
+| Test | Before | After | Reason |
+|---|---|---|---|
+| `TransitionPolicyTests.Create_status_rules` | Pending Approval allowed | Pending Approval denied; added 0, -1, 867640099 (denied) | new rule |
+| `GuardEvaluatorTests.Create_by_requested_status` | Pending Approval allowed | denied; added a `statecode` 0 only case (allowed) | new rule |
+| `test-state-guard` group 2, "Create as Pending" | expected HTTP 204, then checked that plug-in 1 wrote the frozen value (2 PASS) | expects HTTP 400 with the new sentence and no row (1 PASS), then checks that no counter moved (1 PASS); a new case "Create with an explicit statuscode Draft" (1 PASS) | new rule; the frozen-value check cannot run any more because no row is created |
+| `test-approval-round` [9] | OBS: Create as Pending accepted, round 1, frozen 1000.00 | PASS/FAIL: HTTP 400 with the new sentence, no row | new rule; was an observation of the path that is now closed |
+| `test-usd-freeze` case 3 (`create-case`) | always PASS, only reported what happened (the Create path of plug-in 1) | PASS only if HTTP 400 with the new sentence; FAIL if accepted | new rule; an always-PASS observation would have hidden a regression |
+
+**Verified on the server (script, flow OFF, assembly 1.0.7.0):** Create as Pending rejected with HTTP 400 and the new text, no row created, no counter moved; Create with an explicit Draft accepted; In Force and Rejected on Create still rejected. Results of the re-run: `docs/plugin-registration-log.md`, section "Create must be Draft". **Not tested:** the plug-in 1 Create branch (unreachable now); a bulk Create (`CreateMultiple`), which the guard steps do not cover (as before, see "Not verified yet"); the app form and import wizards.
+

@@ -328,7 +328,7 @@ Each item has a trade-off to state when it is designed (extra column and flow lo
 
 ### Two known facts
 
-- **(a) Change type is Modified.** A contract created directly in Pending Approval through the API starts **no run** (the app form creates a Draft). Not tested separately.
+- **(a) Change type is Modified.** A contract created directly in Pending Approval through the API starts **no run** (the app form creates a Draft). Not tested separately. **Since 2026-10-22 such a Create is rejected by the guard** (ADR-004 update), so the case cannot occur.
 - **(b) The `flowruns` table lists finished runs only.** A row is written after the run ends (observed: `createdon` is later than `endtime`, and no row has the status Running). A run that waits for an approval is not listed, so runs cannot be counted from that table right after an action. Use the run history in Power Automate.
 
 ### Known gap: a stale run can complete a re-submitted contract
