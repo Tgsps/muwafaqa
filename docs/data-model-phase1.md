@@ -148,11 +148,11 @@ The table exists in the solution and holds **fictional** seed rows. It is not us
 
 **Resolved conflict (2026-10-22):** until then the live description of `mwf_minvalueusd` said "inclusive" while this document, the CSV, the loader and the 110 rows use Min exclusive. Nothing read the column, so no behavior was wrong. The two descriptions were corrected to match this convention (script `scripts/create-approval-chain-tables.mjs`, read back by `scripts/verify-approval-chain-schema.mjs`, check S6).
 
-The Min and Max are in USD while the platform base amount is TRY (see ADR-001). They are compared with the independent frozen USD value (`mwf_valueusdfrozen`). The comparison is decided in ADR-007 and **not implemented yet** (the plug-in that builds the chain is batch 2).
+The Min and Max are in USD while the platform base amount is TRY (see ADR-001). They are compared with the independent frozen USD value (`mwf_valueusdfrozen`). The comparison is decided in ADR-007 and implemented by the plug-in `ApprovalChainBuilder` (batch 2, server tested; the flow that uses the chain is batch 3).
 
 ### Approval Step table (`mwf_approvalstep`, created 2026-10-22, decision: [ADR-007](decisions/ADR-007-approval-chain.md))
 
-One row per step of the approval chain of one contract and one approval round. Built by a plug-in at submission (**not built yet**, batch 2) and updated by the approval flow (**not built yet**, batch 3). Organization-owned, no notes, no activities. **No row exists yet** except during tests (the test rows are deleted).
+One row per step of the approval chain of one contract and one approval round. **Built by the plug-in `ApprovalChainBuilder` at the real submission** (Draft to Pending Approval; built and server tested in batch 2, assembly 1.0.6.0) and, later, updated by the approval flow (**not built yet**, batch 3). Organization-owned, no notes, no activities. Rows exist for every contract that is Pending or was submitted; at the end of the batch 2 test run none remained (the test contracts were deleted and the steps cascaded).
 
 | Logical name | Type | Required (read from the API) | Note |
 |---|---|---|---|
@@ -170,7 +170,7 @@ One row per step of the approval chain of one contract and one approval round. B
 
 **Alternate key** `mwf_ApprovalStepKey` on (`mwf_contract`, `mwf_approvalround`, `mwf_steporder`), index Active. A Lookup is a valid alternate key column type (from Learn, "Work with alternate keys"), so no text key column was added.
 
-**Verified (script):** columns and types, the three lookups and their delete behavior in the metadata, the key, and a live test: a duplicate step is rejected (HTTP 412), and deleting a Draft contract deletes its steps. Details: [ADR-007](decisions/ADR-007-approval-chain.md), section "Verified". **Not tested:** anything that writes the rows (the plug-in and the flow).
+**Verified (script):** columns and types, the three lookups and their delete behavior in the metadata, the key, and a live test: a duplicate step is rejected (HTTP 412), and deleting a Draft contract deletes its steps. The plug-in that writes the rows is tested in batch 2 (ADR-007, "Verified (batch 2)"). **Not tested:** the flow that updates the rows (batch 3).
 
 ### Approver Assignment table (`mwf_approverassignment`, created 2026-10-22, decision: ADR-007)
 

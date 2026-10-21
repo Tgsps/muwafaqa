@@ -585,3 +585,17 @@ Same procedure as before: `pac solution sync`, then `node scripts/scrub-emails.m
 - **Scrub (script, counts over all of `src/`):** email-like values 0 (excluding OData annotations), UPN-like values 0, real org host 0, tenant/user/owner id elements 0; the placeholders `<APPROVER_TEST_ACCOUNT>` (2) and `<ORG_HOST>` (2) are in the flow; no binary or data file is tracked; no counter seed value is in `src/`. The plug-in package on disk is git-ignored.
 - `pac solution pack` of `src/` into a folder outside the repository completed; the known warning about the `PluginAssembly` root component appeared; the output was deleted. **An import of the solution was not tested.**
 - This closes the "`src/` is behind the environment" item of the entries above.
+
+## Approval chain builder: plug-in 4, assembly 1.0.6.0 (2026-10-22, ADR-007 batch 2)
+
+Details, rules and the server test table: [ADR-007](decisions/ADR-007-approval-chain.md). The approval flow was OFF throughout and was not touched.
+
+- **Before (script):** 3 consecutive GET requests succeeded; flow OFF; 11 contracts (latest `modifiedon` 2026-10-07T17:23:48Z); 0 TEST-TMP; counters 0/0/0/0/0; git clean.
+- **Code:** `ApprovalChainBuilder` (the step) and `ApprovalChainPlanner` (pure logic). Unit tests: **338 passed, 0 failed** (300 before, 38 new). Release build, assembly **1.0.6.0**, package version unchanged at 1.0.0.
+- **Package:** SHA-256 `dadebf5c24b7b187d170900f0c79ef54a1991d19b67e8a1338d222633500bb46`, DLL SHA-256 `0f900e6adefba4d2a9d66b1b87899c83143e2806aab5c924f7d626df59094e96`. `--mode=package-update` passed (assembly 1.0.6.0, four plug-in types, package name and version unchanged). Its read-back showed 15 passed and 3 failed, the 3 being the not-yet-registered chain step (expected).
+- **Step (`--mode=steps-chain`, script):** `ApprovalChainBuilder: Update of mwf_contract`, **PostOperation 40, synchronous, rank 1**, filtering attributes `statuscode` only, PreImage `pre` with `statuscode` only, solution header set. **Read-back: 12 passed, 0 failed**: Enabled, points to the assembly type, seven steps in total all solution components, the other six steps unchanged (guard Update still filtering 10 and image 9 columns).
+- **New mode:** `register-plugin-package.mjs --mode=steps-chain`; the read-back now expects assembly 1.0.6.0 and seven steps.
+- **Server test (script `test-approval-chain.mjs`):** 37 PASS, 0 FAIL, 3 OBS; cleanup and counters restored (see ADR-007).
+- **Rollback:** disable the step (PATCH `statecode` of the step row) or register the 1.0.5.0 package again from the commit before this one. The chain tables stay.
+- **Not tested:** see ADR-007, "What was not tested". The older flow-OFF scripts were not re-run with the new step. `src/` is not synced (it still names assembly 1.0.5.0 and has no chain step).
+

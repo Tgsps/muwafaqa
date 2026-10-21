@@ -93,3 +93,11 @@ node scripts/verify-approval-chain-schema.mjs --env=https://<org>.crm4.dynamics.
 | `lib/dv-session.mjs` | Shared sign-in and Web API caller of these three scripts (GET retried on network errors only; a write is never retried) |
 
 Notes: the two ApprovalMatrix and approver loaders must both be run once per environment (the rows are not part of the solution). No script here writes an email, id or host into any file.
+
+### Approval chain builder: test and registration (ADR-007, batch 2)
+
+| Script | What it does |
+|---|---|
+| `register-plugin-package.mjs --mode=steps-chain` | Registers the Update step of `ApprovalChainBuilder` (PostOperation 40, synchronous, rank 1, filtering `statuscode`) with the PreImage `pre` (`statuscode` only). Idempotent by step name. Read-back included. Use `--mode=package-update --nupkg=<path>` first to load the 1.0.6.0 package |
+| `test-approval-chain.mjs` | Server tests T1 to T10 on fictional `TEST-TMP-CHAIN*` rows. **The approval flow must be OFF** (the script stops otherwise). Pre-checks: 3 GET requests, 0 TEST-TMP rows, 11 contracts, 0 approval steps, 110 active matrix rows, 5 active assignments. It temporarily deactivates one assignment row (T5) and one matrix row (T9) and always reactivates them in `finally`, reading each back; if a state cannot be confirmed it stops and prints it. Counters are snapshotted and restored by the usual rule. Modes: `run` (needs `--confirm-mutates-environment`), `check-clean`, `cleanup` (after a crash: deletes the rows, reactivates any inactive matrix or assignment row, restores counters from `--counters-before/--counters-consumed`). `--only=T1,T5` runs selected tests |
+

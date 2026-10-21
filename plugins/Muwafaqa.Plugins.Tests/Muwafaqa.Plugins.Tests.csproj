@@ -22,6 +22,7 @@
     <Compile Include="..\Muwafaqa.Plugins\Contract\DeletePolicy.cs" Link="Linked\DeletePolicy.cs" />
     <Compile Include="..\Muwafaqa.Plugins\Contract\GuardEvaluator.cs" Link="Linked\GuardEvaluator.cs" />
     <Compile Include="..\Muwafaqa.Plugins\Contract\ContractNumberGenerator.cs" Link="Linked\ContractNumberGenerator.cs" />
+    <Compile Include="..\Muwafaqa.Plugins\Contract\ApprovalChainPlanner.cs" Link="Linked\ApprovalChainPlanner.cs" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,6 +1,6 @@
 # ADR-007: Approval chain built from the ApprovalMatrix, frozen at submission
 
-- **Status:** Accepted (owner decisions of 2026-10-22). **Batch 1 of 4 is built:** the two tables, the corrected descriptions, the loader and the read-back. The plug-in that builds the chain, the flow loop and the security review are **not built** (later batches).
+- **Status:** Accepted (owner decisions of 2026-10-22). **Batch 1 of 4 is built and committed:** the two tables, the corrected descriptions, the loader and the read-back. **Batch 2 is built (not yet committed):** the plug-in `ApprovalChainBuilder`, assembly 1.0.6.0. The flow loop (batch 3) and the security review (batch 4) are **not built**.
 - **Date:** 2026-10-22
 
 Every claim below is marked **(script)** when a script checked it on the server, **(unit)** for a unit test, **(owner)** for a decision or observation of the owner, **(from Learn)** for a Microsoft Learn statement, or **(not tested)**.
@@ -64,12 +64,28 @@ The approval flow of Phase 1 has two fixed stages with one fixed approver addres
 
 Modes `check`, `load`, `validate`. The user comes from the environment variable **`MWF_APPROVER_TEST_USER`** (sign-in name or user id of the test account). The script never prints the value, the resolved id or any address; it prints counts. `load` creates a row per missing role and never changes an existing row. **The rows are data: they do not travel with the solution.** Same for the 110 ApprovalMatrix rows (`scripts/load-approval-matrix.mjs`): each environment needs both loaders run once.
 
-### Rules for the plug-in (design, **not built**, batch 2)
+### Plug-in `ApprovalChainBuilder` (built in batch 2, assembly 1.0.6.0)
 
-- **When:** the same real submission that sets the frozen USD value and the round (ADR-003, ADR-005). The intended place is the same transaction, so a chain that cannot be built **rolls the submission back** (fail closed). (Not tested.)
-- **Band lookup:** the active matrix rows with the contract type and direction of the contract; the band is the one with `Min < value <= Max` (empty Max = no limit); value 0 matches the band with Min 0. Several bands, a gap that leaves the value uncovered, step orders that are not 1..n, or a chain with **no Approve step** are **configuration errors** and reject the submission with a message that names the rule. **Accepted (owner, 2026-10-22):** the no-Approve-step rule. (Built in batch 2; see "Batch 2" below.)
-- **Rows:** one `mwf_approvalstep` per matrix row of the band, `Pending`, with the original approver read from `mwf_approverassignment`. **Accepted (owner, 2026-10-22):** the submission is rejected if any role of the chain has **no active assignment row** (missing or inactive). The flow re-reads the approver when each step starts, so an assignment that is deactivated later is caught there too. (Built in batch 2.)
-- **A resubmission** (next round) creates the rows of the new round; the rows of the older rounds stay as audit, their open steps set to `Cancelled` (who sets them is decided in batch 2). (Not tested.)
+| Property | Value |
+|---|---|
+| Step | Update of `mwf_contract`, **PostOperation (40), synchronous**, rank 1, filtering attribute `statuscode` only |
+| PreImage | `pre`, **`statuscode` only** (one column; the 9-column image problem of ADR-005 is not touched) |
+| Runs | only on a real submission: previous status not Pending Approval, new status Pending Approval (`SubmissionDetector`, the same definition as plug-in 1). Nothing otherwise |
+| Identity | SYSTEM (`CreateOrganizationService(null)`), so no user needs a privilege on the chain tables |
+| Rollback | an exception in a synchronous stage inside the transaction rolls the whole transaction back (from Learn, [Event Framework](https://learn.microsoft.com/en-us/power-apps/developer/data-platform/event-framework): "An exception thrown by your code at any synchronous stage within the database transaction causes the entire transaction to roll back"; PreOperation and PostOperation are inside the transaction). **Tested on the server (T5): the contract stays Draft, and the PreOperation writes of plug-in 1 (frozen value, round) are rolled back too** |
+| Read | the contract (number, type, direction, frozen USD value, round), the ACTIVE matrix rows of its type and direction, the ACTIVE assignment rows |
+| Pure logic | `ApprovalChainPlanner.Plan(value, rows, rolesWithActiveAssignment)`: no Dataverse types, 38 unit tests |
+
+Rules (all accepted by the owner):
+
+- **Band:** `Min < value <= Max` (empty Max = no limit); value 0 matches the band with Min 0. No band (also a value above a closed last band or in a gap), more than one band covering the value, a negative value, or an empty frozen value: **rejected** with a message that starts "Cannot submit the contract." and names the cause.
+- **Rows of the band** must have step orders exactly 1..n (no gap, no duplicate, starting at 1). A row with a missing Min, step order, role or action, a Max not above its Min, or an action other than Approve/Inform is a configuration error and **rejects** (all active rows of the type and direction are checked, not only the chosen band).
+- **A chain with no Approve step is rejected.** A chain whose role has **no active assignment row** (missing or inactive) is rejected, and every missing role is named.
+- **Rows created:** one `mwf_approvalstep` per matrix row of the band: round = `mwf_approvalround` of the contract (set by plug-in 1 in the same operation), role, action, decision `Pending`, original approver = the user of the role's active assignment, name `<contract number> R<round> S<order> <role>`.
+- **Older rounds:** the steps of earlier rounds that are still `Pending` or `Waiting` are set to `Cancelled` in the same transaction. Approved, Rejected and Informed steps are left as they are. **Nothing is deleted.**
+- **Repeated call:** if steps of the current round already exist (the platform can call an Update step twice in some cases, from Learn "Behavior of specialized update operations"), the plug-in does nothing. (Not tested; no way found to provoke a repeated call.)
+
+Order of the pipeline on a submission: guard (PreValidation 10), then plug-in 1 (PreOperation 20: frozen value and round), then the update, then the chain builder (PostOperation 40) in the same transaction. The approval flow starts after the commit, so the steps exist when it runs.
 
 ### The flow (design, **not built**, batch 3)
 
@@ -94,18 +110,44 @@ A loop over the steps of the round, ordered by `mwf_steporder`: read the assignm
 | Live: deleting the Draft contract deleted all 3 of its steps (CASCADE) | PASS |
 | Live cleanup: 11 contracts, 0 TEST-TMP, 0 temporary counterparties, 0 temporary steps; counter MNT restored 1 to 0, the others unchanged | PASS |
 
+## Verified (batch 2, plug-in, 2026-10-22, flow OFF)
+
+**Unit (338 passed, 0 failed; 38 new in `ApprovalChainPlannerTests`):** boundaries 10,000 / 10,000.01 / 50,000 / 50,000.01 / 100,000 / 100,000.01 (and 1, 9,999.99, a very large value), zero, 0.00, 0.01, negatives, empty value, a gap, an overlap, two bands from 0, step orders (gap, duplicate, not starting at 1, starting at 0, unsorted input), no Approve step, an Inform step after an Approve step, missing assignments (named, all named, only the roles of the chosen band), incomplete rows, Max not above Min, unknown action, role names.
+
+**Registration (script `register-plugin-package.mjs --mode=package-update`, then `--mode=steps-chain`):** assembly **1.0.6.0**, package version unchanged at 1.0.0, package SHA-256 `dadebf5c24b7b187d170900f0c79ef54a1991d19b67e8a1338d222633500bb46`, DLL SHA-256 `0f900e6adefba4d2a9d66b1b87899c83143e2806aab5c924f7d626df59094e96`. Read-back: 12 passed, 0 failed (four plug-in types, seven steps all solution components, the chain step as above). The read-back before the step existed correctly showed the 3 expected failures.
+
+**Server (script `test-approval-chain.mjs`, flow OFF, prefix `TEST-TMP-CHAIN`): 37 PASS, 0 FAIL, 3 OBS**
+
+| Test | Result |
+|---|---|
+| T1 the four bands (5,000 / 25,000 / 75,000 / 250,000, Maintenance, Expense): 1, 2, 3 and 5 steps; roles and orders; the last step of the top band is Inform and the others Approve; all Pending, round 1, original approver set, names as designed | PASS |
+| T1x the other four types with direction Income at 25,000: 2 steps each | PASS |
+| T2 boundaries 10,000 (1 step), 10,000.01 (2), 50,000 (2), 50,000.01 (3), 100,000 (3), 100,000.01 (5); frozen value equal to the input | PASS |
+| T3 value 0: first band, 1 step, Department Head | PASS |
+| T4 a negative Value cannot be created (the Value column minimum is 0, HTTP 400) | PASS + OBS: the negative branch of the planner is reachable only by unit tests |
+| T5 Finance Manager assignment deactivated: a 25,000 submission is rejected (HTTP 400, "Cannot submit the contract. No active Approver Assignment for: Finance Manager."); **rollback proved**: the contract is Draft, round and frozen value empty, no steps; a 5,000 submission (Department Head only) still works; after reactivation the same contract is accepted (round 1, 2 steps); 5 active assignments read back | PASS |
+| T6 resubmission: round 2, 4 rows; the Waiting step of round 1 is Cancelled, the Approved one stays Approved; a third submission cancels the Pending steps of round 2 | PASS |
+| T7 Pending to Rejected to Draft to Pending: round 2, the 3 steps of round 1 Cancelled, 3 new Pending | PASS |
+| T8 no steps for a Draft edit, a same-status save on Pending, a Subject edit on Pending, nor a Value change on Pending (rejected by the guard, HTTP 400); same round and frozen value; withdraw and a Draft edit add nothing | PASS (+ OBS with the HTTP codes) |
+| T9 the chain is frozen: with one matching matrix row deactivated the steps are unchanged, and after reactivation too; 110 active matrix rows read back | PASS |
+| T10 five parallel submissions (1, 2, 3, 5, 2 steps): all HTTP 204, each contract has exactly its own chain, about 1 s | PASS |
+| Cleanup: 26 contracts deleted, their steps deleted by the cascade (0 steps left); counterparty deleted; counters restored (MNT 22 to 0, the others 1 to 0); 11 contracts, 0 TEST-TMP, 110 active matrix rows, 5 active assignments | PASS |
+
 ## Corrected: the Min description of the ApprovalMatrix
 
 The live description of `mwf_minvalueusd` said "inclusive" while the documentation, the CSV, the loader and the 110 rows use **Min exclusive**. Nothing read the column, so nothing was wrong in behavior. Both descriptions are now: Min "lower bound of the value band, exclusive", Max "upper bound, inclusive; empty means no upper limit" (script, 2026-10-22). The earlier convention "a value of exactly 0 matches no band" is **replaced by decision 2**: 0 falls on the first band.
 
 ## What was not tested
 
-- The plug-in that builds the chain (batch 2), including the fail-closed rejections and the rollback.
 - The flow loop, the checkpoints inside the loop, and the Reject path of the loop (batch 3).
 - The **Inform** path ("Create an approval" without wait) and the assumption that the Owner is only informed.
-- A chain with **one step** (the first band): the old flow always had two stages.
+- A chain with **one step** in the flow (the plug-in builds it, T1 at 5,000; the old flow always had two stages).
 - That the flow connection can read the assignment and write the step rows with its own privileges.
-- Import of the two tables with the solution into another environment (the pack of `src/` was not run after this batch; `src/` is not synced yet).
+- A repeated call of the same Update operation (the idempotence guard of the plug-in) and a concurrent submission of the **same** contract by two clients (T10 submits five different contracts).
+- The planner branches for a negative or empty frozen value, no matrix rows, an invalid row, overlapping bands and non-contiguous step orders **on the server** (unit tests only; the server tests used the real, valid fictional matrix, plus the missing-assignment case).
+- A real matrix with a gap or an overlap: validated only by unit tests.
+- The older flow-OFF test scripts (`test-usd-freeze`, `test-state-guard`, `test-approval-round`, ...) were **not re-run** with the new step active. They submit contracts, so each now builds a chain; whether any of them submits a contract that the new rules reject was not checked.
+- Import of the two tables and of the new plug-in step with the solution into another environment (`src/` is not synced; the pack was not run).
 - The delegation columns (`mwf_delegated`, `mwf_actualapprover`) are created but nothing writes them.
 
 ## Consequences

@@ -20,6 +20,8 @@
  *                    PreImage "pre" to the current column list (now with mwf_approvalround). Reads both back.
  *   --mode=steps-number  MUTATES. Creates the Create step of GenerateContractNumberOnCreate on mwf_contract (PreOperation 20,
  *                    synchronous, rank 10 = after plug-in 1, no filtering, no image) (ADR-006). Idempotent by step name.
+ *   --mode=steps-chain  MUTATES. Creates the Update step of ApprovalChainBuilder on mwf_contract (PostOperation 40, synchronous, rank 1,
+ *                    filtering attribute statuscode only) and its PreImage "pre" with statuscode only (ADR-007). Idempotent by step name.
  *   --mode=steps-disable / --mode=steps-enable  MUTATES. Disables or enables ONLY the three ContractStateGuard steps
  *                    (PATCH statecode of the step rows). Rollback if the guard blocks everything by mistake.
  *   --mode=package   MUTATES the environment (needs --confirm-mutates-environment). Runs the preliminaries first and stops
@@ -49,7 +51,7 @@ const PACKAGE_VERSION = '1.0.0';
 const TYPE_NAME = 'Muwafaqa.Plugins.Contract.FreezeUsdValueOnSubmission';
 const CLIENT_ID = '04b07795-8ddb-461a-bbee-02f9e1bf7b46'; // public Azure CLI client id, same as the other scripts
 
-if (!['prelim', 'package', 'steps-update', 'steps-create', 'package-update', 'steps-guard', 'phase-a', 'readback', 'steps-disable', 'steps-enable', 'guard-columns', 'steps-number'].includes(MODE)) { console.error('Missing or invalid --mode. Nothing was run.'); process.exit(2); }
+if (!['prelim', 'package', 'steps-update', 'steps-create', 'package-update', 'steps-guard', 'phase-a', 'readback', 'steps-disable', 'steps-enable', 'guard-columns', 'steps-number', 'steps-chain'].includes(MODE)) { console.error('Missing or invalid --mode. Nothing was run.'); process.exit(2); }
 if (!/^https:\/\/[^/]+$/.test(ENV)) { console.error('Missing or invalid --env=https://<org>.crm4.dynamics.com. Nothing was run.'); process.exit(2); }
 if (!['device', 'az'].includes(AUTH)) { console.error('Invalid --auth=device|az. Nothing was run.'); process.exit(2); }
 if (MODE !== 'prelim' && MODE !== 'readback') {
@@ -291,6 +293,7 @@ async function stepsStep(message) {
 // ---------------------------------------------------------------- guard release (ADR-004)
 const GUARD_TYPE = 'Muwafaqa.Plugins.Contract.ContractStateGuard';
 const NUMBER_TYPE = 'Muwafaqa.Plugins.Contract.GenerateContractNumberOnCreate';
+const CHAIN_TYPE = 'Muwafaqa.Plugins.Contract.ApprovalChainBuilder';
 const NUMBER_STEP_RANK = 10;   // plug-in 1 has rank 1: the counter lock is taken as late as possible (ADR-006)
 const GUARD_UPDATE_COLUMNS = 'statuscode,statecode,mwf_value,transactioncurrencyid,mwf_contracttype,mwf_direction,mwf_counterpartyid,mwf_contractnumber,mwf_valueusdfrozen,mwf_approvalround';
 // The PreImage has 9 columns, NOT 10: it does not hold mwf_approvalround. By design (ADR-005) the guard rejects any client write of the
@@ -298,7 +301,7 @@ const GUARD_UPDATE_COLUMNS = 'statuscode,statecode,mwf_value,transactioncurrency
 // with 0x80040216 "An unexpected error occurred", cause unknown; the design makes it unnecessary.)
 const GUARD_IMAGE_COLUMNS = GUARD_UPDATE_COLUMNS.split(',').filter((c) => c !== 'mwf_approvalround').join(',');
 const SORT = (csv) => csv.split(',').map((x) => x.trim()).sort().join(',');
-const EXPECTED_ASSEMBLY_VERSION = argOf('expect-assembly-version') || '1.0.5.0';
+const EXPECTED_ASSEMBLY_VERSION = argOf('expect-assembly-version') || '1.0.6.0';
 
 async function getPackage() {
   const pk = (await get(`pluginpackages?$filter=uniquename eq '${PACKAGE_UNIQUE}'&$select=name,uniquename,version`)).value;
@@ -337,6 +340,7 @@ async function packageUpdate() {
   check('type FreezeUsdValueOnSubmission present', types.includes(TYPE_NAME), '');
   check('type ContractStateGuard present', types.includes(GUARD_TYPE), '');
   check('type GenerateContractNumberOnCreate present', types.includes(NUMBER_TYPE), '');
+  check('type ApprovalChainBuilder present', types.includes(CHAIN_TYPE), '');
 }
 
 async function guardLookups(message) {
@@ -410,6 +414,40 @@ async function stepsNumber() {
   }
 }
 
+async function stepsChain() {
+  console.log('\n--- register the Update step of ApprovalChainBuilder (PostOperation, statuscode filter, PreImage statuscode)');
+  const L = await stepLookups('Update');
+  const pk = await getPackage();
+  const asm = await getAssembly(pk.pluginpackageid);
+  const ty = (await get(`plugintypes?$filter=_pluginassemblyid_value eq ${asm.pluginassemblyid} and typename eq '${CHAIN_TYPE}'&$select=typename`)).value;
+  if (ty.length !== 1) throw new Stop(`plug-in type ${CHAIN_TYPE}: expected 1, found ${ty.length}`, 3);
+  const stepName = `${CHAIN_TYPE}: Update of mwf_contract`;
+  const ex = (await get(`sdkmessageprocessingsteps?$filter=name eq '${stepName}'&$select=name`)).value;
+  let stepId = ex[0]?.sdkmessageprocessingstepid;
+  if (stepId) console.log('SKIP  Update step already exists (idempotent)');
+  else {
+    const r = await post('sdkmessageprocessingsteps', {
+      name: stepName,
+      description: 'Approval chain builder (ADR-007): Update of mwf_contract, PostOperation, real submissions only.',
+      stage: 40, mode: 0, rank: 1, supporteddeployment: 0, asyncautodelete: false, filteringattributes: 'statuscode',
+      'sdkmessageid@odata.bind': `/sdkmessages(${L.messageId})`,
+      'sdkmessagefilterid@odata.bind': `/sdkmessagefilters(${L.filterId})`,
+      'eventhandler_plugintype@odata.bind': `/plugintypes(${ty[0].plugintypeid})`,
+    }, { 'MSCRM.SolutionUniqueName': SOLUTION });
+    stepId = r.id;
+    check('POST Update step accepted (solution header set)', !!stepId, '');
+  }
+  const im = (await get(`sdkmessageprocessingstepimages?$filter=_sdkmessageprocessingstepid_value eq ${stepId}&$select=name`)).value;
+  if (im.length) console.log(`SKIP  image already exists (count=${im.length})`);
+  else {
+    const r = await post('sdkmessageprocessingstepimages', {
+      name: 'pre', entityalias: 'pre', imagetype: 0, messagepropertyname: 'Target', attributes: 'statuscode',
+      'sdkmessageprocessingstepid@odata.bind': `/sdkmessageprocessingsteps(${stepId})`,
+    });
+    check('POST PreImage accepted', !!r.id, '');
+  }
+}
+
 async function readbackAll() {
   console.log('\n--- read back');
   const pk = await getPackage();
@@ -422,7 +460,8 @@ async function readbackAll() {
   const freeze = types.find((t) => t.typename === TYPE_NAME);
   const guard = types.find((t) => t.typename === GUARD_TYPE);
   const numberType = types.find((t) => t.typename === NUMBER_TYPE);
-  check('the three plug-in types exist in the assembly', !!freeze && !!guard && !!numberType, '');
+  const chainType = types.find((t) => t.typename === CHAIN_TYPE);
+  check('the four plug-in types exist in the assembly', !!freeze && !!guard && !!numberType && !!chainType, '');
   const sol = (await get(`solutions?$filter=uniquename eq '${SOLUTION}'&$select=solutionid`)).value[0];
 
   const rows = [];
@@ -431,6 +470,7 @@ async function readbackAll() {
     ['guard', `${GUARD_TYPE}: Update of mwf_contract`, guard], ['guard', `${GUARD_TYPE}: Create of mwf_contract`, guard],
     ['guard', `${GUARD_TYPE}: Delete of mwf_contract`, guard],
     ['number', `${NUMBER_TYPE}: Create of mwf_contract`, numberType],
+    ['chain', `${CHAIN_TYPE}: Update of mwf_contract`, chainType],
   ];
   for (const [owner, name, type] of names) {
     const st = (await get(`sdkmessageprocessingsteps?$filter=name eq '${name}'&$select=name,stage,mode,rank,filteringattributes,statecode,supporteddeployment,_eventhandler_value`)).value;
@@ -462,7 +502,9 @@ async function readbackAll() {
   check('guard Delete: stage 10, sync, rank 1, PreImage = statuscode only', !!gd && gd.stage === 10 && gd.mode === 0 && gd.rank === 1 && gd._im === 'statuscode', '');
   const gn = rows.find((r) => r.owner === 'number');
   check(`number generator Create: stage 20, sync, rank ${NUMBER_STEP_RANK}, Enabled, no filtering, no image`, !!gn && gn.stage === 20 && gn.mode === 0 && gn.rank === NUMBER_STEP_RANK && gn.state === 'Enabled' && gn.filter === 'none' && gn.image === 'none' && gn.pointsTo === 'assembly type ok', '');
-  check('all six steps are solution components', rows.length === 6 && rows.every((r) => r.inSolution === 'yes'), '');
+  const gch = rows.find((r) => r.owner === 'chain');
+  check('chain builder Update: stage 40 (PostOperation), sync, rank 1, Enabled, filtering = statuscode only, PreImage = statuscode only (1 column)', !!gch && gch.stage === 40 && gch.mode === 0 && gch.rank === 1 && gch.state === 'Enabled' && gch._filter === 'statuscode' && gch._im === 'statuscode' && gch.pointsTo === 'assembly type ok', '');
+  check('all seven steps are solution components', rows.length === 7 && rows.every((r) => r.inSolution === 'yes'), '');
   check('guard steps point to the ContractStateGuard type', ['Update', 'Create', 'Delete'].every((m) => g(m)?.pointsTo === 'assembly type ok'), '');
 }
 
@@ -504,14 +546,15 @@ async function setGuardState(enable) {
     TOKEN = AUTH === 'az'
       ? execSync(`az account get-access-token --resource ${ENV} --query accessToken -o tsv`, { encoding: 'utf8', shell: true }).trim()
       : await deviceToken();
-    if (['package-update', 'steps-guard', 'phase-a', 'readback', 'steps-disable', 'steps-enable', 'guard-columns', 'steps-number'].includes(MODE)) {
+    if (['package-update', 'steps-guard', 'phase-a', 'readback', 'steps-disable', 'steps-enable', 'guard-columns', 'steps-number', 'steps-chain'].includes(MODE)) {
       if (MODE === 'package-update' || MODE === 'phase-a') await packageUpdate();
       if (MODE === 'steps-guard' || MODE === 'phase-a') await stepsGuard();
       if (MODE === 'guard-columns') await guardColumns();
       if (MODE === 'steps-number') await stepsNumber();
+      if (MODE === 'steps-chain') await stepsChain();
       if (MODE === 'steps-disable') await setGuardState(false);
       if (MODE === 'steps-enable') await setGuardState(true);
-      if (['steps-guard', 'phase-a', 'readback', 'package-update', 'guard-columns', 'steps-number'].includes(MODE)) await readbackAll();
+      if (['steps-guard', 'phase-a', 'readback', 'package-update', 'guard-columns', 'steps-number', 'steps-chain'].includes(MODE)) await readbackAll();
       const badP = results.filter((r) => !r.pass).length;
       console.log(`\nSUMMARY: ${results.length - badP} passed, ${badP} failed.`);
       process.exit(badP ? 1 : 0);
