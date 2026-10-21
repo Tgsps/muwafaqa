@@ -10,8 +10,8 @@ Every claim is marked **(script)** when a script checked it, **(unit)** for a un
 |---|---|
 | The definition | Written as code in `scripts/build-flow-v2.mjs` (no id, address or host is stored; the record link keeps the placeholder `<ORG_HOST>`) |
 | Structural check, offline | **25 PASS, 0 FAIL** (`--mode=check`, script) and 18 unit tests that prove the checker catches defects (`scripts/build-flow-v2.test.mjs`, unit) |
-| Row "Muwafaqa - Contract Approval v2" in Dataverse | **NOT created yet.** Network faults (see the registration log) made the single POST unsafe; it is run on purpose after a clean connection check (section 8) |
-| Turned on | **No.** v2 is created OFF (a new cloud flow row is Draft), and v1 stays OFF. Only the owner turns flows on |
+| Row "Muwafaqa - Contract Approval v2" in Dataverse | **Created on 2026-10-22, OFF** (script, one POST, HTTP 204; category 5, statecode 0, statuscode 1, a component of the solution; read back by `--mode=verify`). Details in section 8 |
+| Turned on | **No.** v2 was created OFF (a new cloud flow row is Draft), and v1 stays OFF and unchanged (same `modifiedon` before and after). Only the owner turns flows on. Its connection references still have to be bound to working connections by the owner before it can be turned on (not checked) |
 | Opened in the designer / Flow checker | **Not done** (section 7) |
 
 ## 1. What it does
@@ -145,13 +145,28 @@ A contract that stays Pending Approval after a Failed run has to be withdrawn to
 
 **Not possible outside the designer (not tested):**
 - The real Flow checker (it validates against the connector's live schema: parameter names, required fields, types, dynamic content).
-- That `CreateAnApproval` is the operation id of "Create an approval" and that its parameters are named `ApprovalCreationInput/...` (taken from the naming pattern of `StartAndWaitForAnApproval`, whose `WebhookApprovalCreationInput/...` names are those of v1). **Highest-risk item.**
+- The names of the fields **inside** the dynamic field `ApprovalCreationInput` of "Create an approval" (`title`, `assignedTo`, `details`, `itemLink`, `itemLinkDescription`, `enableNotifications`, `enableReassignment`). They are inferred from the `WebhookApprovalCreationInput/...` names of "Start and wait" in v1 and are **not confirmed**. **Highest-risk item that remains** (see "Connector facts from Learn" below for what is confirmed).
 - That `GetItem` accepts `$select` on `systemusers`, that `ListRecords` accepts `$top` as a number, and the `json(...)?[...]` indexing, in the designer's expression editor.
 - That the approval output carries `completionDate` and `responses[].comments` as written (the v1 flow only used `outcome`).
 - That Dataverse accepts this `clientdata` for a new cloud flow row and that the flow can be turned on (the connection references must be bound to working connections by the owner).
 - Any behaviour at run time: nothing ran.
 
-## 8. Creating the row (when the connection is clean)
+### Connector facts from Microsoft Learn (checked by the owner, 2026-10-22; I did not re-read the page, so this is the owner's report)
+
+| Fact | Source | Effect on v2 |
+|---|---|---|
+| The operation id of "Create an approval" is **`CreateAnApproval`** | (from Learn, reference of the Approvals connector) | confirms the operation id used in `Send_information_approval` |
+| Its parameters are **`approvalType`** and a dynamic field **`ApprovalCreationInput`** | (from Learn) | confirms `approvalType` (v2 sends `Basic`); the dynamic field is how the other inputs are sent |
+| The output of the waiting action has **`responses.responder.email`**, **`responses.comments`** and **`completionDate`** | (from Learn) | confirms the `completionDate` and `responses[].comments` used by `Mark_step_Approved` / `Mark_step_Rejected`; `responses.responder.email` would allow resolving the actual approver later |
+| **Still not confirmed:** the field names inside `ApprovalCreationInput` | inferred from the v1 names | the Inform step may need its inputs re-bound in the designer |
+
+This lowers the risk of the Inform step from "operation id and parameter names guessed" to "only the inner field names guessed". Nothing was run, so it remains **not tested**.
+
+## 8. Creating the row (done on 2026-10-22)
+
+**Result (script):** prior read: v2 absent, v1 OFF. Connection gate: one 1-minute window of 12 cycles, 0 failures, on the first attempt. Then one POST (HTTP 204, not retried). Read back by `--mode=verify`: v2 exists once, OFF, in the solution; stored `clientdata` 13,392 bytes; the 25 structural checks pass on the stored definition; the 31 stored action names equal the built ones; the stored record link no longer has the placeholder; v1 OFF with the same `modifiedon`. The stored size is close to, but I did not show it equal to, the size of what was sent (Dataverse may normalize the text); the action names and the structure are equal. **Not done:** the designer, the Flow checker, turning on, any run.
+
+Commands (for another environment):
 
 ```bash
 node scripts/build-flow-v2.mjs --mode=check

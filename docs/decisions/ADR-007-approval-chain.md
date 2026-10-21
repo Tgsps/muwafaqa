@@ -87,7 +87,7 @@ Rules (all accepted by the owner):
 
 Order of the pipeline on a submission: guard (PreValidation 10), then plug-in 1 (PreOperation 20: frozen value and round), then the update, then the chain builder (PostOperation 40) in the same transaction. The approval flow starts after the commit, so the steps exist when it runs.
 
-### The flow v2 (batch 3: written and checked offline, **row not created yet**)
+### The flow v2 (batch 3: written, checked offline, and the row created OFF on 2026-10-22; never run)
 
 Full specification, action table, expressions, differences from v1, error handling and the list of what could not be checked: [flow-approval-v2.md](../flow-approval-v2.md). Summary:
 
@@ -95,9 +95,9 @@ Full specification, action table, expressions, differences from v1, error handli
 - A **sequential** loop (concurrency 1). For each step: a checkpoint (still Pending, same round; else Cancelled, as in v1); the active assignment of the role and the user's email (none: Failed); **Approve** steps are marked Waiting, then "Start and wait for an approval" (Basic), a checkpoint after the answer, and the step is marked Approved or Rejected (time and comments); a rejection sets the contract Rejected and ends the run Succeeded. **Inform** steps use "Create an approval" without waiting and are marked Informed.
 - After the loop: a last checkpoint, then the contract is set In Force.
 - The approval title is now unified: `Approve contract: <Subject> (step i of n, <role>)`. **The test scripts that find approvals by the text after the last colon need an update before a v2 session** (not changed now; list in the flow document).
-- **Built as code** (`scripts/build-flow-v2.mjs`): `--mode=check` runs 25 structural checks (script) and 18 unit tests prove that the checker catches defects. `--mode=create` sends one POST and creates the row **OFF**; it was **not run**: the connection to the environment is intermittent (see the registration log) and a single non-retryable POST of a large definition was held back until a clean check.
+- **Built as code** (`scripts/build-flow-v2.mjs`): `--mode=check` runs 25 structural checks (script) and 18 unit tests prove that the checker catches defects. `--mode=create` sends one POST and creates the row **OFF**. It was held back while the connection was intermittent and run on 2026-10-22 after a clean 1-minute check (12 cycles, 0 failures): HTTP 204, the row is OFF, in the solution, structurally valid as stored, and v1 is unchanged.
 - **Not written by v2:** `mwf_actualapprover` and `mwf_delegated` (OBS: writing a lookup on a custom table through the connector could not be verified without the designer). They are filled when Phase 3 needs them.
-- **Highest-risk unverified item:** the operation id `CreateAnApproval` and its `ApprovalCreationInput/...` parameter names (inferred from the names of "Start and wait", not from a flow that contains them).
+- **Highest-risk unverified item (reduced):** the operation id `CreateAnApproval`, the parameter `approvalType` and the dynamic field `ApprovalCreationInput`, and the output fields `completionDate`, `responses.comments` and `responses.responder.email` are confirmed by the owner from Microsoft Learn. The field names **inside** `ApprovalCreationInput` are still inferred from the v1 names.
 
 ## Verified (batch 1, script, 2026-10-22, flow OFF)
 

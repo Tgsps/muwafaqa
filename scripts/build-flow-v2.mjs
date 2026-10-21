@@ -15,7 +15,10 @@
  *   --mode=create  needs --env and --confirm-mutates-environment. 3 GET requests first. Reads v1 (read only) for its connection references,
  *                  stops if v2 already exists, POSTs ONE workflows row (never retried; if the network fails it reads whether the row exists and
  *                  prints that), then reads it back: category, OFF, solution membership, structure, and that v1 is unchanged.
- *   --mode=verify  read only. Re-reads v2 and v1 and checks that both are OFF and v2 is in the solution.
+ *   --mode=verify  read only. Re-reads v2 and v1: both OFF, v2 in the solution, the size of the stored clientdata, its structure (the same checks as --mode=check)
+ *                  and that v1 is unchanged since the first read of this run is not possible here, so v1's modifiedon is printed for comparison.
+ *   --mode=cleanup deletes ONLY the row named "Muwafaqa - Contract Approval v2" (category 5) and only if it is OFF; never v1. Needs --confirm-mutates-environment.
+ *                  For a half-created row after a POST whose outcome is unknown.
  *
  * Usage:
  *   node scripts/build-flow-v2.mjs --mode=check
@@ -369,7 +372,7 @@ function printTable(list) {
 
 const isMain = !!process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;   // false when the unit test imports this file
 if (isMain) {
-if (!['build', 'check', 'create', 'verify'].includes(MODE)) { console.error('Missing or invalid --mode=build|check|create|verify. Nothing was run.'); process.exit(2); }
+if (!['build', 'check', 'create', 'verify', 'cleanup'].includes(MODE)) { console.error('Missing or invalid --mode=build|check|create|verify|cleanup. Nothing was run.'); process.exit(2); }
 
 if (MODE === 'build' || MODE === 'check') {
   const cd = buildClientdata();
@@ -387,7 +390,7 @@ if (MODE === 'build' || MODE === 'check') {
 const { parseArgs, openSession, noGuid, Stop } = await import('./lib/dv-session.mjs');
 const { requireStableConnection } = await import('./lib/counter-snapshot.mjs');
 const { env: ENV, auth: AUTH, has } = parseArgs();
-if (MODE === 'create' && !has('--confirm-mutates-environment')) {
+if ((MODE === 'create' || MODE === 'cleanup') && !has('--confirm-mutates-environment')) {
   console.error(`WARNING: --mode=create creates ONE cloud flow row (OFF) named "${FLOW_NAME}" in the environment and the solution ${SOLUTION}. It never turns a flow on or off and never changes v1. Add --confirm-mutates-environment to run it on purpose. Nothing was run.`);
   process.exit(2);
 }
@@ -406,8 +409,35 @@ const check = (n, ok, d = '') => { console.log(`${ok ? 'PASS' : 'FAIL'}  ${n}${d
 
     if (MODE === 'verify') {
       const v2 = await rowOf(FLOW_NAME);
-      check('v1 is OFF (statecode 0)', v1a[0].statecode === 0, `statecode ${v1a[0].statecode}`);
+      check('v1 is OFF (statecode 0)', v1a[0].statecode === 0, `statecode ${v1a[0].statecode}, modifiedon ${v1a[0].modifiedon}`);
       check('v2 exists once and is OFF (statecode 0)', v2.length === 1 && v2[0].statecode === 0, `${v2.length} row(s)`);
+      if (v2.length === 1) {
+        const host = new URL(ENV).host;
+        const sol = (await must('GET', `solutions?$filter=uniquename eq '${SOLUTION}'&$select=solutionid`)).j.value;
+        const sc = (await must('GET', `solutioncomponents?$filter=_solutionid_value eq ${sol[0].solutionid} and objectid eq ${v2[0].workflowid}&$select=componenttype`)).j.value;
+        check('v2 is a component of the solution', sc.length >= 1, `${sc.length} row(s)`);
+        const raw = v2[0].clientdata || '';
+        console.log(`INFO  clientdata size: ${Buffer.byteLength(raw, 'utf8')} bytes (the definition as sent: ${Buffer.byteLength(JSON.stringify(buildClientdata()), 'utf8')} bytes before the host was filled in)`);
+        const back = JSON.parse(raw);
+        const c = checkClientdata(JSON.parse(JSON.stringify(back).split(host).join('<ORG_HOST>')), { v1Trigger: v1TriggerFromSrc() });
+        const badC = c.results.filter((r) => !r.pass);
+        check(`structure as stored: ${c.results.length} checks`, badC.length === 0, badC.map((r) => r.name).join('; ').slice(0, 300));
+        check('stored action names equal the built ones', JSON.stringify(walk(back.properties.definition.actions).map((x) => x.name)) === JSON.stringify(walk(buildClientdata().properties.definition.actions).map((x) => x.name)), `${walk(back.properties.definition.actions).length} actions`);
+        check('the record link of the stored definition no longer has the placeholder', !raw.includes('<ORG_HOST>'));
+      }
+      process.exit(bad ? 1 : 0);
+    }
+
+    if (MODE === 'cleanup') {
+      const v2 = await rowOf(FLOW_NAME);
+      if (v2.length === 0) { console.log('No row named v2. Nothing to delete.'); process.exit(0); }
+      if (v2.length > 1) throw new Stop(`${v2.length} rows named v2: refusing to delete more than one. Nothing was deleted.`);
+      if (v2[0].statecode !== 0) throw new Stop('v2 is not OFF. It is not deleted by this script.');
+      const d = await call('DELETE', `workflows(${v2[0].workflowid})`);
+      check('v2 row deleted', d.ok, `HTTP ${d.status}`);
+      check('no row named v2 remains', (await rowOf(FLOW_NAME)).length === 0);
+      const v1c = await rowOf(V1_NAME);
+      check('v1 is untouched (same modifiedon, OFF)', v1c.length === 1 && v1c[0].modifiedon === v1a[0].modifiedon && v1c[0].statecode === 0);
       process.exit(bad ? 1 : 0);
     }
 

@@ -665,3 +665,12 @@ Failures that coincided: (a) and (c): 0 (a failed alone); (a) and (b): 0 (a fail
 - `docs/flow-approval-v2.md`, the flow section of ADR-007, this entry.
 - **Not done:** the POST that creates the row, the re-read of v2 and v1 from Dataverse (OFF check), the Flow checker, any run. The commands are in flow-approval-v2.md, section 8.
 
+### Flow v2 row created OFF (2026-10-22, script `build-flow-v2.mjs --mode=create`)
+
+- **Before (script):** v2 absent; v1 OFF (`modifiedon` 2026-10-19T18:16:58Z).
+- **Gate:** `check-connection` for 1 minute (12 cycles), attempt 1 of at most 5: 0 failures.
+- **Create:** 3 GET requests, the v1 connection references read (read only), the structural check passed, **one POST** (HTTP 204, not retried).
+- **Read back (script `--mode=verify`):** v2 exists once; category 5; OFF (statecode 0, statuscode 1); a component of the solution; stored clientdata 13,392 bytes; 25 structural checks pass on the stored definition; 31 action names equal the built ones; the placeholder was replaced; v1 OFF with the same `modifiedon`.
+- **Not done:** the designer and the Flow checker; binding and checking the connections; turning v2 on; any run. `src/` was **not** synced, so the repository does not contain v2 as exported source yet.
+- **New modes:** `build-flow-v2.mjs --mode=verify` (size, structure, solution membership) and `--mode=cleanup` (deletes only the OFF row named v2, never v1; not used).
+
