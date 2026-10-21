@@ -101,3 +101,10 @@ Notes: the two ApprovalMatrix and approver loaders must both be run once per env
 | `register-plugin-package.mjs --mode=steps-chain` | Registers the Update step of `ApprovalChainBuilder` (PostOperation 40, synchronous, rank 1, filtering `statuscode`) with the PreImage `pre` (`statuscode` only). Idempotent by step name. Read-back included. Use `--mode=package-update --nupkg=<path>` first to load the 1.0.6.0 package |
 | `test-approval-chain.mjs` | Server tests T1 to T10 on fictional `TEST-TMP-CHAIN*` rows. **The approval flow must be OFF** (the script stops otherwise). Pre-checks: 3 GET requests, 0 TEST-TMP rows, 11 contracts, 0 approval steps, 110 active matrix rows, 5 active assignments. It temporarily deactivates one assignment row (T5) and one matrix row (T9) and always reactivates them in `finally`, reading each back; if a state cannot be confirmed it stops and prints it. Counters are snapshotted and restored by the usual rule. Modes: `run` (needs `--confirm-mutates-environment`), `check-clean`, `cleanup` (after a crash: deletes the rows, reactivates any inactive matrix or assignment row, restores counters from `--counters-before/--counters-consumed`). `--only=T1,T5` runs selected tests |
 
+### Flow v2 builder (ADR-007, batch 3)
+
+| Script | What it does |
+|---|---|
+| `build-flow-v2.mjs` | The definition of "Muwafaqa - Contract Approval v2" as code. `--mode=build` prints the action table (and writes the clientdata JSON to `--out=<path outside the repository>`); `--mode=check` runs the structural checks offline (no network) and exits 1 on a failure; `--mode=create` (needs `--env`, `--confirm-mutates-environment`) sends **one** POST that creates the flow row **OFF** in the solution, never retried, then reads it back and confirms v1 is unchanged; `--mode=verify` (read only) checks that v1 and v2 are OFF. It never turns a flow on or off and never starts a run. The record link keeps the placeholder `<ORG_HOST>`, replaced in memory by the host of `--env` |
+| `build-flow-v2.test.mjs` | 18 unit tests (`node --test scripts/build-flow-v2.test.mjs`): the definition passes and every check fails when the matching defect is introduced |
+

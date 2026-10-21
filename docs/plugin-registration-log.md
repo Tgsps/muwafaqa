@@ -632,3 +632,36 @@ Decision, before/after table of the guard and the list of changed tests: [ADR-00
 
 **Not tested:** the flow-ON scripts (they never create a contract as Pending); `verification-api-tests` t1, t2, t3, quick-toggle; `test-usd-freeze --mode=flow-case`; `test-guard-flow`; the plug-in 1 Create branch; a bulk Create. The app form was not exercised (it creates a Draft).
 
+## Flow v2 prepared offline, and a network diagnosis (2026-10-22, ADR-007 batch 3)
+
+Specification and checks: [flow-approval-v2.md](flow-approval-v2.md). **Nothing was written to the environment in this step.** The approval flow v1 was not touched (OFF); the v2 row was **not created**; no flow was turned on; no run started. `src/` unchanged.
+
+### Why the v2 row was not created: connection diagnosis (read only, scratch script outside the repository)
+
+Three windows of 36 cycles (3 minutes, one cycle every 5 seconds) on the default path to the environment (`fetch`, a light GET `WhoAmI`), all measured today or yesterday:
+
+| Window | Default path to the environment | DNS of the environment | DNS of a neutral site |
+|---|---|---|---|
+| `check-connection`, before the guard batch | 2 / 36 `ETIMEDOUT` | 0 / 36 | 0 / 36 |
+| `check-connection`, at the start of this batch | 2 / 36 `ETIMEDOUT` | 0 / 36 | 0 / 36 |
+| comparative run, below | 1 / 36 `ETIMEDOUT` | not measured | not measured |
+
+Comparative run (every 5 seconds, three GET requests in each cycle, 36 cycles, 180 seconds):
+
+| | Failures | Codes | Latency when OK (median / max) | Longest failing run |
+|---|---|---|---|---|
+| (a) environment `WhoAmI`, current default (`fetch`) | 1 / 36 (cycle 11) | `ETIMEDOUT` | 711 ms / 906 ms | 1 cycle |
+| (b) same request forced to IPv4 only (`https` module, `family: 4`) | 0 / 36 | none | 183 ms / 834 ms | 0 |
+| (c) HTTPS GET of a neutral site, default (`fetch`) | 0 / 36 | none | 98 ms / 211 ms | 0 |
+
+Failures that coincided: (a) and (c): 0 (a failed alone); (a) and (b): 0 (a failed alone, in the cycle where (b) and (c) succeeded). No response took longer than 3 seconds.
+
+**What this indicates:** the failures are on the default path to the environment host only; they are single, isolated cycles (never two in a row in the three windows); DNS was never the failing step in the two windows where it was measured; it is not an outage of the machine's connection (the neutral site and the IPv4-forced request to the same host answered in the same cycle).
+**What it does not indicate:** a cause. (a) and (b) differ in the client library (`fetch` and `https`) as well as in the address family, so the lower latency and the zero failures of (b) cannot be attributed to IPv4; 1 failure in 36 against 0 in 36 is not a difference one can rely on; an earlier failure showed an IPv4 connect timeout together with an IPv6 "network unreachable" attempt, so IPv6 alone does not explain a timeout. Whether forcing IPv4 in the scripts would help is **unknown**. A next step, not taken: the same `fetch` code with `--dns-result-order=ipv4first` over a longer window (15 minutes), to separate the address family from the client.
+
+### What was done
+
+- `scripts/build-flow-v2.mjs` (definition as code; modes `build`, `check`, `create`, `verify`) and `scripts/build-flow-v2.test.mjs` (18 unit tests). `--mode=check`: **25 passed, 0 failed** (script, offline). 31 actions, depth 4.
+- `docs/flow-approval-v2.md`, the flow section of ADR-007, this entry.
+- **Not done:** the POST that creates the row, the re-read of v2 and v1 from Dataverse (OFF check), the Flow checker, any run. The commands are in flow-approval-v2.md, section 8.
+

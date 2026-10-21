@@ -87,9 +87,17 @@ Rules (all accepted by the owner):
 
 Order of the pipeline on a submission: guard (PreValidation 10), then plug-in 1 (PreOperation 20: frozen value and round), then the update, then the chain builder (PostOperation 40) in the same transaction. The approval flow starts after the commit, so the steps exist when it runs.
 
-### The flow (design, **not built**, batch 3)
+### The flow v2 (batch 3: written and checked offline, **row not created yet**)
 
-A loop over the steps of the round, ordered by `mwf_steporder`: read the assignment, mark the step `Waiting`, then start the approval (Approve steps: "Start and wait for an approval"; Inform steps: "Create an approval", step marked `Informed`), write the decision, the actual approver, the time and the comments, run the two checkpoints, and stop on Reject. **The flow loop, the Inform path and a chain with a single step are not tested.**
+Full specification, action table, expressions, differences from v1, error handling and the list of what could not be checked: [flow-approval-v2.md](../flow-approval-v2.md). Summary:
+
+- A new flow "Muwafaqa - Contract Approval v2" with the **same trigger as v1** (checked against the v1 source). It reads the steps of the contract and the round of the trigger, ordered by step order. **No steps: Failed** (fail closed).
+- A **sequential** loop (concurrency 1). For each step: a checkpoint (still Pending, same round; else Cancelled, as in v1); the active assignment of the role and the user's email (none: Failed); **Approve** steps are marked Waiting, then "Start and wait for an approval" (Basic), a checkpoint after the answer, and the step is marked Approved or Rejected (time and comments); a rejection sets the contract Rejected and ends the run Succeeded. **Inform** steps use "Create an approval" without waiting and are marked Informed.
+- After the loop: a last checkpoint, then the contract is set In Force.
+- The approval title is now unified: `Approve contract: <Subject> (step i of n, <role>)`. **The test scripts that find approvals by the text after the last colon need an update before a v2 session** (not changed now; list in the flow document).
+- **Built as code** (`scripts/build-flow-v2.mjs`): `--mode=check` runs 25 structural checks (script) and 18 unit tests prove that the checker catches defects. `--mode=create` sends one POST and creates the row **OFF**; it was **not run**: the connection to the environment is intermittent (see the registration log) and a single non-retryable POST of a large definition was held back until a clean check.
+- **Not written by v2:** `mwf_actualapprover` and `mwf_delegated` (OBS: writing a lookup on a custom table through the connector could not be verified without the designer). They are filled when Phase 3 needs them.
+- **Highest-risk unverified item:** the operation id `CreateAnApproval` and its `ApprovalCreationInput/...` parameter names (inferred from the names of "Start and wait", not from a flow that contains them).
 
 ## Verified (batch 1, script, 2026-10-22, flow OFF)
 
@@ -167,7 +175,7 @@ The live description of `mwf_minvalueusd` said "inclusive" while the documentati
 
 ## What was not tested
 
-- The flow loop, the checkpoints inside the loop, and the Reject path of the loop (batch 3).
+- The flow loop, the checkpoints inside the loop, and the Reject path of the loop: v2 is written and checked offline only; no run, no designer, no Flow checker, and its row is not created yet (batch 3, flow-approval-v2.md, sections 7 and 10).
 - The **Inform** path ("Create an approval" without wait) and the assumption that the Owner is only informed.
 - A chain with **one step** in the flow (the plug-in builds it, T1 at 5,000; the old flow always had two stages).
 - That the flow connection can read the assignment and write the step rows with its own privileges.
