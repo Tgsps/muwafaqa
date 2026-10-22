@@ -10,7 +10,7 @@ Every claim is marked **(script)** when a script checked it, **(unit)** for a un
 |---|---|
 | The definition | Written as code in `scripts/build-flow-v2.mjs` (no id, address or host is stored; the record link keeps the placeholder `<ORG_HOST>`). **Redesigned on 2026-10-22** after the first Turn on failed (section 0b): 50 actions, depth 6 |
 | Structural check, offline | **35 PASS, 0 FAIL** (`--mode=check`, script) and 31 unit tests that prove the checker catches defects (`scripts/build-flow-v2.test.mjs`, unit) |
-| Row "Muwafaqa - Contract Approval v2" in Dataverse | **There is one OFF row, but it is the FIRST design** (Terminate actions inside the loop; 31 actions). It **cannot be turned on** (section 0b). The redesigned definition has **not been created yet**: the connection check before the recreation failed (8 of 36 cycles, never two allowed in a row but 3 happened), so nothing was changed. The planned path is `--mode=cleanup` (deletes an OFF v2 row only, never v1), `--mode=create`, `--mode=verify` |
+| Row "Muwafaqa - Contract Approval v2" in Dataverse | **The redesigned definition was created on 2026-10-22, OFF** (script: 3-minute connection check with 0 failures of 36, `--mode=cleanup` of the OFF first-design row, one POST HTTP 204, `--mode=verify`: one row, OFF, in the solution, stored clientdata 16,992 bytes, 35 structural checks pass on the stored definition, 50 stored action names equal the built ones, v1 OFF and unchanged). **Not opened in the designer, not turned on, never run** |
 | Turned on | **No, and it never ran.** The owner's Turn on was refused by the platform at validation. v1 stays OFF and unchanged. Only the owner turns flows on |
 | Opened in the designer / Flow checker | The owner opened the first design (0 errors, 0 warnings, section 7); the redesigned definition has not been opened |
 
@@ -207,7 +207,7 @@ Reported by the owner after opening v2 (I did not see the screenshots; this is t
 
 ## 8. Creating the row (first design created on 2026-10-22; recreation of the redesigned definition pending)
 
-**Status after the redesign:** the row in the environment is the first design and cannot be turned on. The recreation (`--mode=cleanup`, `--mode=create`, `--mode=verify`) was stopped by the connection criterion: the 3-minute check with `NODE_OPTIONS=--dns-result-order=ipv4first` gave 8 failures of 36 cycles (`ETIMEDOUT`, longest run 3); nothing was changed.
+**Status after the redesign:** recreated and verified (see section 0). The first attempt was stopped by the connection criterion (3 minutes with `NODE_OPTIONS=--dns-result-order=ipv4first`: 8 failures of 36, longest run 3, nothing changed). A second check with `NODE_OPTIONS="--dns-result-order=ipv4first --network-family-autoselection-attempt-timeout=2000"` (accepted by Node 22.23.3 inside NODE_OPTIONS; attempt timeout 2000 ms) gave 0 failures of 36 (GET median 764 ms, max 1494 ms), and the recreation ran at once with the same setting. One window; it is not shown that the setting is the cause.
 
 **First creation:**
 

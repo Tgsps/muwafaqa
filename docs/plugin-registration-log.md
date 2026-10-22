@@ -701,3 +701,12 @@ Failures that coincided: (a) and (c): 0 (a failed alone); (a) and (b): 0 (a fail
 - **Recreation not done:** the connection check before it (3 minutes, `NODE_OPTIONS=--dns-result-order=ipv4first`) gave **8 failures of 36 cycles**, longest consecutive run 3 (all `ETIMEDOUT`, about 265 ms each; DNS 0 failures; GET median 805 ms), which does not meet the criterion (at most 2, never two in a row). Nothing was changed: no cleanup, no create. v1 OFF (`modifiedon` unchanged); v2 is the first design, OFF.
 - **Not done:** the recreation, the designer for the new definition, turning v2 on, any run. `src/` is not synced.
 
+### Flow v2 recreated with the redesigned definition (2026-10-22, scripts `build-flow-v2.mjs --mode=cleanup`, `create`, `verify`)
+
+- **Connection:** the 3-minute check with `NODE_OPTIONS="--dns-result-order=ipv4first --network-family-autoselection-attempt-timeout=2000"` (the flag is accepted inside NODE_OPTIONS by Node 22.23.3; the attempt timeout read back 2000 ms): **0 failures of 36** (DNS 0; GET median 764 ms, max 1494 ms). The criterion (at most 2, never two in a row) was met; the same setting was written on every command that followed. Not shown to be the cause (one window; earlier windows with 250 ms: 8 of 36, then 1 of 36 with ipv4first alone).
+- **Prior read:** v2 one row, OFF, the first design (6 top-level actions); v1 OFF.
+- **`--mode=cleanup`:** deleted only the OFF row named v2 (HTTP 204, not retried); no row named v2 remained; v1 untouched.
+- **`--mode=create`:** one POST (HTTP 204, not retried); one row; category 5; OFF; in the solution.
+- **`--mode=verify`:** v1 OFF (`modifiedon` 2026-10-19T18:16:58Z unchanged); v2 exactly one row, OFF, in the solution; clientdata 16,992 bytes; **35 structural checks pass** on the stored definition; **50 stored action names equal the built ones**; the record link has the real host (placeholder replaced). Final read: v2 8 top-level actions (4 variables, the steps query, the existence check, the loop, the Switch), v1 unchanged. No network error occurred in these steps.
+- **Not done:** the designer for this row, turning v2 on (the platform validates at Turn on; the first design was refused there), any run. `src/` is not synced.
+
