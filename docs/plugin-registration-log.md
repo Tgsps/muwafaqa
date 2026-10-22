@@ -720,3 +720,12 @@ Details and tables: [ADR-007](decisions/ADR-007-approval-chain.md), "v2 flow-ON 
 - **Design note and what was not tested:** in ADR-007.
 - **State after the session:** v2 turned OFF by the owner; v1 OFF (read: both OFF, one v2 row).
 
+
+## Bulk messages test, 2026-10-22 (CreateMultiple / UpdateMultiple, no registration change)
+
+- **What:** `scripts/test-bulk-messages.mjs` (C1, C1b, C2 to C8) on fictional `TEST-TMP-BULK*` rows. No plug-in was changed, registered or updated; no flow was touched (v1 and v2 read OFF before and after).
+- **Result:** 31 PASS, 0 FAIL, 4 OBS. The guard, the number generator and the chain builder behave in bulk as for single requests; a rejected batch leaves no row, no counter move and no side effect on the valid items. Table and the not-tested list: ADR-007, "Bulk messages session".
+- **Registered steps read (7):** Create stage 10 (1), Create stage 20 (2), Update stage 10 (1), 20 (1) and 40 (1), Delete stage 10 (1); none on a bulk message. `CreateMultiple` and `UpdateMultiple` are available for `mwf_contract`.
+- **Connection:** three 3-minute windows (see ADR-007). The acceptance rule was changed by the owner to the environment only (GET and DNS of the environment host); the neutral host is a diagnostic. Window 3: environment DNS 0/36, GET 1/36 (`ENOENT`), accepted. No network error during the run, no write retried.
+- **Cleanup:** 9 contracts and the counterparty deleted, counters restored (MNT 5 to 0, PRC 1 to 0, INS 1 to 0, SAL 2 to 0, refused 0). Final baseline: 11 contracts, 0 steps, 110 matrix rows, 5 assignments, counters 0, v1 and v2 OFF.
+- **Code added:** `scripts/test-bulk-messages.mjs`, `scripts/lib/bulk-messages.mjs`, `scripts/test-bulk-messages.test.mjs` (12 tests), `scripts/lib/connection-verdict.mjs` and its test (8 tests); `scripts/check-connection.mjs` changed to use the rule.

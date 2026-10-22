@@ -92,3 +92,7 @@ The guard Update step has the round in its **filtering attributes** (10 columns)
 - **Other messages:** bulk messages and an owner change were not exercised. (not tested)
 - **`src/`:** synced on 2026-10-13 (script): the column, the steps and the flow are in the solution source. See `docs/plugin-registration-log.md`. The pack warning about the `PluginAssembly` root component is not tested for import.
 - **Flow trigger:** the trigger still uses `mwf_valueusdfrozen` as its Select columns. Using the round instead is possible and not done.
+
+## Update 2026-10-22 (later): the approval round in bulk messages
+
+Tested with `scripts/test-bulk-messages.mjs` (details in [ADR-007](ADR-007-approval-chain.md), "Bulk messages session"). UpdateMultiple submitting two Drafts in one request gave round 1 for both; UpdateMultiple withdrawing both to Draft and a second UpdateMultiple resubmitting them gave round 2 for both (the PreImage-based detection of a real submission worked per contract), the round-1 steps became Cancelled and round-2 steps were created (4 and 6 rows in total, nothing deleted). Rounds were written by the plug-in only; a rejected batch (guard) left the round empty. Not tested: the same contract twice in one request, parallel bulk requests.

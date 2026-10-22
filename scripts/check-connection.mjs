@@ -12,6 +12,7 @@
  */
 import { execSync } from 'node:child_process';
 import dns from 'node:dns/promises';
+import { verdict, MAX_FAILURES } from './lib/connection-verdict.mjs';
 
 const argOf = (n) => (process.argv.find((a) => a.startsWith(`--${n}=`)) || '').slice(n.length + 3);
 const ENV = argOf('env').replace(/\/+$/, '');
@@ -45,11 +46,10 @@ for (let i = 0; i < cycles; i++) {
   const wait = INTERVAL * 1000 - (Date.now() - t0);
   if (wait > 0) await new Promise((r) => setTimeout(r, wait));
 }
-const kinds = { dnsEnv: (r) => r.dnsEnv !== 'ok', dnsNeutral: (r) => r.dnsNeutral !== 'ok', get: (r) => r.get !== 'ok', any: (r) => r.dnsEnv !== 'ok' || r.dnsNeutral !== 'ok' || r.get !== 'ok' };
+const kinds = { dnsEnv: (r) => r.dnsEnv !== 'ok', get: (r) => r.get !== 'ok', dnsNeutral: (r) => r.dnsNeutral !== 'ok', any: (r) => r.dnsEnv !== 'ok' || r.dnsNeutral !== 'ok' || r.get !== 'ok' };
 console.log(`\ncycles: ${rows.length} over about ${Math.round((Date.now() - start) / 1000)} s`);
-let failed = 0;
 for (const [k, f] of Object.entries(kinds)) {
-  const bad = rows.filter(f).length; if (k === 'any') failed = bad;
+  const bad = rows.filter(f).length;
   let best = { n: 0, lo: 0, hi: 0 }; let i = 0;
   while (i < rows.length) {
     if (!f(rows[i])) { i++; continue; }
@@ -64,5 +64,8 @@ const codes = {}; for (const r of rows) for (const v of [r.dnsEnv, r.dnsNeutral,
 console.log(`literal error codes seen: ${JSON.stringify(codes)}`);
 const okMs = rows.filter((r) => r.get === 'ok').map((r) => r.ms).sort((x, y) => x - y);
 console.log(`GET latency when ok: median ${okMs[Math.floor(okMs.length / 2)] ?? '-'} ms, max ${okMs[okMs.length - 1] ?? '-'} ms (${okMs.length} successful requests)`);
-console.log(failed ? 'RESULT: the connection was NOT stable in this window.' : 'RESULT: stable in this window (0 failures).');
-process.exit(failed ? 1 : 0);
+const v = verdict(rows);
+console.log(`\nacceptance (owner decision 2026-10-22: the ENVIRONMENT only: GET and DNS of the environment host, at most ${MAX_FAILURES} failures of each, never two in a row; the neutral host and the "any" line are diagnostics and do not count):`);
+console.log(`  environment DNS: ${v.dnsEnv.failures} failure(s), longest run ${v.dnsEnv.longestRun}; environment GET: ${v.get.failures} failure(s), longest run ${v.get.longestRun}; neutral DNS (diagnostic): ${v.dnsNeutral.failures}`);
+console.log(v.accepted ? 'RESULT: ACCEPTED for the environment in this window.' : 'RESULT: NOT accepted: the environment was not stable in this window.');
+process.exit(v.accepted ? 0 : 1);

@@ -178,3 +178,11 @@ This is a **risk**, not a pending item.
 
 **Verified on the server (script, flow OFF, assembly 1.0.7.0):** Create as Pending rejected with HTTP 400 and the new text, no row created, no counter moved; Create with an explicit Draft accepted; In Force and Rejected on Create still rejected. Results of the re-run: `docs/plugin-registration-log.md`, section "Create must be Draft". **Not tested:** the plug-in 1 Create branch (unreachable now); a bulk Create (`CreateMultiple`), which the guard steps do not cover (as before, see "Not verified yet"); the app form and import wizards.
 
+
+## Update 2026-10-22 (later): the guard in bulk messages (CreateMultiple, UpdateMultiple)
+
+Tested on the server with `scripts/test-bulk-messages.mjs` (31 PASS, 0 FAIL, 4 OBS; full table in [ADR-007](ADR-007-approval-chain.md), "Bulk messages session"). The guard steps are registered on the single messages only, and they run for every item of `Targets` (Learn: the single-message steps work for bulk messages). Results:
+
+- **No bypass found.** CreateMultiple with a Pending item: HTTP 400 with the Create-must-be-Draft message, **no item created, valid Drafts of the same batch included, no counter moved**. UpdateMultiple with Draft to In Force next to a valid submission: HTTP 400, nothing changed on the valid contract. A Value change on a Pending contract: HTTP 400 and an allowed rename of another contract in the same batch was rolled back too. A contract type or number change on Drafts: HTTP 400, nothing changed.
+- **A batch is all or nothing** (as Learn says for standard tables). The messages are the same as for single requests.
+- **Not tested:** the order in which targets are evaluated and which stage rejected the batch (only the final state was read); large batches; parallel bulk requests; grid editing in the app.

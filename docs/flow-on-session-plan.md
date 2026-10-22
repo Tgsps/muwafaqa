@@ -219,3 +219,9 @@ The OBS lines: the attribution of the run to the contract by end time (one run f
 
 **The `src/` sync** came after the session, with v2 OFF and v1 OFF (see the registration log).
 
+
+## Connection acceptance rule, update of 2026-10-22 (bulk messages test session)
+
+Owner decision (an English rendering of the owner's Arabic wording): the acceptance rule is applied to the environment only: the GET requests to the environment and the DNS lookup of the environment host (at most 2 failures of 36 for each of them, and never two failures in a row in either). The neutral host stays a diagnostic indicator that is shown in the report but is not counted in the acceptance rule (its 36/36 failure while the environment showed 0/36 means that resolving the name `example.com` does not work on this machine; the cause is not known). The neutral host is not changed and no other host is tried to make a check pass.
+
+`scripts/check-connection.mjs` now applies this rule (`scripts/lib/connection-verdict.mjs`, 8 unit tests): the environment DNS and GET lines first, the neutral host and the old "any" line as diagnostics, and a last line ACCEPTED or NOT accepted that sets the exit code. This replaces the sentence above that said the monitor was not changed and that the `any` line decides. The 3 consecutive reads before every write and the Node setting stay as before. The three windows of the bulk session and the results are in ADR-007 ("Bulk messages session").
