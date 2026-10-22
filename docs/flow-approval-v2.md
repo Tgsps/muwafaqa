@@ -11,7 +11,7 @@ Every claim is marked **(script)** when a script checked it, **(unit)** for a un
 | The definition | Written as code in `scripts/build-flow-v2.mjs` (no id, address or host is stored; the record link keeps the placeholder `<ORG_HOST>`). **Redesigned on 2026-10-22** after the first Turn on failed (section 0b): 50 actions, depth 6 |
 | Structural check, offline | **35 PASS, 0 FAIL** (`--mode=check`, script) and 31 unit tests that prove the checker catches defects (`scripts/build-flow-v2.test.mjs`, unit) |
 | Row "Muwafaqa - Contract Approval v2" in Dataverse | **The redesigned definition was created on 2026-10-22, OFF** (script: 3-minute connection check with 0 failures of 36, `--mode=cleanup` of the OFF first-design row, one POST HTTP 204, `--mode=verify`: one row, OFF, in the solution, stored clientdata 16,992 bytes, 35 structural checks pass on the stored definition, 50 stored action names equal the built ones, v1 OFF and unchanged). **Not opened in the designer, not turned on, never run** |
-| Turned on | **No, and it never ran.** The owner's Turn on was refused by the platform at validation. v1 stays OFF and unchanged. Only the owner turns flows on |
+| Turned on | **It was turned on by the owner and ran in the session of 2026-10-22** (cases A to D passed; ADR-007, "v2 flow-ON session"), then turned OFF by the owner. v1 stayed OFF and unchanged throughout. Only the owner turns flows on and off |
 | Opened in the designer / Flow checker | The owner opened the first design (0 errors, 0 warnings, section 7); the redesigned definition has not been opened |
 
 ## 0b. Why the definition was redesigned (2026-10-22)
@@ -238,3 +238,9 @@ A new flow-ON session for v2 also needs its own cases (chains of 1, 2, 3 and 5 s
 ## 10. Not tested (summary)
 
 Everything at run time; the designer and the Flow checker; the Inform path; a chain of one step in the flow; the loop with real approvals; the checkpoints inside the loop; the Failed endings; the connector parameter names listed in section 7; turning v2 on.
+
+## 11. Session of 2026-10-22 (summary)
+
+Cases A to D passed (6, 6, 6 and 7 PASS; 0 FAIL). The comment of an approval and of a rejection is copied to `mwf_comments`; Inform does not block (the contract was In Force 7 s after the last Approve answer); a withdrawn and resubmitted contract cancels the old run at the checkpoint and the old request has no effect. Tables, run times and the list of what was not tested: ADR-007.
+
+**Design note: Inform leaves an open Approve/Reject request.** "Create an approval" makes a normal approval request with the Approve and Reject buttons, and nothing in v2 waits for it or ever answers it. In case C the Owner's request `For information: ...` stayed **Pending** in the approver's inbox after the run had ended; it also stays after the contract is deleted. A real approver would see an open request that does nothing when answered. This is a consequence of the owner's decision to implement Inform with "Create an approval" (ADR-007, decision 4). Alternatives to consider, **none of them checked against Microsoft Learn yet** (so none is a recommendation): custom response options on the approval (for example a single "Acknowledge" response), a notification (an email or a Teams message) instead of an approval, or a later step that closes or cancels the request when the run ends. Each has a cost (a different connector or action, or work in the flow), and each needs verification of what the Approvals connector supports. A decision is open; v2 keeps the current behavior.

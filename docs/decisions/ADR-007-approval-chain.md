@@ -220,3 +220,53 @@ The live description of `mwf_minvalueusd` said "inclusive" while the documentati
 
   The check succeeded with `--dns-result-order=ipv4first`; the other setting did not. **This does not show that the address family is the cause**: one window per setting, an earlier window of 2/36 and 1/36 without any setting, and the failures of the unset runs all took about 265 ms, which is close to the 250 ms attempt timeout of the autoselection (an observation; not tested, so not a conclusion). Decision: every command of the v2 session is run with `NODE_OPTIONS=--dns-result-order=ipv4first` written in the command. Writes are still never retried automatically.
 
+## v2 flow-ON session (2026-10-22): results
+
+The first Turn on of v2 was refused by the platform (a Terminate inside the loop; see the flow section), v2 was redesigned and created again OFF, and the owner then turned it on. The cases of the session plan (`docs/flow-on-session-plan.md`, "Session plan for v2") ran one at a time with `scripts/test-flow-v2.mjs`: the owner answered each request by hand, one at a time, only after the assistant printed its literal title; no result was reported before the owner wrote that the request was answered. The assistant never turned a flow on or off.
+
+| Case | Contract | Owner actions (one at a time) | Verdict | End state |
+|---|---|---|---|---|
+| **A** one step | USD 5,000 | Approve `(step 1 of 1, Department Head)` | 6 PASS, 0 FAIL, 1 OBS | step Approved, contract **In Force** |
+| **B** reject in the second step | USD 25,000 | Approve step 1 (comment typed), **Reject** step 2 (comment typed) | 6 PASS, 0 FAIL, 1 OBS | step 1 Approved, step 2 Rejected, contract **Rejected** (state Inactive) |
+| **C** top band with Inform | USD 250,000 | Approve steps 1 to 4 in order | 6 PASS, 0 FAIL, 2 OBS | steps 1 to 4 Approved, step 5 **Informed**, contract **In Force**; 1 Inform request left open |
+| **D** withdraw and resubmit | USD 25,000 | Approve step 1 (round 1); the script withdrew and resubmitted (round 2); the owner answered the OLD step-2 request of round 1, then step 1 and step 2 of round 2 | 7 PASS, 0 FAIL, 1 OBS | round 1: Approved + **Cancelled**; round 2: Approved + Approved; contract **In Force** |
+
+The OBS lines: the attribution of the run to the contract by end time (one run fits the last answer), and in C the measure of "Inform does not block" (below).
+
+**Runs (`flowruns`, finished runs, UTC):**
+
+| Case | Run start (UTC) | Run end (UTC) | Duration | `flowruns` status | `errorcode` |
+|---|---|---|---|---|---|
+| A | 02:05:55 | 02:07:20 | 85 s | Succeeded | none |
+| B | 02:12:16 | 02:15:00 | 164 s | Succeeded | Terminated (the Terminate Succeeded of the rejection case) |
+| C | 02:16:53 | 02:21:37 | 284 s | Succeeded | none |
+| D run 1 (the old one) | 02:25:42 | 02:31:02 | 320 s | **Cancelled** | Terminated (the Terminate Cancelled of the closing Switch) |
+| D run 2 | 02:29:13 | 02:34:40 | 327 s | Succeeded | none |
+
+`errorcode = Terminated` does not say whether a run succeeded or was cancelled (as with v1): B is Succeeded, D run 1 is Cancelled. `flowruns` showed a run one to two minutes after it ended.
+
+**What was checked beyond the verdicts (script, read only):**
+- **Comments (B):** copied exactly: step 1 "اختبار تعليق الاعتماد" and step 2 "اختبار تعليق الرفض" (typed by the owner as the test text). Cases A, C and D had no comment typed, so the column stayed empty there.
+- **Inform does not block (C):** the owner answered step 4 at 02:21:30Z (05:21:30 UTC+3); step 5 was marked Informed at 02:21:34Z; the contract became In Force at 02:21:37Z (7 s after the answer) and the run ended Succeeded at the same time. The run did not wait for the Inform request.
+- **The old request (D):** the owner answered the round-1 step-2 request at 02:30:58Z (05:30:58 UTC+3). Nothing changed on the contract: the round-1 step stayed Cancelled (not Approved), the contract stayed Pending in round 2. The old run ended **Cancelled** at 02:31:02Z, 4 s after the answer (the checkpoint after the answer saw another round).
+- **Evaluated approval title** (as stored in the approvals table), exactly as designed: `Approve contract: TEST-TMP-V2A one step (step 1 of 1, Department Head)`, and for Inform `For information: contract TEST-TMP-V2C top band with inform (step 5 of 5, Owner)`. So the "Body" token of the designer evaluated to the Subject, and the inline role-label expression worked. The details text and the item link inside the request were not read.
+- **Reassignment** was off in both approval actions (not exercised: the owner did not try to reassign).
+- **Answer times (completedon, UTC / UTC+3):** A 02:07:15 / 05:07:15. B 02:13:35 / 05:13:35 and 02:14:56 / 05:14:56. C 02:18:03 / 05:18:03, 02:19:07 / 05:19:07, 02:20:11 / 05:20:11, 02:21:30 / 05:21:30. D 02:28:40 / 05:28:40, 02:30:58 / 05:30:58, 02:33:41 / 05:33:41, 02:34:36 / 05:34:36.
+- **Left open after the session:** one request, `For information: contract TEST-TMP-V2C top band with inform (step 5 of 5, Owner)`, created 02:21:33Z, never answered (as planned). It stays in the inbox after the test contract was deleted. The other 11 requests with a TEST-TMP-V2 title were answered.
+- **Network:** no network error in the four cases. Every command ran with `NODE_OPTIONS="--dns-result-order=ipv4first --network-family-autoselection-attempt-timeout=2000"`; the check of 3 consecutive reads passed before every command and after every wait. Writes were not retried (none needed it). Before the session the 3-minute check had failed twice (8 of 36 and 5 of 36 with other settings) and passed with this setting (0 of 36); one window, not shown to be the cause.
+- **Cleanup** after each case: the contract (its steps by the cascade) and the counterparty deleted; MNT restored 1 to 0 each time (`refused 0`); no approval request touched. Final: 11 contracts (the 11 legacy rows untouched, latest `modifiedon` 2026-10-07T17:23:48Z), 0 steps, 0 TEST-TMP rows, counters 0/0/0/0/0, 110 active matrix rows, 5 active assignments.
+- **The owner turned v2 ON before the session and OFF after it; v1 stayed OFF.** Read after the shutdown: v1 OFF, v2 OFF (one row).
+
+**Not tested (also from this session):**
+- The Failed endings: a role without an active assignment, a user without an email address, a round without steps. They need the assignment rows to be changed; this session did not.
+- Cancelled by a withdrawal before a step starts (the checkpoint before the step) and before the final write; only the cancellation after an answer was exercised (D).
+- A chain of one step with Inform, or an Inform step that is not last.
+- `mwf_actualapprover` (not written by design; it stayed empty), the delegation columns, and any reassignment.
+- The comment on cases A, C and D; the comment on an Inform request.
+- The notifications sent to the approver account; the details text and the item link in the request.
+- Two contracts in the approval at once (the cases ran one at a time), concurrent submissions of the same contract, and a long wait for an answer.
+- Turning the flow on while contracts are already Pending (no run exists for them).
+- An outage of the connection in the middle of a run on the platform side.
+
+**Design note: Inform leaves an open Approve/Reject request.** "Create an approval" makes a normal approval request with the Approve and Reject buttons, and nothing in v2 waits for it or ever answers it. In case C the Owner's request `For information: ...` stayed **Pending** in the approver's inbox after the run had ended; it also stays after the contract is deleted. A real approver would see an open request that does nothing when answered. This is a consequence of the owner's decision to implement Inform with "Create an approval" (ADR-007, decision 4). Alternatives to consider, **none of them checked against Microsoft Learn yet** (so none is a recommendation): custom response options on the approval (for example a single "Acknowledge" response), a notification (an email or a Teams message) instead of an approval, or a later step that closes or cancels the request when the run ends. Each has a cost (a different connector or action, or work in the flow), and each needs verification of what the Approvals connector supports. A decision is open; v2 keeps the current behavior.
+

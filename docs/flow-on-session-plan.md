@@ -190,3 +190,32 @@ About 5 minutes of owner action for A, 8 for B, 15 for C, 15 for D, plus the gat
 | `test-flow-checkpoints` | **not as it is**: its scenarios need two stages; the attribution of runs reads both title forms (changed 2026-10-22) |
 | `test-flow-trigger`, `test-guard-flow`, `test-usd-freeze --mode=flow-case` | v1 scenarios with stage 1 and stage 2 wording; the trigger test (counts of runs per action) is independent of the stages and could be reused, not checked |
 
+## Session results for v2, 2026-10-22 (flow ON, executed by the owner and the assistant)
+
+Flow v2 ON and v1 OFF (read before every case), cases A to D one at a time, the connection setting of the owner's decision (`NODE_OPTIONS="--dns-result-order=ipv4first --network-family-autoselection-attempt-timeout=2000"`). The detail, the comments, the open Inform request and the design note are in ADR-007 ("v2 flow-ON session"). The plan's expectations were all met.
+
+| Case | Contract | Owner actions (one at a time) | Verdict | End state |
+|---|---|---|---|---|
+| **A** one step | USD 5,000 | Approve `(step 1 of 1, Department Head)` | 6 PASS, 0 FAIL, 1 OBS | step Approved, contract **In Force** |
+| **B** reject in the second step | USD 25,000 | Approve step 1 (comment typed), **Reject** step 2 (comment typed) | 6 PASS, 0 FAIL, 1 OBS | step 1 Approved, step 2 Rejected, contract **Rejected** (state Inactive) |
+| **C** top band with Inform | USD 250,000 | Approve steps 1 to 4 in order | 6 PASS, 0 FAIL, 2 OBS | steps 1 to 4 Approved, step 5 **Informed**, contract **In Force**; 1 Inform request left open |
+| **D** withdraw and resubmit | USD 25,000 | Approve step 1 (round 1); the script withdrew and resubmitted (round 2); the owner answered the OLD step-2 request of round 1, then step 1 and step 2 of round 2 | 7 PASS, 0 FAIL, 1 OBS | round 1: Approved + **Cancelled**; round 2: Approved + Approved; contract **In Force** |
+
+The OBS lines: the attribution of the run to the contract by end time (one run fits the last answer), and in C the measure of "Inform does not block" (below).
+
+| Case | Run start (UTC) | Run end (UTC) | Duration | `flowruns` status | `errorcode` |
+|---|---|---|---|---|---|
+| A | 02:05:55 | 02:07:20 | 85 s | Succeeded | none |
+| B | 02:12:16 | 02:15:00 | 164 s | Succeeded | Terminated (the Terminate Succeeded of the rejection case) |
+| C | 02:16:53 | 02:21:37 | 284 s | Succeeded | none |
+| D run 1 (the old one) | 02:25:42 | 02:31:02 | 320 s | **Cancelled** | Terminated (the Terminate Cancelled of the closing Switch) |
+| D run 2 | 02:29:13 | 02:34:40 | 327 s | Succeeded | none |
+
+`errorcode = Terminated` does not say whether a run succeeded or was cancelled (as with v1): B is Succeeded, D run 1 is Cancelled. `flowruns` showed a run one to two minutes after it ended.
+
+**Open after the session:** one Inform request (`For information: contract TEST-TMP-V2C top band with inform (step 5 of 5, Owner)`), never answered, still in the inbox. **Counted** with `isInformTitle()` and `subjectOfTitle()`: 1 for case C, 0 for A, B and D, as expected.
+
+**Not tested:** the Failed endings (a role without an assignment, a user without an email, no steps), a withdrawal before a step starts, an Inform step that is not last, `mwf_actualapprover` and reassignment, comments in A, C and D, notifications, two contracts in the approval at once, an outage in the middle of a run.
+
+**The `src/` sync** came after the session, with v2 OFF and v1 OFF (see the registration log).
+

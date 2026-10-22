@@ -710,3 +710,13 @@ Failures that coincided: (a) and (c): 0 (a failed alone); (a) and (b): 0 (a fail
 - **`--mode=verify`:** v1 OFF (`modifiedon` 2026-10-19T18:16:58Z unchanged); v2 exactly one row, OFF, in the solution; clientdata 16,992 bytes; **35 structural checks pass** on the stored definition; **50 stored action names equal the built ones**; the record link has the real host (placeholder replaced). Final read: v2 8 top-level actions (4 variables, the steps query, the existence check, the loop, the Switch), v1 unchanged. No network error occurred in these steps.
 - **Not done:** the designer for this row, turning v2 on (the platform validates at Turn on; the first design was refused there), any run. `src/` is not synced.
 
+## Flow v2 flow-ON session, 2026-10-22 (results)
+
+Details and tables: [ADR-007](decisions/ADR-007-approval-chain.md), "v2 flow-ON session", and [flow-on-session-plan.md](flow-on-session-plan.md). Summary (script, owner answers, `flowruns`):
+
+- **Cases:** A 6 PASS / 0 FAIL / 1 OBS (In Force); B 6 / 0 / 1 (Rejected, both comments copied); C 6 / 0 / 2 (In Force, step 5 Informed, one Inform request left open, the run did not wait for it: the contract was In Force 7 s after the answer to step 4); D 7 / 0 / 1 (the old request had no effect; round-1 step 2 stayed Cancelled; run 1 Cancelled, run 2 Succeeded).
+- **Runs:** A Succeeded 85 s; B Succeeded 164 s; C Succeeded 284 s; D Cancelled 320 s and Succeeded 327 s. `errorcode = Terminated` appears on both a Succeeded run (rejection) and a Cancelled run.
+- **Left open:** one Inform request (the Owner step of case C). **Network:** no error during the cases; every command with the Node settings of the owner's decision; no write was retried. **Cleanup:** every case; final state 11 contracts, 0 steps, counters 0.
+- **Design note and what was not tested:** in ADR-007.
+- **State after the session:** v2 turned OFF by the owner; v1 OFF (read: both OFF, one v2 row).
+
