@@ -4,6 +4,10 @@
  * (ADR-005: the checkpoint compares mwf_approvalround, read after each stage, with the value from the trigger).
  * FICTIONAL TEST-TMP-RND-1 rows only.
  *
+ * v1 AND v2: the approvals of the contract are found by their Subject with subjectOfTitle() (scripts/lib/run-attribution.mjs), which reads the v1
+ * titles and the v2 titles ("Approve contract: <Subject> (step i of n, <role>)"). With v2 the contract (USD 1000, band 1) has a ONE-step chain, so "stage 1"
+ * below means "step 1 of 1"; the scenario (two submissions, answer the older request) is the same.
+ *
  * THIS TEST NEEDS THE APPROVAL FLOW ON (the opposite of most other scripts). The script reads the flow state (read only)
  * and refuses to run setup if the flow is OFF. It never turns the flow on or off.
  *
@@ -26,6 +30,7 @@ import { execSync } from 'node:child_process';
 import { deleteContracts, approvalFlowState } from './lib/contract-cleanup.mjs';
 import { ctrIo, trackCreate, snapshotCounters, restoreAfterRun, restoreFromArgs, printHandoff, requireStableConnection, cleanupHint } from './lib/counter-snapshot.mjs';
 import { resilientFetch, enterCleanupPhase, recheckAfterWait } from './lib/resilient-fetch.mjs';
+import { subjectOfTitle } from './lib/run-attribution.mjs';
 
 const argOf = (n) => (process.argv.find((a) => a.startsWith(`--${n}=`)) || '').slice(n.length + 3);
 const MODE = argOf('mode');
@@ -188,8 +193,9 @@ async function read() {
     { Prefer: 'odata.include-annotations="OData.Community.Display.V1.FormattedValue"' });
   if (!resp.ok) { console.log(`approvals: not readable (HTTP ${resp.status})`); return; }
   const everything = resp.j.value || [];
-  // only the approvals of THIS contract (the title ends with its Subject); others created in the same window are excluded and counted separately
-  const list = everything.filter((x) => String(x.msdyn_flow_approval_title || '').split(':').pop().trim() === SUBJECT);
+  // only the approvals of THIS contract (the Subject is read from the title); others created in the same window are excluded and counted separately
+  // subjectOfTitle() understands the v1 titles and the v2 titles ("Approve contract: <Subject> (step i of n, <role>)", "For information: contract <Subject> (...)")
+  const list = everything.filter((x) => subjectOfTitle(x.msdyn_flow_approval_title) === SUBJECT);
   const fv = (x, k) => x[`${k}@OData.Community.Display.V1.FormattedValue`] ?? x[k];
   const by = {};
   for (const x of list) { const k = `${fv(x, 'statuscode')} / result ${fv(x, 'msdyn_flow_approval_result') ?? 'none'}`; by[k] = (by[k] || 0) + 1; }

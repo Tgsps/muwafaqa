@@ -1,5 +1,7 @@
 # Plan for the flow-ON test session
 
+> This file holds the plan of the **v1** session (executed on 2026-10-19) and, at the end, the **session plan for v2** (prepared 2026-10-22, not executed). The five v1 scripts are v1 scenarios: see the note at the end about which of them can be used with v2.
+
 Status: **executed on 2026-10-19; results at the end of this file.** It covers the five scripts that need the approval flow ON. The flow is turned on and off **by the owner**; no script and no assistant turns it on or off.
 
 Tags: **(from code)** = read from the scripts; **(observed)** = seen in earlier runs recorded in `docs/flow-approval-v1.md` and ADR-005/006; **(estimate)** = a guess from earlier runs, not a measurement.
@@ -120,3 +122,71 @@ Rules followed: the owner alone turned the flow on and off and cancelled runs; t
 - `scripts/cleanup-test-rows.mjs` against the environment.
 - Whether a whole session **survives a real outage**.
 - The notifications sent to the approver account (not checked).
+
+---
+
+# Session plan for v2 (prepared 2026-10-22; NOT executed)
+
+Flow: "Muwafaqa - Contract Approval v2" ([flow-approval-v2.md](flow-approval-v2.md), ADR-007). Status of v2 today: created OFF, opened in the designer by the owner (31 actions, Flow checker 0 errors and 0 warnings), **never run**. Tags: **(from code)**, **(estimate)** = a guess, **(not tested)**.
+
+## Rules (unchanged, and two new ones)
+
+1. **The owner alone turns flows on and off.** The assistant and the scripts never do. **v1 and v2 are never ON together** (two runs for one submission): v1 stays OFF; the owner turns v2 ON at the start and OFF at the end.
+2. One owner action at a time, printed alone with the **exact approval title** and the choice (Approve or Reject). After each answer the assistant reads Dataverse (the step rows, the contract) before the next action. The answer time is the approval's `completedon`; UTC is converted to local time (UTC+3) carefully.
+3. No UI activity while a script runs (the counter rule). One script at a time; reverse-order cleanup (LIFO) so that the counters are restored by the usual rule.
+4. **New:** all five roles point to the **same test account**, so every request lands in one inbox. The owner must tell requests apart by the **title**: `Approve contract: <Subject> (step i of n, <role>)`. The assistant prints the exact title of the next request and the owner answers only that one.
+5. **New:** the Inform requests (`For information: contract <Subject> (step i of n, Owner)`) are **not answered by the owner**. See "Inform requests" below.
+
+## Gate before the session
+
+`node scripts/check-connection.mjs --env=<url> --minutes=15` with **0 failures** (the practical criterion of the v1 session; not statistically proven). If it fails, nothing is started and the failures are shown. The connection has shown isolated `ETIMEDOUT` failures (about 5 in 108 cycles on the default path) on 2026-10-22, so a clean 15 minutes is not guaranteed; the session waits for it.
+
+Baseline (read only): v2 ON and v1 OFF (state read, not changed), 0 TEST-TMP rows, 11 contracts (the 11 legacy rows' `modifiedon` unchanged), 0 temporary counterparties, 0 approval steps, counters 0/0/0/0/0, 110 active matrix rows, 5 active assignments, the unit tests pass.
+
+## Cases
+
+A new script is needed (the five v1 scripts create contracts of USD 1000, which is a ONE-step chain in v2). Proposed: `scripts/test-flow-v2.mjs`, prefix `TEST-TMP-V2`, modes `setup --case=a|b|c|d`, `withdraw-resubmit` (case d), `read --case=...`, `cleanup`; it uses the shared helpers (connection check, counters, run attribution by end time with `tolS` 8 because a run with an Inform step ends a few seconds after the last answer). **It is not written yet; it is written after this plan is approved.**
+
+| Case | Contract | Chain (ApprovalMatrix, fictional) | Owner actions, one at a time | Expected end state |
+|---|---|---|---|---|
+| **A** one step | USD 5,000, Maintenance, Expense | 1 step: Department Head (Approve) | Approve `... (step 1 of 1, Department Head)` | step 1 **Approved** with `mwf_decidedon` and the comment; contract **In Force**; run **Succeeded** |
+| **B** two steps, rejection in the second | USD 25,000 | 2 steps: Department Head, Finance Manager | Approve `(step 1 of 2, Department Head)`, then **Reject** `(step 2 of 2, Finance Manager)` | step 1 Approved, step 2 **Rejected**; contract **Rejected** (state Inactive); run **Succeeded**; no further request |
+| **C** top band: 4 Approve + Inform | USD 250,000 | 5 steps: Department Head, Finance Manager, General Manager, Regional Office (Approve), Owner (Inform) | Approve steps 1, 2, 3 and 4, in order | steps 1 to 4 Approved; **step 5 Informed**; contract **In Force**; run **Succeeded**; the Inform request exists and stays unanswered. **Inform does not block**: the contract is In Force within seconds of the answer to step 4 (the run does not wait for step 5) |
+| **D** withdraw and resubmit during the chain | USD 25,000 | 2 steps | Approve `(step 1 of 2)` of round 1. While step 2 of round 1 is **Waiting**, the script withdraws the contract to Draft and submits it again (round 2). Then the owner answers the **old** request `(step 2 of 2)` of round 1 (it should have no effect), then approves `(step 1 of 2)` and `(step 2 of 2)` of round 2 | run 1 **Cancelled** at the checkpoint after the answer (the round differs); round-1 step 1 Approved, round-1 step 2 **Cancelled** (set by the chain builder, not overwritten); round 2 steps Approved; contract **In Force**; run 2 **Succeeded**. The owner may instead cancel run 1 by hand: either way the contract is not changed by run 1 |
+
+(not tested for all four cases: nothing has run.)
+
+## What is read after each answer (read only)
+
+The step rows of the contract (order, role, action, decision, `mwf_decidedon`, comments), the contract (status, state, round), the new approval requests (title, status), and, after a run ends, the finished runs of the flow (`flowruns` lags: a run appears after it ends) attributed to contracts **by end time** with `scripts/lib/run-attribution.mjs` (unique in both directions, otherwise no verdict).
+
+## Inform requests: they stay Pending, and how they are counted
+
+- In case C, "Create an approval" makes a request in the approvals inbox of the test account and the run goes on without waiting. **The owner does not answer it.** It stays **Pending** (an open request) in the inbox and in `msdyn_flow_approvals` after the contract is deleted (like the two orphan `TEST-TMP-TRIG1` requests of 2026-10-19). Deleting the test contract does not remove it.
+- Count (read only): rows of `msdyn_flow_approvals` whose title starts with `For information: contract ` and ends with ` (step 5 of 5, Owner)`, with the Subject of the case (`subjectOfTitle()` and `isInformTitle()` in `scripts/lib/run-attribution.mjs`), grouped by status. Expected: **1 per run of case C, 0 in the other cases**. The count is written in the results, together with how many open requests (Inform or orphan) remain in the inbox after the session.
+- Open items for the owner after the session: whether to delete or ignore the open Inform requests (a script does not answer them), and a possible orphan: the old round-1 request of case D if the owner chooses not to answer it.
+- Because the Inform request is never answered, the **last completion time** of a contract (used for the run attribution) is the answer to its last **Approve** step; the run ends a few seconds later.
+
+## Order and cleanup
+
+A, then B, then C, then D (each ends with its end state read before the next; D last because it leaves an open round-1 request). Cleanup in reverse order (D, C, B, A): delete the contracts (the steps go with them by the cascade), the counterparty, restore the counters by the rule, check-clean (0 TEST-TMP, 11 contracts, 0 steps, counters 0). Then the owner turns v2 OFF, and the assistant reads the state.
+
+## Time (estimates)
+
+About 5 minutes of owner action for A, 8 for B, 15 for C, 15 for D, plus the gate (15 minutes) and the cleanup. **(estimate)**
+
+## Risks and what the session does NOT cover
+
+- First real run of v2: any failure of an action in the loop makes a run **Failed** and leaves the contract Pending Approval (no automatic recovery). The session records it and stops; it does not retry.
+- The Inform step uses "Create an approval"; its first real execution is case C. The field names inside `ApprovalCreationInput` were shown by the designer (the owner's screenshots), the run is the first proof.
+- Not covered: a role without an assignment and a missing email (Failed endings; they would need the assignment rows to be changed, which this session does not do), a withdrawal between the Waiting mark and the approval request, notifications, a long wait, Phase 3 delegation.
+- The title shown in the approvals inbox could not be checked before the first run (the designer shows a dynamic token for the Subject; the evaluated text is first seen in case A).
+
+## The v1 scripts and v2
+
+| Script | With v2 |
+|---|---|
+| `test-flow-approvalround` | usable: the contract (USD 1000) has a one-step chain; "stage 1" means "step 1 of 1"; approvals are matched by Subject for both title forms (changed 2026-10-22) |
+| `test-flow-checkpoints` | **not as it is**: its scenarios need two stages; the attribution of runs reads both title forms (changed 2026-10-22) |
+| `test-flow-trigger`, `test-guard-flow`, `test-usd-freeze --mode=flow-case` | v1 scenarios with stage 1 and stage 2 wording; the trigger test (counts of runs per action) is independent of the stages and could be reused, not checked |
+

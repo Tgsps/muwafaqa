@@ -162,6 +162,31 @@ A contract that stays Pending Approval after a Failed run has to be withdrawn to
 
 This lowers the risk of the Inform step from "operation id and parameter names guessed" to "only the inner field names guessed". Nothing was run, so it remains **not tested**.
 
+### The designer, as seen by the owner (2026-10-22; screenshots are NOT in the repository)
+
+Reported by the owner after opening v2 (I did not see the screenshots; this is the owner's report):
+
+| Seen | Result |
+|---|---|
+| The flow opens with no error | confirmed |
+| Actions | 31, with the expected names; **8 directly inside the loop** (the 8 first actions of `Apply_to_each_step`; the others are inside its conditions), as built |
+| Flow checker | **0 errors, 0 warnings** (this is the check I could not do from the command line) |
+| `Request_approval_for_step` and `Send_information_approval` | every field is shown with its value, and the designer knows the field names inside `ApprovalCreationInput` (so the names inferred from v1 are **accepted by the designer**) |
+| `Mark_step_Waiting`, and the connections (Approvals and Dataverse) | bound |
+| Enable reassignment | **Yes** on the Approve request, **No** on the Inform request |
+| State | v2 not run, not turned on; v1 and v2 OFF. A read after the designer visit shows the stored `clientdata` unchanged (13,392 bytes, 31 action names, the 25 structural checks pass): the designer was used to look, not to save (script, read only) |
+
+**Reassignment:** v1 has `enableReassignment = true` in both stages (read from the live v1 and from the exported source, read only). In v2 the Approve request keeps the v1 value (copied when the flow was written, not a new decision) and the Inform request is set to `false` on purpose, because an informed person has nothing to reassign. Whether `true` is wanted for Approve is the owner's decision; it lets the approver pass the request to someone else, which Phase 3 (delegation) will have to govern.
+
+**Still NOT confirmed (nothing has run):**
+- any run time behavior: the loop, the checkpoints, the Failed endings, the Reject path, a chain of one step;
+- the text of the approval **title** as it is evaluated: the designer shows the Subject as a dynamic token (the owner saw a token named "Body"), but the evaluated title is first seen in the inbox (case A of the v2 session plan);
+- the **False branch under `Check_contract_after_step`** (`Stop_contract_not_pending_after_step`): not looked at in the designer, so only the script's structural check covers it;
+- the **Inform request left Pending** in the approvals inbox: that it is created, that it does not block, and how it looks (case C);
+- that `Mark_step_Approved` writes the completion date and the comment as expected (`completionDate` and `responses.comments` are in the Learn reference; the written values are unseen).
+
+**Exported source:** the record link (`itemLink`) of the **live** flow contains the **real host** of the environment (the script replaced the placeholder when it created the row). When `src/` is synced, the exported v2 file has to be scrubbed with `node scripts/scrub-emails.mjs`: its record-link pattern (the host in front of `/main.aspx?etn=`) matches the two links of v2 (`WebhookApprovalCreationInput/itemLink` and `ApprovalCreationInput/itemLink`). Checked offline on the built definition with a fictional host (script logic copied, not run on `src/`): email-like matches 0, record-link host matches 2, no other occurrence of the host. v2 has no approver address in its definition (the address comes from the assignment at run time), so the scrub has no email to replace there. A scrubbed v2 is not importable until `<ORG_HOST>` is filled in again.
+
 ## 8. Creating the row (done on 2026-10-22)
 
 **Result (script):** prior read: v2 absent, v1 OFF. Connection gate: one 1-minute window of 12 cycles, 0 failures, on the first attempt. Then one POST (HTTP 204, not retried). Read back by `--mode=verify`: v2 exists once, OFF, in the solution; stored `clientdata` 13,392 bytes; the 25 structural checks pass on the stored definition; the 31 stored action names equal the built ones; the stored record link no longer has the placeholder; v1 OFF with the same `modifiedon`. The stored size is close to, but I did not show it equal to, the size of what was sent (Dataverse may normalize the text); the action names and the structure are equal. **Not done:** the designer, the Flow checker, turning on, any run.

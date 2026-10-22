@@ -4,6 +4,10 @@
  * status Cancelled, when the contract is no longer Pending Approval after a stage). FICTIONAL TEST-TMP-CHK rows only.
  * The approval flow must be ON. This script never turns the flow on or off.
  *
+ * WRITTEN FOR v1 (two fixed stages). Do NOT run it against v2 as it is: with v2 these contracts (USD 1000) get a ONE-step chain, so "stage 2" of CHK1 and
+ * "withdrawn after stage 1" of CHK3 do not exist. The run attribution (scripts/lib/run-attribution.mjs) reads both the v1 and the v2 approval titles; the
+ * scenarios for v2 are in docs/flow-on-session-plan.md ("Session plan for v2").
+ *
  * Contracts (USD 1000, Maintenance, Expense):
  *   TEST-TMP-CHK1 normal                    approve stage 1 and stage 2          expected: In Force, run Succeeded
  *   TEST-TMP-CHK2 withdrawn before stage 1  withdrawn to Draft at once           expected: Draft,    run Cancelled (checkpoint 1)

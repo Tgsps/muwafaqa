@@ -1,5 +1,5 @@
 /**
- * Attribution of flow runs to contracts, by END time (used by scripts/test-flow-checkpoints.mjs --mode=read).
+ * Attribution of flow runs to contracts, by END time (used by scripts/test-flow-checkpoints.mjs --mode=read). Titles of v1 and v2 are both understood (v2: ADR-007).
  *
  * The flowruns table does not say which contract a run belongs to, and runs can start in the same second (two runs of the
  * 2026-10-19 session started at 17:34:14), so the START order says nothing. A run ends when its LAST approval is answered
@@ -10,12 +10,44 @@
  * Pure functions, no network: node --test scripts/lib/run-attribution.test.mjs
  */
 
-/** Last completion time (ms) of the approvals of each contract. `approvals`: [{ title, completedon }], the title ends with the Subject after a colon. */
+const STEP_SUFFIX = /\s*\(step (\d+) of (\d+), ([^)]*)\)\s*$/;
+
+/**
+ * The step part of a v2 approval title, or null. v2 titles end with " (step <i> of <n>, <role>)" (docs/flow-approval-v2.md).
+ * @returns {{index:number, total:number, role:string}|null}
+ */
+export function stepOfTitle(title) {
+  const m = STEP_SUFFIX.exec(String(title || ''));
+  return m ? { index: Number(m[1]), total: Number(m[2]), role: m[3] } : null;
+}
+
+/** True for the approval that v2 creates for an Inform step ("For information: contract <Subject> (step i of n, <role>)"). */
+export function isInformTitle(title) {
+  return /^For information: contract /.test(String(title || ''));
+}
+
+/**
+ * The contract Subject inside an approval title. Understands, in this order:
+ *   v2 approve   "Approve contract: <Subject> (step i of n, <role>)"
+ *   v2 inform    "For information: contract <Subject> (step i of n, <role>)"
+ *   v1           "Approve contract : <Subject>" (stage 1, with a space) and "Approve contract: <Subject>" (stage 2)
+ * Anything else falls back to the text after the last colon (the old rule). A colon inside a Subject is safe for the three known forms.
+ */
+export function subjectOfTitle(title) {
+  let t = String(title || '').replace(STEP_SUFFIX, '').trim();
+  let m = /^Approve contract\s*:\s*([\s\S]*)$/.exec(t);
+  if (m) return m[1].trim();
+  m = /^For information: contract ([\s\S]*)$/.exec(t);
+  if (m) return m[1].trim();
+  return t.split(':').pop().trim();
+}
+
+/** Last completion time (ms) of the approvals of each contract. `approvals`: [{ title, completedon }]; the Subject is taken from the title by subjectOfTitle(). Open approvals (no completedon, for example an Inform request) are ignored. */
 export function lastApprovalByContract(approvals) {
   const last = {};
   for (const a of approvals || []) {
     if (!a.completedon) continue;
-    const subject = String(a.title || '').split(':').pop().trim();
+    const subject = subjectOfTitle(a.title);
     const t = Date.parse(a.completedon);
     if (!(subject in last) || t > last[subject]) last[subject] = t;
   }
