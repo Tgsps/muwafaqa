@@ -310,3 +310,30 @@ Owner decision, recorded here from the owner's Arabic wording (an English render
 | 3 (after the decision and the code change) | 0/36 | 1/36 (`ENOENT`, one cycle) | 0/36 | **ACCEPTED**; the session ran in this window |
 
 The error code in these windows was `ENOENT`, not `ETIMEDOUT` as in earlier sessions; its cause is not known (not tested). Before every case and every bulk request the 3 consecutive successful reads were repeated and passed.
+
+## Failed endings session (2026-10-22): F1 verified, F2 deferred
+
+Script: `scripts/test-flow-failures.mjs` (modes plan, baseline, setup, await, verdict, cleanup, `--dry-run`), pure helpers in `scripts/lib/flow-failures.mjs`, 9 unit tests in `scripts/test-flow-failures.test.mjs` (they also check that the expected texts equal the ones in `scripts/build-flow-v2.mjs`). Fictional rows with the independent prefixes `TEST-TMP-FF1` and `TEST-TMP-FF2`. No approval request is created by these cases, so the owner answered nothing: the owner turned v2 ON before and OFF after; v1 stayed OFF; the assistant never turned a flow on or off.
+
+### F1: no step rows for the round (done)
+
+- **Setup (script):** a Draft contract of USD 5,000 (Maintenance / Expense) was submitted Draft to Pending at 18:19:29Z with the administrative bypass of the **ApprovalChainBuilder Update step only** (header `MSCRM.BypassBusinessLogicExecutionStepIds` with the id of that one step, the same mechanism the cleanup uses for In Force rows). The other plug-ins ran: the contract became Pending, round 1, frozen USD value 5,000, and **0 step rows** were built.
+- **The run (`flowruns`, script):** start 2026-10-22T18:19:44Z, end 18:19:47Z (3 s; it started 15 s after the submission), **status `Failed`**, `errorcode` `"Terminated"`, `errormessage` literally a JSON text with `"code": "NoApprovalSteps"` and `"message": "No Approval Step rows exist for this contract and approval round. The contract stays Pending Approval."` (the line breaks inside it are `\r\n`). The run was not listed after 95 s and was listed at the next read (the table lists finished runs one to two minutes late).
+- **Verdict: 7 PASS, 0 FAIL, 0 OBS:** the contract stays Pending Approval (state 0), round 1, USD value frozen; 0 step rows; exactly one finished run of v2 since the submission; status Failed; the code and the message both appear in `errormessage`; no approval request was created for the Subject (0); 5 active assignment rows.
+- **What it shows:** the Terminate Failed at the top level (outside the loop) of `Check_steps_exist` works at run time, with the code and message designed in `scripts/build-flow-v2.mjs`. The platform reports `errorcode` `Terminated` for it, as for the other Terminate actions seen on 2026-10-22; the designed code is in `errormessage`. The contract is left Pending Approval, as designed; it has to be withdrawn and submitted again to get a new round and chain (no automatic retry or notification in v2).
+- **Cleanup (script):** after the owner turned v2 OFF, the contract was withdrawn to Draft and deleted by the usual cleanup helper (no step rows), the counterparty deleted (HTTP 204), the counter MNT restored 1 to 0 (refused 0). **Final baseline:** 0 `TEST-TMP-FF` rows, 11 contracts, 0 steps, 110 active matrix rows, 5 active assignments, counters 0/0/0/0/0, 0 approval requests with a `TEST-TMP-FF` title, v1 OFF (`modifiedon` 2026-10-19T18:16:58Z unchanged), v2 OFF.
+
+### F2: role without an active assignment (deferred, not run)
+
+**Why it was stopped:** after F1 the next `setup --case=f2` stopped at its connection gate (3 consecutive reads not reached in 8 attempts, `fetch failed`) **before any write**: nothing was created, the Department Head assignment was never touched. A read of the state then failed too (the DNS lookup of the environment host returned `ENOENT`), and a 1-minute monitor showed environment DNS 11 failures of 12 and environment GET 11 of 12 (neutral host 0 of 12): **not accepted** by the environment rule. The owner decided to end the session (v2 OFF) and clean up F1 only. After v2 was turned OFF, one new 3-minute window met the rule (environment DNS 0 of 36, GET 0 of 36; neutral DNS 6 of 36 as a diagnostic) and the F1 cleanup ran in it. The window before the session had environment 0 of 36 and neutral 10 of 36. The cause of the `ENOENT` is not known (not tested).
+
+**Planned sequence (unchanged, as printed by `--mode=plan`), to be run in a later session with v2 ON and v1 OFF:**
+1. read the state (v1 OFF, v2 ON, clean state, the Department Head assignment Active, the builder step enabled);
+2. create the counterparty and a Draft contract of USD 5,000;
+3. create ONE step row by hand: round 1, order 1, Department Head, Approve, Pending (original approver = the user of the assignment, as the builder does);
+4. make the Department Head assignment Inactive (one PATCH, read back);
+5. submit with the bypass of the builder step only: this is the trigger, so the run starts with the step present and the assignment Inactive (no resubmission needed);
+6. wait until the run is listed in `flowruns`; the assignment stays Inactive meanwhile (about 1 to 3 minutes; nothing else reads it);
+7. in a `finally` block always make the assignment Active again (one PATCH, no retry), read it back; if it cannot be confirmed the script stops at once (exit 5) and the owner is told.
+
+Expected: run Failed with code `ApprovalStepFailed` and the message "The approver role of this step has no active Approver Assignment row. The contract stays Pending Approval."; the contract stays Pending; the manual step stays Pending; no approval request. Trade-off: the assignment is Inactive while the run is waited for; if the run is not listed before the timeout (8 minutes) the assignment is reactivated anyway and the result is not conclusive. **Not tested yet:** F2, the Failed ending for a user without an email address (`ApproverHasNoEmail`), and the `ENOENT` behavior of the script on a connection loss in the middle of F2 (the gate before each write is the protection).
