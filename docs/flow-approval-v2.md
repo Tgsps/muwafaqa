@@ -8,63 +8,72 @@ Every claim is marked **(script)** when a script checked it, **(unit)** for a un
 
 | Item | State |
 |---|---|
-| The definition | Written as code in `scripts/build-flow-v2.mjs` (no id, address or host is stored; the record link keeps the placeholder `<ORG_HOST>`) |
-| Structural check, offline | **25 PASS, 0 FAIL** (`--mode=check`, script) and 18 unit tests that prove the checker catches defects (`scripts/build-flow-v2.test.mjs`, unit) |
-| Row "Muwafaqa - Contract Approval v2" in Dataverse | **Created on 2026-10-22, OFF** (script, one POST, HTTP 204; category 5, statecode 0, statuscode 1, a component of the solution; read back by `--mode=verify`). Details in section 8 |
-| Turned on | **No.** v2 was created OFF (a new cloud flow row is Draft), and v1 stays OFF and unchanged (same `modifiedon` before and after). Only the owner turns flows on. Its connection references still have to be bound to working connections by the owner before it can be turned on (not checked) |
-| Opened in the designer / Flow checker | **Not done** (section 7) |
+| The definition | Written as code in `scripts/build-flow-v2.mjs` (no id, address or host is stored; the record link keeps the placeholder `<ORG_HOST>`). **Redesigned on 2026-10-22** after the first Turn on failed (section 0b): 50 actions, depth 6 |
+| Structural check, offline | **35 PASS, 0 FAIL** (`--mode=check`, script) and 31 unit tests that prove the checker catches defects (`scripts/build-flow-v2.test.mjs`, unit) |
+| Row "Muwafaqa - Contract Approval v2" in Dataverse | **There is one OFF row, but it is the FIRST design** (Terminate actions inside the loop; 31 actions). It **cannot be turned on** (section 0b). The redesigned definition has **not been created yet**: the connection check before the recreation failed (8 of 36 cycles, never two allowed in a row but 3 happened), so nothing was changed. The planned path is `--mode=cleanup` (deletes an OFF v2 row only, never v1), `--mode=create`, `--mode=verify` |
+| Turned on | **No, and it never ran.** The owner's Turn on was refused by the platform at validation. v1 stays OFF and unchanged. Only the owner turns flows on |
+| Opened in the designer / Flow checker | The owner opened the first design (0 errors, 0 warnings, section 7); the redesigned definition has not been opened |
+
+## 0b. Why the definition was redesigned (2026-10-22)
+
+**The error (owner, Turn on of v2, literal):** `InvalidWorkflowRunAction: "The workflow run action 'Stop_contract_not_pending_before_step' has type 'Terminate' that could not be nested under an action of type 'foreach'."` The row stayed OFF and no run started.
+
+**The rule (from Learn, Logic Apps workflow definition reference, "Terminate action"):** the Terminate action "can't appear inside Foreach and Until loops, including sequential loops". **The Flow checker (0 errors, 0 warnings) did not catch it and my structural check did not know the rule.** The platform checks it when the flow is turned on, so **Turn on is the decisive validation**. This was **not** in the list of things not confirmed: the list named run-time behaviour and a few connector details, and it should have said that the designer and the Flow checker are not the last word on validity.
+
+**What changed (behaviour unchanged):**
+- Four variables are initialized at the top of the flow (Learn, "Create variables": a variable is declared only at the workflow global level, not in scopes, conditions or loops): `endKind` and `endMessage` (strings, empty at the start; the values `Cancelled`, `Rejected`, `Failed`), plus `approverEmail` and `approverUserId`. The last two are mine, not the owner's: they carry the approver found in one group of the loop to the group that sends the request, so that no action reads the output of an action inside another group's condition (a reference whose validity I could not confirm).
+- **No Terminate anywhere under the loop.** Where the first design ended the run inside the loop, the loop now sets `endKind` and `endMessage` (Set variable inside a sequential loop; Learn: set variables in a loop only when the loop runs sequentially, and it does, concurrency 1).
+- **Every group of the loop is a condition "endKind is empty"** (`Gate_...`), so after a problem is recorded nothing else runs in that iteration or in the next ones: the checkpoint reads, the assignment and user reads, `Mark_step_Waiting`, the approval request, and the rest.
+- **One Switch on `endKind` right after the loop, outside it:** `Cancelled` ends the run Cancelled; `Rejected` ends it Succeeded (as v1 did for a rejection); `Failed` ends it Failed with `runError.message` taken from `endMessage`; the default (empty) carries on as before: last checkpoint (Cancelled if the contract is no longer Pending in the same round), then the contract is set In Force.
+- The role label `Role_name` Compose is gone; the label is an inline expression where it is used.
+- Nesting depth is 6 (limit 8, Learn "Limits and configuration": actions nesting depth 8, 500 actions per workflow; these are the Logic Apps limits, the limits of Power Automate itself were not read).
+
+**New checks (script, offline):** no Terminate under a Foreach or Until at any depth; the variables exist, are initialized only at the top level and before use; every direct child of the loop is a gate on `endKind`; the Switch is right after the loop with the three end kinds and the old default; `endKind` is set only inside the loop. Ten unit tests make each of them fail on the matching defect, including a copy of the first design.
 
 ## 1. What it does
 
 A contract enters Pending Approval (Draft to Pending Update). In the same transaction the plug-in `ApprovalChainBuilder` created one `mwf_approvalstep` row per step of the chain (ADR-007). v2 walks those rows in order:
 
 ```
+variables (top of the flow): endKind, endMessage, approverEmail, approverUserId   (all empty strings)
 trigger: contract modified (frozen USD value written) and status = Pending Approval
   Get_steps_of_this_round                    steps of THIS contract and THIS round, ordered by step order ascending
-  Check_steps_exist  -- none --> Terminate Failed ("No Approval Step rows ...")                       (fail closed)
-  Apply_to_each_step   (sequential, concurrency 1)
-    checkpoint BEFORE the step: contract still Pending and same round? no --> Terminate Cancelled
-    Role_name                       (label of the role, from the role value)
-    Get_assignment_of_role          active Approver Assignment of the role
-    Check_assignment_exists -- none --> Terminate Failed
-    Get_approver_user               the user of the assignment (email address)
-    Check_approver_email   -- empty --> Terminate Failed
-    Branch_on_action_type
+  Check_steps_exist  -- none --> Terminate Failed ("No Approval Step rows ...")                      (fail closed; outside the loop)
+  Apply_to_each_step   (sequential, concurrency 1)       NO Terminate inside; each group runs only while endKind is empty
+    Gate_checkpoint_before_step: contract still Pending and same round?  no --> endKind = Cancelled
+    Gate_find_assignment:  active Approver Assignment of the role?       none --> endKind = Failed; yes --> approverUserId
+    Gate_find_user:        the user's email --> approverEmail           empty --> endKind = Failed
+    Gate_send_request:
       Approve:  Mark_step_Waiting
-                Request_approval_for_step   (Start and wait for an approval, Basic Approve/Reject)
-                checkpoint AFTER the answer: not Pending / other round --> Terminate Cancelled
-                Check_step_outcome
+                Request_approval_for_step   (Start and wait for an approval, Basic Approve/Reject, no reassignment)
+                checkpoint AFTER the answer: not Pending / other round --> endKind = Cancelled
+                Gate_after_step: outcome
                    Approve: Mark_step_Approved (decision, time, comments)
-                   Reject:  Mark_step_Rejected, Set_contract_Rejected (state 1 / status 2), Terminate Succeeded
-      Inform:   Send_information_approval  (Create an approval, no waiting)
-                Mark_step_Informed
-  checkpoint before the final write: not Pending / other round --> Terminate Cancelled
-  Set_contract_In_Force
+                   Reject:  Mark_step_Rejected, Set_contract_Rejected (state 1 / status 2), endKind = Rejected
+      Inform:   Send_information_approval  (Create an approval, no waiting), Mark_step_Informed
+  Switch_on_end_kind  (outside the loop)
+     Cancelled --> Terminate Cancelled
+     Rejected  --> Terminate Succeeded
+     Failed    --> Terminate Failed, message = endMessage
+     (empty)   --> last checkpoint (not Pending / other round --> Terminate Cancelled), then Set_contract_In_Force
 ```
 
-## 2. Actions (31, depth 4; `--mode=build` prints the same table)
+## 2. Actions (50, depth 6; `--mode=build` prints the same table)
 
 | # | Action | Type | Purpose |
 |---|---|---|---|
-| T | `When_a_contract_enters_Pending_Approval` | trigger, `SubscribeWebhookTrigger` | **Identical to v1**: message 3 (added or modified), table `mwf_contract`, scope 4, filtering column `mwf_valueusdfrozen`, filter `statuscode eq 867640000` (compared by the check against the v1 source, script) |
-| 1 | `Get_steps_of_this_round` | `ListRecords` | `mwf_approvalsteps`, `$filter` contract = trigger contract and round = trigger round, `$orderby mwf_steporder asc`, `$select` id, name, order, role, action type, decision |
-| 2 | `Check_steps_exist` / `Fail_no_approval_steps` | If / Terminate | length of the list greater than 0, else **Failed**, code `NoApprovalSteps` |
-| 3 | `Apply_to_each_step` | Foreach | over the list, **concurrency 1** |
-| 3.1 | `Get_contract_before_step`, `Check_contract_before_step`, `Stop_contract_not_pending_before_step` | GetItem / If / Terminate | checkpoint before the step; **Cancelled** (as in v1) |
-| 3.2 | `Role_name` | Compose | role label from the role value |
-| 3.3 | `Get_assignment_of_role`, `Check_assignment_exists`, `Fail_no_active_assignment` | ListRecords / If / Terminate | active assignment of the role (`$top 1`); none: **Failed**, code `NoActiveAssignment` |
-| 3.4 | `Get_approver_user`, `Check_approver_email`, `Fail_approver_has_no_email` | GetItem / If / Terminate | the user's `internalemailaddress`; empty: **Failed**, code `ApproverHasNoEmail` |
-| 3.5 | `Branch_on_action_type` | If | action type = Approve (867640000), else Inform |
-| 3.5a | `Mark_step_Waiting` | UpdateOnlyRecord | step decision = Waiting |
-| 3.5a | `Request_approval_for_step` | StartAndWaitForAnApproval | Basic Approve/Reject; see section 3 |
-| 3.5a | `Get_contract_after_step`, `Check_contract_after_step`, `Stop_contract_not_pending_after_step` | GetItem / If / Terminate | checkpoint after the answer; **Cancelled** |
-| 3.5a | `Check_step_outcome` | If | outcome equals Approve |
-| 3.5a | `Mark_step_Approved` | UpdateOnlyRecord | decision Approved, `mwf_decidedon` = completion date, `mwf_comments` = first response comment |
-| 3.5a | `Mark_step_Rejected`, `Set_contract_Rejected`, `End_run_after_rejection` | UpdateOnlyRecord x2 / Terminate | step Rejected; contract state 1 / status 2 (Rejected); run ends **Succeeded** (as v1) |
-| 3.5b | `Send_information_approval` | CreateAnApproval | **no waiting**; the Owner is only informed (ADR-007, assumption 4) |
-| 3.5b | `Mark_step_Informed` | UpdateOnlyRecord | decision Informed, `mwf_decidedon` = `utcNow()` |
-| 4 | `Get_contract_before_final`, `Check_contract_before_final`, `Stop_contract_not_pending_before_final` | GetItem / If / Terminate | last checkpoint; **Cancelled** |
-| 5 | `Set_contract_In_Force` | UpdateOnlyRecord | status 867640001 (In Force) |
+| T | `When_a_contract_enters_Pending_Approval` | trigger, `SubscribeWebhookTrigger` | **Identical to v1**: message 3, table `mwf_contract`, scope 4, filtering column `mwf_valueusdfrozen`, filter `statuscode eq 867640000` (compared by the check against the v1 source, script) |
+| 0 | `Init_endKind`, `Init_endMessage`, `Init_approverEmail`, `Init_approverUserId` | InitializeVariable (top level) | the four string variables |
+| 1 | `Get_steps_of_this_round` | `ListRecords` | `mwf_approvalsteps`, `$filter` contract = trigger contract and round = trigger round, `$orderby mwf_steporder asc` |
+| 2 | `Check_steps_exist` / `Fail_no_approval_steps` | If / Terminate | no steps: **Failed**, code `NoApprovalSteps` (top level, allowed) |
+| 3 | `Apply_to_each_step` | Foreach | over the list, **concurrency 1**; its direct children are the 4 gates below |
+| 3.1 | `Gate_checkpoint_before_step`: `Get_contract_before_step`, `Check_contract_before_step` (+ 2 Set variable in its else) | If / GetItem / If / SetVariable | checkpoint before the step; problem: `endKind` = Cancelled |
+| 3.2 | `Gate_find_assignment`: `Get_assignment_of_role`, `Check_assignment_exists` (true: `Set_approver_user_id`; else 2 Set variable) | If / ListRecords / If / SetVariable | active assignment of the role (`$top 1`); none: `endKind` = Failed |
+| 3.3 | `Gate_find_user`: `Get_approver_user`, `Set_approver_email`, `Check_approver_email` (+ 2 Set variable in its else) | If / GetItem / SetVariable / If | the user's `internalemailaddress`; empty: `endKind` = Failed |
+| 3.4 | `Gate_send_request` > `Branch_on_action_type` | If | action type = Approve (867640000), else Inform |
+| 3.4a | `Mark_step_Waiting`, `Request_approval_for_step`, `Get_contract_after_step`, `Check_contract_after_step` (+ 2 Set variable in its else), `Gate_after_step` > `Check_step_outcome` > `Mark_step_Approved` or (`Mark_step_Rejected`, `Set_contract_Rejected`, `Reject_end_kind`, `Reject_end_message`) | UpdateOnlyRecord / StartAndWaitForAnApproval / GetItem / If / SetVariable | Approve step; Reject: step Rejected, contract Rejected, `endKind` = Rejected |
+| 3.4b | `Send_information_approval`, `Mark_step_Informed` | CreateAnApproval / UpdateOnlyRecord | Inform: **no waiting**; the Owner is only informed (ADR-007, assumption 4) |
+| 4 | `Switch_on_end_kind` | Switch | `Case_Cancelled`: `Stop_run_cancelled`; `Case_Rejected`: `Stop_run_after_rejection` (Succeeded); `Case_Failed`: `Stop_run_failed` (message from `endMessage`); default: `Get_contract_before_final`, `Check_contract_before_final` (+ `Stop_contract_not_pending_before_final`), `Set_contract_In_Force` |
 
 ## 3. Expressions used
 
@@ -74,14 +83,18 @@ trigger: contract modified (frozen USD value written) and status = Pending Appro
 | Loop input | `@outputs('Get_steps_of_this_round')?['body/value']` |
 | Number of steps (n) | `length(outputs('Get_steps_of_this_round')?['body/value'])` |
 | Step index (i) | `items('Apply_to_each_step')?['mwf_steporder']` (the order is 1..n without gaps, ADR-007) |
+| Gate of a group of the loop | `@variables('endKind')` equals the empty string |
+| End of a problem | Set variable `endKind` (`Cancelled`, `Rejected` or `Failed`) and `endMessage` (text) |
+| Closing Switch | `@variables('endKind')`; the Failed case: `runError.message` = `@variables('endMessage')` |
+| Approver found for the step | `approverUserId` = `first(outputs('Get_assignment_of_role')?['body/value'])?['_mwf_user_value']`; `approverEmail` = `coalesce(outputs('Get_approver_user')?['body/internalemailaddress'], '')`; `assignedTo` = `@{variables('approverEmail')};` |
 | Role label | `json('{"867640000":"Department Head", ...}')?[string(items('Apply_to_each_step')?['mwf_approverrole'])]`, chosen over the formatted-value annotation because it does not depend on which annotations the connector returns |
 | Checkpoint | status equals 867640000 **and** `outputs('Get_contract_…')?['body/mwf_approvalround']` equals `triggerOutputs()?['body/mwf_approvalround']` (the v1 checkpoint of ADR-005) |
 | Assignment filter | `mwf_approverrole eq @{items(…)?['mwf_approverrole']} and statecode eq 0` |
 | User | `first(outputs('Get_assignment_of_role')?['body/value'])?['_mwf_user_value']` as the id of a `GetItem` on `systemusers` |
 | Assigned to | `@{outputs('Get_approver_user')?['body/internalemailaddress']};` (a trailing `;` as in v1) |
 | Reassignment by the approver | allowed (`true` in both stages) | **not allowed** (`false` in both approval actions; owner decision 2026-10-22) |
-| Approval title | `Approve contract: @{triggerOutputs()?['body/mwf_name']} (step @{i} of @{n}, @{outputs('Role_name')})` |
-| Inform title | `For information: contract @{triggerOutputs()?['body/mwf_name']} (step @{i} of @{n}, @{outputs('Role_name')})` |
+| Approval title | `Approve contract: @{triggerOutputs()?['body/mwf_name']} (step @{i} of @{n}, @{<role label>})` |
+| Inform title | `For information: contract @{triggerOutputs()?['body/mwf_name']} (step @{i} of @{n}, @{<role label>})` |
 | Details | Markdown lines: Contract, Number, **Value (USD, frozen)** from `mwf_valueusdfrozen`, Step i of n (role), Approval round |
 | Outcome | `outputs('Request_approval_for_step')?['body/outcome']` equals `Approve` |
 | Decision time | `outputs('Request_approval_for_step')?['body/completionDate']`; for Inform `utcNow()` |
@@ -127,7 +140,7 @@ A contract that stays Pending Approval after a Failed run has to be withdrawn to
 
 ## 7. Verification without running (what was and was not possible)
 
-**Done (script, offline, `--mode=check`; unit tests prove each check can fail):**
+**Done (script, offline, `--mode=check`, 35 checks; 31 unit tests prove each check can fail):** the table lists the groups of checks.
 
 | Check | Result |
 |---|---|
@@ -135,17 +148,21 @@ A contract that stays Pending Approval after a Failed run has to be withdrawn to
 | No name of a v1 action | PASS |
 | Every `runAfter` points to a sibling in the same scope, with valid statuses; none missing; no cycle | PASS |
 | Every `outputs()` / `body()` / `actions()` reference points to an earlier action of the same or an enclosing scope; every `items()` is inside its Foreach | PASS |
-| No variables used, so none can be undefined | PASS |
+| Variables: initialized only at the top level and before use; `endKind` and `endMessage` exist; Set variable in a loop only in a sequential loop | PASS |
+| **No Terminate under a Foreach or Until at any depth** (added after the failed Turn on) | PASS |
+| The Switch on `endKind` is right after the loop, with the three end kinds and the old default; every direct child of the loop is a gate on `endKind`; `endKind` is set only inside the loop | PASS |
 | Parentheses, quotes and braces balanced in every expression | PASS |
 | Every `connectionName` exists in `connectionReferences`; the two references are those of v1 | PASS |
-| Depth 4 (limit 8), 31 actions (limit 500) | PASS |
+| Depth 6 (limit 8), 50 actions (limit 500) | PASS |
 | Loop concurrency 1; the loop reads the steps query | PASS |
-| Every Terminate Failed has code and message; exactly three Cancelled checkpoints | PASS |
+| Every Terminate Failed has code and message; two Terminate Cancelled, both outside the loop | PASS |
 | No email, id or token; `<ORG_HOST>` is the only host | PASS |
 | Trigger equals the v1 trigger in `src/Workflows` | PASS |
 
 **Not possible outside the designer (not tested):**
-- The real Flow checker (it validates against the connector's live schema: parameter names, required fields, types, dynamic content).
+- **The platform's own validation at Turn on.** It refused the first design (section 0b) although the Flow checker showed 0 errors and 0 warnings. The checks above encode the rules I know from Learn (Terminate, variables, nesting, Switch); other rules I do not know cannot be checked, so **Turn on of the new design is the decisive test** and may find more.
+- The real Flow checker for the redesigned definition (it validates against the connector's live schema: parameter names, required fields, types, dynamic content).
+- Not read: restrictions of Power Automate itself on the placement of other actions (the approval actions inside a loop and conditions, a Switch inside the flow), the Power Automate limits page, and whether a reference to the output of an action in the enclosing branch scope is always accepted (the design avoids references across sibling groups on purpose).
 - The names of the fields **inside** the dynamic field `ApprovalCreationInput` of "Create an approval" (`title`, `assignedTo`, `details`, `itemLink`, `itemLinkDescription`, `enableNotifications`, `enableReassignment`). They are inferred from the `WebhookApprovalCreationInput/...` names of "Start and wait" in v1 and are **not confirmed**. **Highest-risk item that remains** (see "Connector facts from Learn" below for what is confirmed).
 - That `GetItem` accepts `$select` on `systemusers`, that `ListRecords` accepts `$top` as a number, and the `json(...)?[...]` indexing, in the designer's expression editor.
 - That the approval output carries `completionDate` and `responses[].comments` as written (the v1 flow only used `outcome`).
@@ -163,7 +180,7 @@ A contract that stays Pending Approval after a Failed run has to be withdrawn to
 
 This lowers the risk of the Inform step from "operation id and parameter names guessed" to "only the inner field names guessed". Nothing was run, so it remains **not tested**.
 
-### The designer, as seen by the owner (2026-10-22; screenshots are NOT in the repository)
+### The designer, as seen by the owner (2026-10-22; screenshots are NOT in the repository) - this is about the FIRST design, before the redesign of section 0b
 
 Reported by the owner after opening v2 (I did not see the screenshots; this is the owner's report):
 
@@ -188,7 +205,11 @@ Reported by the owner after opening v2 (I did not see the screenshots; this is t
 
 **Exported source:** the record link (`itemLink`) of the **live** flow contains the **real host** of the environment (the script replaced the placeholder when it created the row). When `src/` is synced, the exported v2 file has to be scrubbed with `node scripts/scrub-emails.mjs`: its record-link pattern (the host in front of `/main.aspx?etn=`) matches the two links of v2 (`WebhookApprovalCreationInput/itemLink` and `ApprovalCreationInput/itemLink`). Checked offline on the built definition with a fictional host (script logic copied, not run on `src/`): email-like matches 0, record-link host matches 2, no other occurrence of the host. v2 has no approver address in its definition (the address comes from the assignment at run time), so the scrub has no email to replace there. A scrubbed v2 is not importable until `<ORG_HOST>` is filled in again.
 
-## 8. Creating the row (done on 2026-10-22)
+## 8. Creating the row (first design created on 2026-10-22; recreation of the redesigned definition pending)
+
+**Status after the redesign:** the row in the environment is the first design and cannot be turned on. The recreation (`--mode=cleanup`, `--mode=create`, `--mode=verify`) was stopped by the connection criterion: the 3-minute check with `NODE_OPTIONS=--dns-result-order=ipv4first` gave 8 failures of 36 cycles (`ETIMEDOUT`, longest run 3); nothing was changed.
+
+**First creation:**
 
 **Result (script):** prior read: v2 absent, v1 OFF. Connection gate: one 1-minute window of 12 cycles, 0 failures, on the first attempt. Then one POST (HTTP 204, not retried). Read back by `--mode=verify`: v2 exists once, OFF, in the solution; stored `clientdata` 13,392 bytes; the 25 structural checks pass on the stored definition; the 31 stored action names equal the built ones; the stored record link no longer has the placeholder; v1 OFF with the same `modifiedon`. The stored size is close to, but I did not show it equal to, the size of what was sent (Dataverse may normalize the text); the action names and the structure are equal. **Not done:** the designer, the Flow checker, turning on, any run.
 

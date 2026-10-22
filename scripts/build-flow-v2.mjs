@@ -9,7 +9,7 @@
  *   --mode=build   offline. Prints the action table (name, type, parent). With --out=<file outside the repository> writes the clientdata JSON
  *                  (still with the placeholder). No network.
  *   --mode=check   offline. Structural checks of the definition (what can be checked without the designer): unique action names, runAfter
- *                  targets, references to earlier actions in the same or an enclosing scope, items() inside the loop, no variables, balanced
+ *                  targets, references to earlier actions in the same or an enclosing scope, items() inside the loop, variables (top level, defined before use), no Terminate under a loop, the closing Switch, balanced
  *                  expressions, connection names, nesting depth, concurrency 1, Terminate Failed has runError, the trigger equals the trigger of
  *                  v1 in src/Workflows, no name of v1, no address or id. Exit code 1 on any failure.
  *   --mode=create  needs --env and --confirm-mutates-environment. 3 GET requests first. Reads v1 (read only) for its connection references,
@@ -65,17 +65,28 @@ function chain(list, first = {}) {
 const ROLE_JSON = '{"867640000":"Department Head","867640001":"Finance Manager","867640002":"General Manager","867640003":"Regional Office","867640004":"Owner"}';
 const STEP = `items('${LOOP}')`;
 const N = `length(outputs('${STEPS}')?['body/value'])`;
-const where = `(step @{${STEP}?['mwf_steporder']} of @{${N}}, @{outputs('Role_name')})`;
+// the role label is computed from the role value of the step, inline (no action, so no cross-scope reference)
+const ROLE_EXPR = `json('${ROLE_JSON}')?[string(${STEP}?['mwf_approverrole'])]`;
+const where = `(step @{${STEP}?['mwf_steporder']} of @{${N}}, @{${ROLE_EXPR}})`;
 const link = 'https://<ORG_HOST>/main.aspx?etn=mwf_contract&pagetype=entityrecord&id=@{triggerOutputs()?[\'body/mwf_contractid\']}';
 const detailsText = [
   "**Contract:** @{triggerOutputs()?['body/mwf_name']}",
   "**Number:** @{triggerOutputs()?['body/mwf_contractnumber']}",
   "**Value (USD, frozen):** @{triggerOutputs()?['body/mwf_valueusdfrozen']}",
-  `**Step:** @{${STEP}?['mwf_steporder']} of @{${N}} (@{outputs('Role_name')})`,
+  `**Step:** @{${STEP}?['mwf_steporder']} of @{${N}} (@{${ROLE_EXPR}})`,
   "**Approval round:** @{triggerOutputs()?['body/mwf_approvalround']}",
 ].join('\n');
-const assignedTo = "@{outputs('Get_approver_user')?['body/internalemailaddress']};";
+const assignedTo = "@{variables('approverEmail')};";
 const updateStep = (extra) => cds('UpdateOnlyRecord', { entityName: 'mwf_approvalsteps', recordId: `@${STEP}?['mwf_approvalstepid']`, ...extra });
+
+// ---- the end of a run is NOT a Terminate inside the loop (a Terminate can not be inside Foreach or Until, Learn: Logic Apps workflow actions, "Terminate action").
+// Inside the loop a problem sets two variables; every later group of the loop is gated on endKind being empty; after the loop one Switch ends the run.
+const setVar = (name, value) => ({ type: 'SetVariable', inputs: { name, value } });
+const initVar = (name) => ({ type: 'InitializeVariable', inputs: { variables: [{ name, type: 'string', value: '' }] } });
+const ended = (kind, message, prefix) => chain([[`${prefix}_end_kind`, setVar('endKind', kind)], [`${prefix}_end_message`, setVar('endMessage', message)]]);
+const notEnded = { equals: ["@variables('endKind')", ''] };
+/** A group of the loop that runs only while no earlier group has ended the run. */
+const gate = (name, actions) => [name, { type: 'If', expression: notEnded, actions, else: { actions: {} } }];
 
 function stepActions() {
   const approveBranch = chain([
@@ -97,29 +108,35 @@ function stepActions() {
       },
     }],
     ['Get_contract_after_step', getContract()],
-    ['Check_contract_after_step', guardIf(contractPending('Get_contract_after_step'), 'Stop_contract_not_pending_after_step', terminate('Cancelled'))],
-    ['Check_step_outcome', {
-      type: 'If',
-      expression: { equals: ["@outputs('Request_approval_for_step')?['body/outcome']", 'Approve'] },
-      actions: {
-        Mark_step_Approved: updateStep({
-          'item/mwf_decision': 867640002,
-          'item/mwf_decidedon': "@outputs('Request_approval_for_step')?['body/completionDate']",
-          'item/mwf_comments': "@{coalesce(first(outputs('Request_approval_for_step')?['body/responses'])?['comments'], '')}",
-        }),
-      },
-      else: {
-        actions: chain([
-          ['Mark_step_Rejected', updateStep({
-            'item/mwf_decision': 867640003,
+    ['Check_contract_after_step', {
+      type: 'If', expression: contractPending('Get_contract_after_step'), actions: {},
+      else: { actions: ended('Cancelled', 'The contract is no longer Pending Approval, or it was submitted again (another approval round), after a step was answered.', 'After_step') },
+    }],
+    gate('Gate_after_step', {
+      Check_step_outcome: {
+        type: 'If',
+        expression: { equals: ["@outputs('Request_approval_for_step')?['body/outcome']", 'Approve'] },
+        actions: {
+          Mark_step_Approved: updateStep({
+            'item/mwf_decision': 867640002,
             'item/mwf_decidedon': "@outputs('Request_approval_for_step')?['body/completionDate']",
             'item/mwf_comments': "@{coalesce(first(outputs('Request_approval_for_step')?['body/responses'])?['comments'], '')}",
-          })],
-          ['Set_contract_Rejected', cds('UpdateOnlyRecord', { entityName: 'mwf_contracts', recordId: "@triggerOutputs()?['body/mwf_contractid']", 'item/statecode': 1, 'item/statuscode': 2 })],
-          ['End_run_after_rejection', terminate('Succeeded')],
-        ]),
+          }),
+        },
+        else: {
+          actions: chain([
+            ['Mark_step_Rejected', updateStep({
+              'item/mwf_decision': 867640003,
+              'item/mwf_decidedon': "@outputs('Request_approval_for_step')?['body/completionDate']",
+              'item/mwf_comments': "@{coalesce(first(outputs('Request_approval_for_step')?['body/responses'])?['comments'], '')}",
+            })],
+            ['Set_contract_Rejected', cds('UpdateOnlyRecord', { entityName: 'mwf_contracts', recordId: "@triggerOutputs()?['body/mwf_contractid']", 'item/statecode': 1, 'item/statuscode': 2 })],
+            ['Reject_end_kind', setVar('endKind', 'Rejected')],
+            ['Reject_end_message', setVar('endMessage', 'A step was rejected. The contract was set to Rejected.')],
+          ]),
+        },
       },
-    }],
+    }),
   ]);
   const informBranch = chain([
     ['Send_information_approval', {
@@ -141,31 +158,67 @@ function stepActions() {
     ['Mark_step_Informed', updateStep({ 'item/mwf_decision': 867640004, 'item/mwf_decidedon': '@utcNow()' })],
   ]);
   return chain([
-    ['Get_contract_before_step', getContract()],
-    ['Check_contract_before_step', guardIf(contractPending('Get_contract_before_step'), 'Stop_contract_not_pending_before_step', terminate('Cancelled'))],
-    ['Role_name', { type: 'Compose', inputs: `@json('${ROLE_JSON}')?[string(${STEP}?['mwf_approverrole'])]` }],
-    ['Get_assignment_of_role', cds('ListRecords', {
-      entityName: 'mwf_approverassignments',
-      $select: 'mwf_approverassignmentid,_mwf_user_value',
-      $filter: `mwf_approverrole eq @{${STEP}?['mwf_approverrole']} and statecode eq 0`,
-      $top: 1,
-    })],
-    ['Check_assignment_exists', guardIf({ greater: ["@length(outputs('Get_assignment_of_role')?['body/value'])", 0] }, 'Fail_no_active_assignment',
-      terminate('Failed', { code: 'NoActiveAssignment', message: 'The approver role of this step has no active Approver Assignment row. The contract stays Pending Approval.' }))],
-    ['Get_approver_user', cds('GetItem', { entityName: 'systemusers', recordId: "@first(outputs('Get_assignment_of_role')?['body/value'])?['_mwf_user_value']", $select: 'internalemailaddress,fullname' })],
-    ['Check_approver_email', guardIf({ greater: ["@length(coalesce(outputs('Get_approver_user')?['body/internalemailaddress'], ''))", 0] }, 'Fail_approver_has_no_email',
-      terminate('Failed', { code: 'ApproverHasNoEmail', message: 'The user assigned to the approver role has no email address. The contract stays Pending Approval.' }))],
-    ['Branch_on_action_type', {
-      type: 'If',
-      expression: { equals: [`@${STEP}?['mwf_actiontype']`, 867640000] },
-      actions: approveBranch,
-      else: { actions: informBranch },
-    }],
+    gate('Gate_checkpoint_before_step', chain([
+      ['Get_contract_before_step', getContract()],
+      ['Check_contract_before_step', {
+        type: 'If', expression: contractPending('Get_contract_before_step'), actions: {},
+        else: { actions: ended('Cancelled', 'The contract is no longer Pending Approval, or it was submitted again (another approval round), before a step started.', 'Before_step') },
+      }],
+    ])),
+    gate('Gate_find_assignment', chain([
+      ['Get_assignment_of_role', cds('ListRecords', {
+        entityName: 'mwf_approverassignments',
+        $select: 'mwf_approverassignmentid,_mwf_user_value',
+        $filter: `mwf_approverrole eq @{${STEP}?['mwf_approverrole']} and statecode eq 0`,
+        $top: 1,
+      })],
+      ['Check_assignment_exists', {
+        type: 'If', expression: { greater: ["@length(outputs('Get_assignment_of_role')?['body/value'])", 0] },
+        actions: { Set_approver_user_id: setVar('approverUserId', "@{first(outputs('Get_assignment_of_role')?['body/value'])?['_mwf_user_value']}") },
+        else: { actions: ended('Failed', 'The approver role of this step has no active Approver Assignment row. The contract stays Pending Approval.', 'No_assignment') },
+      }],
+    ])),
+    gate('Gate_find_user', chain([
+      ['Get_approver_user', cds('GetItem', { entityName: 'systemusers', recordId: "@variables('approverUserId')", $select: 'internalemailaddress,fullname' })],
+      ['Set_approver_email', setVar('approverEmail', "@{coalesce(outputs('Get_approver_user')?['body/internalemailaddress'], '')}")],
+      ['Check_approver_email', {
+        type: 'If', expression: { greater: ["@length(variables('approverEmail'))", 0] }, actions: {},
+        else: { actions: ended('Failed', 'The user assigned to the approver role has no email address. The contract stays Pending Approval.', 'No_email') },
+      }],
+    ])),
+    gate('Gate_send_request', {
+      Branch_on_action_type: {
+        type: 'If',
+        expression: { equals: [`@${STEP}?['mwf_actiontype']`, 867640000] },
+        actions: approveBranch,
+        else: { actions: informBranch },
+      },
+    }),
   ]);
 }
 
 export function buildDefinition() {
+  const switchEnd = {
+    type: 'Switch',
+    expression: "@variables('endKind')",
+    cases: {
+      Case_Cancelled: { case: 'Cancelled', actions: { Stop_run_cancelled: terminate('Cancelled') } },
+      Case_Rejected: { case: 'Rejected', actions: { Stop_run_after_rejection: terminate('Succeeded') } },
+      Case_Failed: { case: 'Failed', actions: { Stop_run_failed: terminate('Failed', { code: 'ApprovalStepFailed', message: "@variables('endMessage')" }) } },
+    },
+    default: {
+      actions: chain([
+        ['Get_contract_before_final', getContract()],
+        ['Check_contract_before_final', guardIf(contractPending('Get_contract_before_final'), 'Stop_contract_not_pending_before_final', terminate('Cancelled'))],
+        ['Set_contract_In_Force', cds('UpdateOnlyRecord', { entityName: 'mwf_contracts', recordId: "@triggerOutputs()?['body/mwf_contractid']", 'item/statuscode': 867640001 })],
+      ]),
+    },
+  };
   const actions = chain([
+    ['Init_endKind', initVar('endKind')],
+    ['Init_endMessage', initVar('endMessage')],
+    ['Init_approverEmail', initVar('approverEmail')],
+    ['Init_approverUserId', initVar('approverUserId')],
     [STEPS, cds('ListRecords', {
       entityName: 'mwf_approvalsteps',
       $select: 'mwf_approvalstepid,mwf_name,mwf_steporder,mwf_approverrole,mwf_actiontype,mwf_decision',
@@ -175,9 +228,7 @@ export function buildDefinition() {
     ['Check_steps_exist', guardIf({ greater: [`@${N}`, 0] }, 'Fail_no_approval_steps',
       terminate('Failed', { code: 'NoApprovalSteps', message: 'No Approval Step rows exist for this contract and approval round. The contract stays Pending Approval.' }))],
     [LOOP, { type: 'Foreach', foreach: `@outputs('${STEPS}')?['body/value']`, actions: stepActions(), runtimeConfiguration: { concurrency: { repetitions: 1 } } }],
-    ['Get_contract_before_final', getContract()],
-    ['Check_contract_before_final', guardIf(contractPending('Get_contract_before_final'), 'Stop_contract_not_pending_before_final', terminate('Cancelled'))],
-    ['Set_contract_In_Force', cds('UpdateOnlyRecord', { entityName: 'mwf_contracts', recordId: "@triggerOutputs()?['body/mwf_contractid']", 'item/statuscode': 867640001 })],
+    ['Switch_on_end_kind', switchEnd],
   ]);
   return {
     $schema: 'https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#',
@@ -201,6 +252,7 @@ export function buildDefinition() {
     actions,
   };
 }
+
 const DEFAULT_REFS = {
   shared_commondataserviceforapps: { api: { name: 'shared_commondataserviceforapps' }, connection: { connectionReferenceLogicalName: 'new_sharedcommondataserviceforapps_43184' }, runtimeSource: 'embedded' },
   shared_approvals: { api: { name: 'shared_approvals' }, connection: { connectionReferenceLogicalName: 'mwf_sharedapprovals_27e14' }, runtimeSource: 'embedded' },
@@ -217,6 +269,8 @@ export function walk(actions, scope = [], list = []) {
     const inner = [];
     if (action.actions) inner.push(action.actions);
     if (action.else?.actions) inner.push(action.else.actions);
+    for (const c of Object.values(action.cases || {})) if (c.actions) inner.push(c.actions);   // Switch
+    if (action.default?.actions) inner.push(action.default.actions);
     for (const a of inner) walk(a, [...scope, name], list);
   }
   return list;
@@ -310,12 +364,41 @@ export function checkClientdata(cd, { v1Trigger = null } = {}) {
         const t = byName[m[1]];
         if (!t || t.action.type !== 'Foreach' || !x.scope.includes(m[1])) refErrors.push(`${x.name} -> items('${m[1]}') (not an enclosing Foreach)`);
       }
-      if (/\bvariables\(/.test(e) || /\bvariables\b/.test(x.action.type || '')) variableUse.push(x.name);
+      for (const m of e.matchAll(/\bvariables\('([^']+)'\)/g)) variableUse.push({ at: x.name, index: x.index, name: m[1] });
     }
   }
   ok('every outputs()/body()/items() reference points to an earlier action of the same or an enclosing scope, or to the enclosing loop', refErrors.length === 0, refErrors.join('; '));
   ok('every expression has balanced parentheses, quotes and braces', exprErrors.length === 0, exprErrors.join('; '));
-  ok('no variables are used (none are needed), so none can be undefined or initialised in a wrong scope', variableUse.length === 0, variableUse.join(', '));
+  // variables (Learn, "Create variables": a variable is initialized only at the workflow top level, never in a scope, condition or loop)
+  const inits = list.filter((x) => x.action.type === 'InitializeVariable');
+  const declared = new Map(); for (const x of inits) for (const v of x.action.inputs.variables) declared.set(v.name, x.index);
+  ok('Initialize variable appears only at the top level of the flow (not in a loop, condition, switch or scope)', inits.every((x) => x.scope.length === 0), inits.filter((x) => x.scope.length).map((x) => x.name).join(', '));
+  ok('the variables endKind and endMessage exist (strings, empty at the start)', ['endKind', 'endMessage'].every((n) => inits.some((x) => x.action.inputs.variables.some((v) => v.name === n && v.type === 'string' && v.value === ''))));
+  const setNames = list.filter((x) => x.action.type === 'SetVariable').map((x) => ({ at: x.name, index: x.index, name: x.action.inputs.name }));
+  const undefinedUse = [...variableUse, ...setNames].filter((u) => !declared.has(u.name) || declared.get(u.name) > u.index);
+  ok('every variable that is read or set was initialized earlier at the top level', undefinedUse.length === 0, undefinedUse.map((u) => `${u.at}:${u.name}`).join(', '));
+  const loopNode = list.find((x) => x.name === LOOP);
+  ok('Set variable inside a loop only in a sequential loop (concurrency 1)', setNames.every((u) => !list.find((x) => x.name === u.at).scope.includes(LOOP)) || loopNode?.action.runtimeConfiguration?.concurrency?.repetitions === 1);
+  // Terminate: not under Foreach or Until at any depth (Learn: Logic Apps workflow actions, "Terminate action")
+  const termUnderLoop = list.filter((x) => x.action.type === 'Terminate' && x.scope.some((n) => ['Foreach', 'Until'].includes(byName[n]?.action.type)));
+  ok('no Terminate action is nested under a Foreach or Until at any depth', termUnderLoop.length === 0, termUnderLoop.map((x) => x.name).join(', '));
+  // the end of the run: one Switch on endKind right after the loop (outside it), with the three end kinds and a default that carries on
+  const sw = list.find((x) => x.action.type === 'Switch');
+  const afterLoop = !!sw && sw.scope.length === 0 && Object.keys(sw.action.runAfter || {}).join() === LOOP;
+  ok('a Switch on endKind runs right after the loop and outside it', afterLoop && sw.action.expression === "@variables('endKind')");
+  const cs = sw ? sw.action.cases : {};
+  const term = (c) => Object.values(cs[c]?.actions || {}).find((a) => a.type === 'Terminate')?.inputs;
+  ok('Switch cases: Cancelled ends Cancelled, Rejected ends Succeeded, Failed ends Failed with the message of endMessage',
+    cs.Case_Cancelled?.case === 'Cancelled' && term('Case_Cancelled')?.runStatus === 'Cancelled'
+    && cs.Case_Rejected?.case === 'Rejected' && term('Case_Rejected')?.runStatus === 'Succeeded'
+    && cs.Case_Failed?.case === 'Failed' && term('Case_Failed')?.runStatus === 'Failed' && term('Case_Failed')?.runError?.message === "@variables('endMessage')");
+  const dflt = Object.keys(sw?.action.default?.actions || {});
+  ok('the default of the Switch carries on: last checkpoint, then the contract is set In Force', dflt.join() === 'Get_contract_before_final,Check_contract_before_final,Set_contract_In_Force');
+  // every group of the loop is gated on endKind being empty, so nothing runs in or after an iteration that ended the run
+  const loopChildren = Object.entries(loopNode?.action.actions || {});
+  ok('every direct child of the loop is a gate on endKind being empty', loopChildren.length > 0 && loopChildren.every(([, a]) => a.type === 'If' && JSON.stringify(a.expression) === JSON.stringify({ equals: ["@variables('endKind')", ''] })), `${loopChildren.length} groups`);
+  const endSetters = list.filter((x) => x.action.type === 'SetVariable' && x.action.inputs.name === 'endKind');
+  ok('endKind is set only inside the loop (the problem cases) and only to Cancelled, Rejected or Failed', endSetters.length > 0 && endSetters.every((x) => x.scope.includes(LOOP) && ['Cancelled', 'Rejected', 'Failed'].includes(x.action.inputs.value)), `${endSetters.length} setters`);
 
   // connections
   const conn = new Set([...JSON.stringify(def).matchAll(/"connectionName":"([^"]+)"/g)].map((m) => m[1]));
@@ -334,7 +417,7 @@ export function checkClientdata(cd, { v1Trigger = null } = {}) {
   const failed = list.filter((x) => x.action.type === 'Terminate' && x.action.inputs.runStatus === 'Failed');
   ok('every Terminate with status Failed has a runError (code and message)', failed.length > 0 && failed.every((x) => x.action.inputs.runError?.code && x.action.inputs.runError?.message), `${failed.length} Failed terminations`);
   const cancelled = list.filter((x) => x.action.type === 'Terminate' && x.action.inputs.runStatus === 'Cancelled');
-  ok('the three checkpoints end Cancelled', cancelled.length === 3, `${cancelled.length}`);
+  ok('two Terminate Cancelled (the Switch case and the last checkpoint), both outside the loop', cancelled.length === 2 && cancelled.every((x) => !x.scope.includes(LOOP)), `${cancelled.length}`);
   ok('the list query is ordered by step order ascending', byName[STEPS].action.inputs.parameters.$orderby === 'mwf_steporder asc');
   ok('every update of a step names the step row (recordId) and the step table', list.filter((x) => x.action.inputs?.parameters?.entityName === 'mwf_approvalsteps' && x.action.inputs.host.operationId === 'UpdateOnlyRecord')
     .every((x) => /mwf_approvalstepid/.test(x.action.inputs.parameters.recordId)));
