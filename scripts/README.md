@@ -108,3 +108,10 @@ Notes: the two ApprovalMatrix and approver loaders must both be run once per env
 | `build-flow-v2.mjs` | The definition of "Muwafaqa - Contract Approval v2" as code. `--mode=build` prints the action table (and writes the clientdata JSON to `--out=<path outside the repository>`); `--mode=check` runs the structural checks offline (no network) and exits 1 on a failure; `--mode=create` (needs `--env`, `--confirm-mutates-environment`) sends **one** POST that creates the flow row **OFF** in the solution, never retried, then reads it back and confirms v1 is unchanged; `--mode=verify` (read only) checks that v1 and v2 are OFF. It never turns a flow on or off and never starts a run. The record link keeps the placeholder `<ORG_HOST>`, replaced in memory by the host of `--env` |
 | `build-flow-v2.test.mjs` | 18 unit tests (`node --test scripts/build-flow-v2.test.mjs`): the definition passes and every check fails when the matching defect is introduced |
 
+### Flow v2 session script (ADR-007; written, not run against a live flow)
+
+| Script | What it does |
+|---|---|
+| `test-flow-v2.mjs` | The cases A to D of the v2 session plan (`docs/flow-on-session-plan.md`), prefixes `TEST-TMP-V2A..D`. Modes `plan`, `baseline` (read only), `setup`, `request`, `await`, `steps`, `withdraw-resubmit`, `verdict`, `cleanup`. `--dry-run` prints the writes and sends none. The owner alone turns v2 on (v1 stays OFF). `request` prints the literal instruction for the owner; `await` waits (up to 15 minutes) until that request is really answered and reports nothing before; `verdict` refuses while a required answer is missing. It never answers or deletes an approval request |
+| `test-flow-v2.test.mjs` | 7 unit tests: prefixes, the plan against the matrix structure, titles, the owner is never asked to answer an Inform request |
+

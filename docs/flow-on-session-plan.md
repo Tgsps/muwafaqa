@@ -145,7 +145,7 @@ Baseline (read only): v2 ON and v1 OFF (state read, not changed), 0 TEST-TMP row
 
 ## Cases
 
-A new script is needed (the five v1 scripts create contracts of USD 1000, which is a ONE-step chain in v2). Proposed: `scripts/test-flow-v2.mjs`, prefix `TEST-TMP-V2`, modes `setup --case=a|b|c|d`, `withdraw-resubmit` (case d), `read --case=...`, `cleanup`; it uses the shared helpers (connection check, counters, run attribution by end time with `tolS` 8 because a run with an Inform step ends a few seconds after the last answer). **It is not written yet; it is written after this plan is approved.**
+A new script is needed (the five v1 scripts create contracts of USD 1000, which is a ONE-step chain in v2). **Written on 2026-10-22, not yet run against a live flow:** `scripts/test-flow-v2.mjs`, prefix `TEST-TMP-V2`, modes `setup --case=a|b|c|d`, `withdraw-resubmit` (case d), `read --case=...`, `cleanup`; it uses the shared helpers (connection check, counters, run attribution by end time with `tolS` 8 because a run with an Inform step ends a few seconds after the last answer). Only `--mode=plan`, `--mode=baseline` and `--dry-run` were run (they write nothing); see the registration log. **`src/` is synced only AFTER the v2 session** (the flow may change during it), with `scripts/scrub-emails.mjs` before `git add`.
 
 | Case | Contract | Chain (ApprovalMatrix, fictional) | Owner actions, one at a time | Expected end state |
 |---|---|---|---|---|
