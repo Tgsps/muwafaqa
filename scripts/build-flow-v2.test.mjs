@@ -85,6 +85,22 @@ test('a changed trigger filter is reported', () => {
   assert.ok(failing(cd).some((n) => /equal the trigger of v1/.test(n)));
 });
 
+test('reassignment can not come back as true in the Approve request', () => {
+  const cd = fresh(); cd.properties.definition.actions.Apply_to_each_step.actions.Branch_on_action_type.actions.Request_approval_for_step.inputs.parameters['WebhookApprovalCreationInput/enableReassignment'] = true;
+  assert.ok(failing(cd).some((n) => /reassignment is disabled/.test(n)));
+});
+
+test('reassignment can not come back as true in the Inform request', () => {
+  const cd = fresh(); cd.properties.definition.actions.Apply_to_each_step.actions.Branch_on_action_type.else.actions.Send_information_approval.inputs.parameters['ApprovalCreationInput/enableReassignment'] = true;
+  assert.ok(failing(cd).some((n) => /reassignment is disabled/.test(n)));
+});
+
+test('the built definition has reassignment false in both approval actions', () => {
+  const a = buildClientdata().properties.definition.actions.Apply_to_each_step.actions.Branch_on_action_type;
+  assert.equal(a.actions.Request_approval_for_step.inputs.parameters['WebhookApprovalCreationInput/enableReassignment'], false);
+  assert.equal(a.else.actions.Send_information_approval.inputs.parameters['ApprovalCreationInput/enableReassignment'], false);
+});
+
 test('balanced() and expressionsOf()', () => {
   assert.ok(balanced("outputs('A')?['b']"));
   assert.ok(!balanced("outputs('A'"));

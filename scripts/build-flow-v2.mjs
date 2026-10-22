@@ -91,7 +91,7 @@ function stepActions() {
           'WebhookApprovalCreationInput/itemLink': link,
           'WebhookApprovalCreationInput/itemLinkDescription': 'Open contract',
           'WebhookApprovalCreationInput/enableNotifications': true,
-          'WebhookApprovalCreationInput/enableReassignment': true,
+          'WebhookApprovalCreationInput/enableReassignment': false,   // owner decision 2026-10-22 (ADR-007): the approver is fixed by the role and its assignment; Yes would let the approver pass the request on and bypass the chain
         },
         host: APR('StartAndWaitForAnApproval'),
       },
@@ -338,6 +338,10 @@ export function checkClientdata(cd, { v1Trigger = null } = {}) {
   ok('the list query is ordered by step order ascending', byName[STEPS].action.inputs.parameters.$orderby === 'mwf_steporder asc');
   ok('every update of a step names the step row (recordId) and the step table', list.filter((x) => x.action.inputs?.parameters?.entityName === 'mwf_approvalsteps' && x.action.inputs.host.operationId === 'UpdateOnlyRecord')
     .every((x) => /mwf_approvalstepid/.test(x.action.inputs.parameters.recordId)));
+  // reassignment (owner decision 2026-10-22): no approval action may let the approver pass the request on
+  const approvalActions = list.filter((x) => x.action.inputs?.host?.apiId?.endsWith('shared_approvals'));
+  const reassign = approvalActions.flatMap((x) => Object.entries(x.action.inputs.parameters).filter(([k]) => /enableReassignment$/.test(k)).map(([, v]) => v));
+  ok('reassignment is disabled (false) in every approval action, both Approve and Inform', approvalActions.length === 2 && reassign.length === 2 && reassign.every((v) => v === false), `${approvalActions.length} approval actions, values ${JSON.stringify(reassign)}`);
   // text hygiene
   const text = JSON.stringify(cd);
   ok('no email address, no id (GUID), no token in the definition', !/[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.[A-Za-z]{2,}/.test(text.replace(/@\{|@outputs|@triggerOutputs|@first|@length|@json|@utcNow|@coalesce/g, '')) && !/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(text) && !/eyJ[A-Za-z0-9_-]{10,}/.test(text));

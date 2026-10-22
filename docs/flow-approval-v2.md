@@ -79,6 +79,7 @@ trigger: contract modified (frozen USD value written) and status = Pending Appro
 | Assignment filter | `mwf_approverrole eq @{items(…)?['mwf_approverrole']} and statecode eq 0` |
 | User | `first(outputs('Get_assignment_of_role')?['body/value'])?['_mwf_user_value']` as the id of a `GetItem` on `systemusers` |
 | Assigned to | `@{outputs('Get_approver_user')?['body/internalemailaddress']};` (a trailing `;` as in v1) |
+| Reassignment by the approver | allowed (`true` in both stages) | **not allowed** (`false` in both approval actions; owner decision 2026-10-22) |
 | Approval title | `Approve contract: @{triggerOutputs()?['body/mwf_name']} (step @{i} of @{n}, @{outputs('Role_name')})` |
 | Inform title | `For information: contract @{triggerOutputs()?['body/mwf_name']} (step @{i} of @{n}, @{outputs('Role_name')})` |
 | Details | Markdown lines: Contract, Number, **Value (USD, frozen)** from `mwf_valueusdfrozen`, Step i of n (role), Approval round |
@@ -173,10 +174,10 @@ Reported by the owner after opening v2 (I did not see the screenshots; this is t
 | Flow checker | **0 errors, 0 warnings** (this is the check I could not do from the command line) |
 | `Request_approval_for_step` and `Send_information_approval` | every field is shown with its value, and the designer knows the field names inside `ApprovalCreationInput` (so the names inferred from v1 are **accepted by the designer**) |
 | `Mark_step_Waiting`, and the connections (Approvals and Dataverse) | bound |
-| Enable reassignment | **Yes** on the Approve request, **No** on the Inform request |
+| Enable reassignment (first build) | **Yes** on the Approve request, **No** on the Inform request. Changed by the owner's decision below: **No** on both |
 | State | v2 not run, not turned on; v1 and v2 OFF. A read after the designer visit shows the stored `clientdata` unchanged (13,392 bytes, 31 action names, the 25 structural checks pass): the designer was used to look, not to save (script, read only) |
 
-**Reassignment:** v1 has `enableReassignment = true` in both stages (read from the live v1 and from the exported source, read only). In v2 the Approve request keeps the v1 value (copied when the flow was written, not a new decision) and the Inform request is set to `false` on purpose, because an informed person has nothing to reassign. Whether `true` is wanted for Approve is the owner's decision; it lets the approver pass the request to someone else, which Phase 3 (delegation) will have to govern.
+**Reassignment (owner decision, 2026-10-22): disabled in both approval actions.** v1 has `enableReassignment = true` in both stages (read from the live v1 and from the exported source, read only). The designer showed the first build of v2 with Yes on the Approve request (the v1 value, copied) and No on the Inform request. The owner decided that **Yes is wrong for v2**: the approver is fixed by the role and its Approver Assignment, Yes would let the approver pass the request on and so bypass the chain, `mwf_actualapprover` is not written yet (so a reassignment would not even be recorded), and delegation with a limit is Phase 3. `Request_approval_for_step` is now `false` as well (`Send_information_approval` was already `false`). The structural check has a rule for it and two unit tests keep `true` from coming back. **Trade-off:** an absent approver cannot pass the request on; that is handled by changing the Approver Assignment for the next rounds (a request already sent keeps its approver; the contract is withdrawn and submitted again to get a new round).
 
 **Still NOT confirmed (nothing has run):**
 - any run time behavior: the loop, the checkpoints, the Failed endings, the Reject path, a chain of one step;
