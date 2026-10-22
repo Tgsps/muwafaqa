@@ -683,7 +683,7 @@
             <displayname description="Max Value (USD)" languagecode="1033" />
           </displaynames>
           <Descriptions>
-            <Description description="upper bound of the value band; empty means no upper limit." languagecode="1033" />
+            <Description description="upper bound, inclusive; empty means no upper limit" languagecode="1033" />
           </Descriptions>
         </attribute>
         <attribute PhysicalName="mwf_MinValueUSD">
@@ -723,7 +723,7 @@
             <displayname description="Min Value (USD)" languagecode="1033" />
           </displaynames>
           <Descriptions>
-            <Description description="lower bound of the value band, inclusive." languagecode="1033" />
+            <Description description="lower bound of the value band, exclusive" languagecode="1033" />
           </Descriptions>
         </attribute>
         <attribute PhysicalName="mwf_rulename">

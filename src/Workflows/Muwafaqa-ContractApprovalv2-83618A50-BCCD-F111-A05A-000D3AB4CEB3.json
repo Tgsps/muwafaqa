@@ -1,0 +1,860 @@
+{
+  "properties": {
+    "connectionReferences": {
+      "shared_commondataserviceforapps": {
+        "api": {
+          "name": "shared_commondataserviceforapps"
+        },
+        "connection": {
+          "connectionReferenceLogicalName": "new_sharedcommondataserviceforapps_43184"
+        },
+        "runtimeSource": "embedded"
+      },
+      "shared_approvals": {
+        "api": {
+          "name": "shared_approvals"
+        },
+        "connection": {
+          "connectionReferenceLogicalName": "mwf_sharedapprovals_27e14"
+        },
+        "runtimeSource": "embedded"
+      }
+    },
+    "definition": {
+      "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+      "contentVersion": "1.0.0.0",
+      "parameters": {
+        "$authentication": {
+          "defaultValue": {},
+          "type": "SecureObject"
+        },
+        "$connections": {
+          "defaultValue": {},
+          "type": "Object"
+        }
+      },
+      "triggers": {
+        "When_a_contract_enters_Pending_Approval": {
+          "type": "OpenApiConnectionWebhook",
+          "inputs": {
+            "parameters": {
+              "subscriptionRequest/message": 3,
+              "subscriptionRequest/entityname": "mwf_contract",
+              "subscriptionRequest/scope": 4,
+              "subscriptionRequest/filteringattributes": "mwf_valueusdfrozen",
+              "subscriptionRequest/filterexpression": "statuscode eq 867640000"
+            },
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps",
+              "operationId": "SubscribeWebhookTrigger",
+              "connectionName": "shared_commondataserviceforapps"
+            }
+          }
+        }
+      },
+      "actions": {
+        "Init_endKind": {
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "endKind",
+                "type": "string",
+                "value": ""
+              }
+            ]
+          },
+          "runAfter": {}
+        },
+        "Init_endMessage": {
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "endMessage",
+                "type": "string",
+                "value": ""
+              }
+            ]
+          },
+          "runAfter": {
+            "Init_endKind": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Init_approverEmail": {
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "approverEmail",
+                "type": "string",
+                "value": ""
+              }
+            ]
+          },
+          "runAfter": {
+            "Init_endMessage": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Init_approverUserId": {
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "approverUserId",
+                "type": "string",
+                "value": ""
+              }
+            ]
+          },
+          "runAfter": {
+            "Init_approverEmail": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Get_steps_of_this_round": {
+          "type": "OpenApiConnection",
+          "inputs": {
+            "parameters": {
+              "entityName": "mwf_approvalsteps",
+              "$select": "mwf_approvalstepid,mwf_name,mwf_steporder,mwf_approverrole,mwf_actiontype,mwf_decision",
+              "$filter": "_mwf_contract_value eq @{triggerOutputs()?['body/mwf_contractid']} and mwf_approvalround eq @{triggerOutputs()?['body/mwf_approvalround']}",
+              "$orderby": "mwf_steporder asc"
+            },
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps",
+              "operationId": "ListRecords",
+              "connectionName": "shared_commondataserviceforapps"
+            }
+          },
+          "runAfter": {
+            "Init_approverUserId": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Check_steps_exist": {
+          "type": "If",
+          "expression": {
+            "greater": [
+              "@length(outputs('Get_steps_of_this_round')?['body/value'])",
+              0
+            ]
+          },
+          "actions": {},
+          "else": {
+            "actions": {
+              "Fail_no_approval_steps": {
+                "type": "Terminate",
+                "inputs": {
+                  "runStatus": "Failed",
+                  "runError": {
+                    "code": "NoApprovalSteps",
+                    "message": "No Approval Step rows exist for this contract and approval round. The contract stays Pending Approval."
+                  }
+                }
+              }
+            }
+          },
+          "runAfter": {
+            "Get_steps_of_this_round": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Apply_to_each_step": {
+          "type": "Foreach",
+          "foreach": "@outputs('Get_steps_of_this_round')?['body/value']",
+          "actions": {
+            "Gate_checkpoint_before_step": {
+              "type": "If",
+              "expression": {
+                "equals": [
+                  "@variables('endKind')",
+                  ""
+                ]
+              },
+              "actions": {
+                "Get_contract_before_step": {
+                  "type": "OpenApiConnection",
+                  "inputs": {
+                    "parameters": {
+                      "entityName": "mwf_contracts",
+                      "recordId": "@triggerOutputs()?['body/mwf_contractid']"
+                    },
+                    "host": {
+                      "apiId": "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps",
+                      "operationId": "GetItem",
+                      "connectionName": "shared_commondataserviceforapps"
+                    }
+                  },
+                  "runAfter": {}
+                },
+                "Check_contract_before_step": {
+                  "type": "If",
+                  "expression": {
+                    "and": [
+                      {
+                        "equals": [
+                          "@outputs('Get_contract_before_step')?['body/statuscode']",
+                          867640000
+                        ]
+                      },
+                      {
+                        "equals": [
+                          "@outputs('Get_contract_before_step')?['body/mwf_approvalround']",
+                          "@triggerOutputs()?['body/mwf_approvalround']"
+                        ]
+                      }
+                    ]
+                  },
+                  "actions": {},
+                  "else": {
+                    "actions": {
+                      "Before_step_end_kind": {
+                        "type": "SetVariable",
+                        "inputs": {
+                          "name": "endKind",
+                          "value": "Cancelled"
+                        },
+                        "runAfter": {}
+                      },
+                      "Before_step_end_message": {
+                        "type": "SetVariable",
+                        "inputs": {
+                          "name": "endMessage",
+                          "value": "The contract is no longer Pending Approval, or it was submitted again (another approval round), before a step started."
+                        },
+                        "runAfter": {
+                          "Before_step_end_kind": [
+                            "Succeeded"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "runAfter": {
+                    "Get_contract_before_step": [
+                      "Succeeded"
+                    ]
+                  }
+                }
+              },
+              "else": {
+                "actions": {}
+              },
+              "runAfter": {}
+            },
+            "Gate_find_assignment": {
+              "type": "If",
+              "expression": {
+                "equals": [
+                  "@variables('endKind')",
+                  ""
+                ]
+              },
+              "actions": {
+                "Get_assignment_of_role": {
+                  "type": "OpenApiConnection",
+                  "inputs": {
+                    "parameters": {
+                      "entityName": "mwf_approverassignments",
+                      "$select": "mwf_approverassignmentid,_mwf_user_value",
+                      "$filter": "mwf_approverrole eq @{items('Apply_to_each_step')?['mwf_approverrole']} and statecode eq 0",
+                      "$top": 1
+                    },
+                    "host": {
+                      "apiId": "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps",
+                      "operationId": "ListRecords",
+                      "connectionName": "shared_commondataserviceforapps"
+                    }
+                  },
+                  "runAfter": {}
+                },
+                "Check_assignment_exists": {
+                  "type": "If",
+                  "expression": {
+                    "greater": [
+                      "@length(outputs('Get_assignment_of_role')?['body/value'])",
+                      0
+                    ]
+                  },
+                  "actions": {
+                    "Set_approver_user_id": {
+                      "type": "SetVariable",
+                      "inputs": {
+                        "name": "approverUserId",
+                        "value": "@{first(outputs('Get_assignment_of_role')?['body/value'])?['_mwf_user_value']}"
+                      }
+                    }
+                  },
+                  "else": {
+                    "actions": {
+                      "No_assignment_end_kind": {
+                        "type": "SetVariable",
+                        "inputs": {
+                          "name": "endKind",
+                          "value": "Failed"
+                        },
+                        "runAfter": {}
+                      },
+                      "No_assignment_end_message": {
+                        "type": "SetVariable",
+                        "inputs": {
+                          "name": "endMessage",
+                          "value": "The approver role of this step has no active Approver Assignment row. The contract stays Pending Approval."
+                        },
+                        "runAfter": {
+                          "No_assignment_end_kind": [
+                            "Succeeded"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "runAfter": {
+                    "Get_assignment_of_role": [
+                      "Succeeded"
+                    ]
+                  }
+                }
+              },
+              "else": {
+                "actions": {}
+              },
+              "runAfter": {
+                "Gate_checkpoint_before_step": [
+                  "Succeeded"
+                ]
+              }
+            },
+            "Gate_find_user": {
+              "type": "If",
+              "expression": {
+                "equals": [
+                  "@variables('endKind')",
+                  ""
+                ]
+              },
+              "actions": {
+                "Get_approver_user": {
+                  "type": "OpenApiConnection",
+                  "inputs": {
+                    "parameters": {
+                      "entityName": "systemusers",
+                      "recordId": "@variables('approverUserId')",
+                      "$select": "internalemailaddress,fullname"
+                    },
+                    "host": {
+                      "apiId": "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps",
+                      "operationId": "GetItem",
+                      "connectionName": "shared_commondataserviceforapps"
+                    }
+                  },
+                  "runAfter": {}
+                },
+                "Set_approver_email": {
+                  "type": "SetVariable",
+                  "inputs": {
+                    "name": "approverEmail",
+                    "value": "@{coalesce(outputs('Get_approver_user')?['body/internalemailaddress'], '')}"
+                  },
+                  "runAfter": {
+                    "Get_approver_user": [
+                      "Succeeded"
+                    ]
+                  }
+                },
+                "Check_approver_email": {
+                  "type": "If",
+                  "expression": {
+                    "greater": [
+                      "@length(variables('approverEmail'))",
+                      0
+                    ]
+                  },
+                  "actions": {},
+                  "else": {
+                    "actions": {
+                      "No_email_end_kind": {
+                        "type": "SetVariable",
+                        "inputs": {
+                          "name": "endKind",
+                          "value": "Failed"
+                        },
+                        "runAfter": {}
+                      },
+                      "No_email_end_message": {
+                        "type": "SetVariable",
+                        "inputs": {
+                          "name": "endMessage",
+                          "value": "The user assigned to the approver role has no email address. The contract stays Pending Approval."
+                        },
+                        "runAfter": {
+                          "No_email_end_kind": [
+                            "Succeeded"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "runAfter": {
+                    "Set_approver_email": [
+                      "Succeeded"
+                    ]
+                  }
+                }
+              },
+              "else": {
+                "actions": {}
+              },
+              "runAfter": {
+                "Gate_find_assignment": [
+                  "Succeeded"
+                ]
+              }
+            },
+            "Gate_send_request": {
+              "type": "If",
+              "expression": {
+                "equals": [
+                  "@variables('endKind')",
+                  ""
+                ]
+              },
+              "actions": {
+                "Branch_on_action_type": {
+                  "type": "If",
+                  "expression": {
+                    "equals": [
+                      "@items('Apply_to_each_step')?['mwf_actiontype']",
+                      867640000
+                    ]
+                  },
+                  "actions": {
+                    "Mark_step_Waiting": {
+                      "type": "OpenApiConnection",
+                      "inputs": {
+                        "parameters": {
+                          "entityName": "mwf_approvalsteps",
+                          "recordId": "@items('Apply_to_each_step')?['mwf_approvalstepid']",
+                          "item/mwf_decision": 867640001
+                        },
+                        "host": {
+                          "apiId": "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps",
+                          "operationId": "UpdateOnlyRecord",
+                          "connectionName": "shared_commondataserviceforapps"
+                        }
+                      },
+                      "runAfter": {}
+                    },
+                    "Request_approval_for_step": {
+                      "type": "OpenApiConnectionWebhook",
+                      "inputs": {
+                        "parameters": {
+                          "approvalType": "Basic",
+                          "WebhookApprovalCreationInput/title": "Approve contract: @{triggerOutputs()?['body/mwf_name']} (step @{items('Apply_to_each_step')?['mwf_steporder']} of @{length(outputs('Get_steps_of_this_round')?['body/value'])}, @{json('{\"867640000\":\"Department Head\",\"867640001\":\"Finance Manager\",\"867640002\":\"General Manager\",\"867640003\":\"Regional Office\",\"867640004\":\"Owner\"}')?[string(items('Apply_to_each_step')?['mwf_approverrole'])]})",
+                          "WebhookApprovalCreationInput/assignedTo": "@{variables('approverEmail')};",
+                          "WebhookApprovalCreationInput/details": "**Contract:** @{triggerOutputs()?['body/mwf_name']}\n**Number:** @{triggerOutputs()?['body/mwf_contractnumber']}\n**Value (USD, frozen):** @{triggerOutputs()?['body/mwf_valueusdfrozen']}\n**Step:** @{items('Apply_to_each_step')?['mwf_steporder']} of @{length(outputs('Get_steps_of_this_round')?['body/value'])} (@{json('{\"867640000\":\"Department Head\",\"867640001\":\"Finance Manager\",\"867640002\":\"General Manager\",\"867640003\":\"Regional Office\",\"867640004\":\"Owner\"}')?[string(items('Apply_to_each_step')?['mwf_approverrole'])]})\n**Approval round:** @{triggerOutputs()?['body/mwf_approvalround']}",
+                          "WebhookApprovalCreationInput/itemLink": "https://<ORG_HOST>/main.aspx?etn=mwf_contract&pagetype=entityrecord&id=@{triggerOutputs()?['body/mwf_contractid']}",
+                          "WebhookApprovalCreationInput/itemLinkDescription": "Open contract",
+                          "WebhookApprovalCreationInput/enableNotifications": true,
+                          "WebhookApprovalCreationInput/enableReassignment": false
+                        },
+                        "host": {
+                          "apiId": "/providers/Microsoft.PowerApps/apis/shared_approvals",
+                          "operationId": "StartAndWaitForAnApproval",
+                          "connectionName": "shared_approvals"
+                        }
+                      },
+                      "runAfter": {
+                        "Mark_step_Waiting": [
+                          "Succeeded"
+                        ]
+                      }
+                    },
+                    "Get_contract_after_step": {
+                      "type": "OpenApiConnection",
+                      "inputs": {
+                        "parameters": {
+                          "entityName": "mwf_contracts",
+                          "recordId": "@triggerOutputs()?['body/mwf_contractid']"
+                        },
+                        "host": {
+                          "apiId": "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps",
+                          "operationId": "GetItem",
+                          "connectionName": "shared_commondataserviceforapps"
+                        }
+                      },
+                      "runAfter": {
+                        "Request_approval_for_step": [
+                          "Succeeded"
+                        ]
+                      }
+                    },
+                    "Check_contract_after_step": {
+                      "type": "If",
+                      "expression": {
+                        "and": [
+                          {
+                            "equals": [
+                              "@outputs('Get_contract_after_step')?['body/statuscode']",
+                              867640000
+                            ]
+                          },
+                          {
+                            "equals": [
+                              "@outputs('Get_contract_after_step')?['body/mwf_approvalround']",
+                              "@triggerOutputs()?['body/mwf_approvalround']"
+                            ]
+                          }
+                        ]
+                      },
+                      "actions": {},
+                      "else": {
+                        "actions": {
+                          "After_step_end_kind": {
+                            "type": "SetVariable",
+                            "inputs": {
+                              "name": "endKind",
+                              "value": "Cancelled"
+                            },
+                            "runAfter": {}
+                          },
+                          "After_step_end_message": {
+                            "type": "SetVariable",
+                            "inputs": {
+                              "name": "endMessage",
+                              "value": "The contract is no longer Pending Approval, or it was submitted again (another approval round), after a step was answered."
+                            },
+                            "runAfter": {
+                              "After_step_end_kind": [
+                                "Succeeded"
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "runAfter": {
+                        "Get_contract_after_step": [
+                          "Succeeded"
+                        ]
+                      }
+                    },
+                    "Gate_after_step": {
+                      "type": "If",
+                      "expression": {
+                        "equals": [
+                          "@variables('endKind')",
+                          ""
+                        ]
+                      },
+                      "actions": {
+                        "Check_step_outcome": {
+                          "type": "If",
+                          "expression": {
+                            "equals": [
+                              "@outputs('Request_approval_for_step')?['body/outcome']",
+                              "Approve"
+                            ]
+                          },
+                          "actions": {
+                            "Mark_step_Approved": {
+                              "type": "OpenApiConnection",
+                              "inputs": {
+                                "parameters": {
+                                  "entityName": "mwf_approvalsteps",
+                                  "recordId": "@items('Apply_to_each_step')?['mwf_approvalstepid']",
+                                  "item/mwf_decision": 867640002,
+                                  "item/mwf_decidedon": "@outputs('Request_approval_for_step')?['body/completionDate']",
+                                  "item/mwf_comments": "@{coalesce(first(outputs('Request_approval_for_step')?['body/responses'])?['comments'], '')}"
+                                },
+                                "host": {
+                                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps",
+                                  "operationId": "UpdateOnlyRecord",
+                                  "connectionName": "shared_commondataserviceforapps"
+                                }
+                              }
+                            }
+                          },
+                          "else": {
+                            "actions": {
+                              "Mark_step_Rejected": {
+                                "type": "OpenApiConnection",
+                                "inputs": {
+                                  "parameters": {
+                                    "entityName": "mwf_approvalsteps",
+                                    "recordId": "@items('Apply_to_each_step')?['mwf_approvalstepid']",
+                                    "item/mwf_decision": 867640003,
+                                    "item/mwf_decidedon": "@outputs('Request_approval_for_step')?['body/completionDate']",
+                                    "item/mwf_comments": "@{coalesce(first(outputs('Request_approval_for_step')?['body/responses'])?['comments'], '')}"
+                                  },
+                                  "host": {
+                                    "apiId": "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps",
+                                    "operationId": "UpdateOnlyRecord",
+                                    "connectionName": "shared_commondataserviceforapps"
+                                  }
+                                },
+                                "runAfter": {}
+                              },
+                              "Set_contract_Rejected": {
+                                "type": "OpenApiConnection",
+                                "inputs": {
+                                  "parameters": {
+                                    "entityName": "mwf_contracts",
+                                    "recordId": "@triggerOutputs()?['body/mwf_contractid']",
+                                    "item/statecode": 1,
+                                    "item/statuscode": 2
+                                  },
+                                  "host": {
+                                    "apiId": "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps",
+                                    "operationId": "UpdateOnlyRecord",
+                                    "connectionName": "shared_commondataserviceforapps"
+                                  }
+                                },
+                                "runAfter": {
+                                  "Mark_step_Rejected": [
+                                    "Succeeded"
+                                  ]
+                                }
+                              },
+                              "Reject_end_kind": {
+                                "type": "SetVariable",
+                                "inputs": {
+                                  "name": "endKind",
+                                  "value": "Rejected"
+                                },
+                                "runAfter": {
+                                  "Set_contract_Rejected": [
+                                    "Succeeded"
+                                  ]
+                                }
+                              },
+                              "Reject_end_message": {
+                                "type": "SetVariable",
+                                "inputs": {
+                                  "name": "endMessage",
+                                  "value": "A step was rejected. The contract was set to Rejected."
+                                },
+                                "runAfter": {
+                                  "Reject_end_kind": [
+                                    "Succeeded"
+                                  ]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "else": {
+                        "actions": {}
+                      },
+                      "runAfter": {
+                        "Check_contract_after_step": [
+                          "Succeeded"
+                        ]
+                      }
+                    }
+                  },
+                  "else": {
+                    "actions": {
+                      "Send_information_approval": {
+                        "type": "OpenApiConnection",
+                        "inputs": {
+                          "parameters": {
+                            "approvalType": "Basic",
+                            "ApprovalCreationInput/title": "For information: contract @{triggerOutputs()?['body/mwf_name']} (step @{items('Apply_to_each_step')?['mwf_steporder']} of @{length(outputs('Get_steps_of_this_round')?['body/value'])}, @{json('{\"867640000\":\"Department Head\",\"867640001\":\"Finance Manager\",\"867640002\":\"General Manager\",\"867640003\":\"Regional Office\",\"867640004\":\"Owner\"}')?[string(items('Apply_to_each_step')?['mwf_approverrole'])]})",
+                            "ApprovalCreationInput/assignedTo": "@{variables('approverEmail')};",
+                            "ApprovalCreationInput/details": "**Contract:** @{triggerOutputs()?['body/mwf_name']}\n**Number:** @{triggerOutputs()?['body/mwf_contractnumber']}\n**Value (USD, frozen):** @{triggerOutputs()?['body/mwf_valueusdfrozen']}\n**Step:** @{items('Apply_to_each_step')?['mwf_steporder']} of @{length(outputs('Get_steps_of_this_round')?['body/value'])} (@{json('{\"867640000\":\"Department Head\",\"867640001\":\"Finance Manager\",\"867640002\":\"General Manager\",\"867640003\":\"Regional Office\",\"867640004\":\"Owner\"}')?[string(items('Apply_to_each_step')?['mwf_approverrole'])]})\n**Approval round:** @{triggerOutputs()?['body/mwf_approvalround']}",
+                            "ApprovalCreationInput/itemLink": "https://<ORG_HOST>/main.aspx?etn=mwf_contract&pagetype=entityrecord&id=@{triggerOutputs()?['body/mwf_contractid']}",
+                            "ApprovalCreationInput/itemLinkDescription": "Open contract",
+                            "ApprovalCreationInput/enableNotifications": true,
+                            "ApprovalCreationInput/enableReassignment": false
+                          },
+                          "host": {
+                            "apiId": "/providers/Microsoft.PowerApps/apis/shared_approvals",
+                            "operationId": "CreateAnApproval",
+                            "connectionName": "shared_approvals"
+                          }
+                        },
+                        "runAfter": {}
+                      },
+                      "Mark_step_Informed": {
+                        "type": "OpenApiConnection",
+                        "inputs": {
+                          "parameters": {
+                            "entityName": "mwf_approvalsteps",
+                            "recordId": "@items('Apply_to_each_step')?['mwf_approvalstepid']",
+                            "item/mwf_decision": 867640004,
+                            "item/mwf_decidedon": "@utcNow()"
+                          },
+                          "host": {
+                            "apiId": "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps",
+                            "operationId": "UpdateOnlyRecord",
+                            "connectionName": "shared_commondataserviceforapps"
+                          }
+                        },
+                        "runAfter": {
+                          "Send_information_approval": [
+                            "Succeeded"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "else": {
+                "actions": {}
+              },
+              "runAfter": {
+                "Gate_find_user": [
+                  "Succeeded"
+                ]
+              }
+            }
+          },
+          "runtimeConfiguration": {
+            "concurrency": {
+              "repetitions": 1
+            }
+          },
+          "runAfter": {
+            "Check_steps_exist": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Switch_on_end_kind": {
+          "type": "Switch",
+          "expression": "@variables('endKind')",
+          "cases": {
+            "Case_Cancelled": {
+              "case": "Cancelled",
+              "actions": {
+                "Stop_run_cancelled": {
+                  "type": "Terminate",
+                  "inputs": {
+                    "runStatus": "Cancelled"
+                  }
+                }
+              }
+            },
+            "Case_Rejected": {
+              "case": "Rejected",
+              "actions": {
+                "Stop_run_after_rejection": {
+                  "type": "Terminate",
+                  "inputs": {
+                    "runStatus": "Succeeded"
+                  }
+                }
+              }
+            },
+            "Case_Failed": {
+              "case": "Failed",
+              "actions": {
+                "Stop_run_failed": {
+                  "type": "Terminate",
+                  "inputs": {
+                    "runStatus": "Failed",
+                    "runError": {
+                      "code": "ApprovalStepFailed",
+                      "message": "@variables('endMessage')"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "actions": {
+              "Get_contract_before_final": {
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "parameters": {
+                    "entityName": "mwf_contracts",
+                    "recordId": "@triggerOutputs()?['body/mwf_contractid']"
+                  },
+                  "host": {
+                    "apiId": "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps",
+                    "operationId": "GetItem",
+                    "connectionName": "shared_commondataserviceforapps"
+                  }
+                },
+                "runAfter": {}
+              },
+              "Check_contract_before_final": {
+                "type": "If",
+                "expression": {
+                  "and": [
+                    {
+                      "equals": [
+                        "@outputs('Get_contract_before_final')?['body/statuscode']",
+                        867640000
+                      ]
+                    },
+                    {
+                      "equals": [
+                        "@outputs('Get_contract_before_final')?['body/mwf_approvalround']",
+                        "@triggerOutputs()?['body/mwf_approvalround']"
+                      ]
+                    }
+                  ]
+                },
+                "actions": {},
+                "else": {
+                  "actions": {
+                    "Stop_contract_not_pending_before_final": {
+                      "type": "Terminate",
+                      "inputs": {
+                        "runStatus": "Cancelled"
+                      }
+                    }
+                  }
+                },
+                "runAfter": {
+                  "Get_contract_before_final": [
+                    "Succeeded"
+                  ]
+                }
+              },
+              "Set_contract_In_Force": {
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "parameters": {
+                    "entityName": "mwf_contracts",
+                    "recordId": "@triggerOutputs()?['body/mwf_contractid']",
+                    "item/statuscode": 867640001
+                  },
+                  "host": {
+                    "apiId": "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps",
+                    "operationId": "UpdateOnlyRecord",
+                    "connectionName": "shared_commondataserviceforapps"
+                  }
+                },
+                "runAfter": {
+                  "Check_contract_before_final": [
+                    "Succeeded"
+                  ]
+                }
+              }
+            }
+          },
+          "runAfter": {
+            "Apply_to_each_step": [
+              "Succeeded"
+            ]
+          }
+        }
+      }
+    },
+    "templateName": null
+  },
+  "schemaVersion": "1.0.0.0"
+}

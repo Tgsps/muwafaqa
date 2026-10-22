@@ -32,7 +32,7 @@
                         <labels>
                           <label description="" languagecode="1033" />
                         </labels>
-                        <control id="63075975-e0df-487e-bd50-697511657144" classid="{4273EDBD-AC1D-40D3-9FB2-095C621B552D}" datafieldname="mwf_contractnumber" disabled="false" isrequired="false" />
+                        <control id="63075975-e0df-487e-bd50-697511657144" classid="{4273EDBD-AC1D-40D3-9FB2-095C621B552D}" datafieldname="mwf_contractnumber" disabled="true" isrequired="false" />
                       </cell>
                     </row>
                     <row>
