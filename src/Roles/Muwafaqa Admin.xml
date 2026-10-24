@@ -1,0 +1,28 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Role id="{a41c7ede-4cce-f111-a05a-000d3ab4ceb3}" name="Muwafaqa Admin" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <IsCustomizable>1</IsCustomizable>
+  <IsAutoAssigned>0</IsAutoAssigned>
+  <Description>Maintains the approval matrix, the approver assignments and the counterparties; reads contracts and approval steps (Organization level). Cannot assign or share records and has no bypass privilege.</Description>
+  <RolePrivileges>
+    <RolePrivilege name="prvAppendmwf_approvalmatrix" level="Global" />
+    <RolePrivilege name="prvAppendmwf_ApproverAssignment" level="Global" />
+    <RolePrivilege name="prvAppendmwf_Counterparty" level="Global" />
+    <RolePrivilege name="prvAppendTomwf_approvalmatrix" level="Global" />
+    <RolePrivilege name="prvAppendTomwf_ApproverAssignment" level="Global" />
+    <RolePrivilege name="prvAppendTomwf_Counterparty" level="Global" />
+    <RolePrivilege name="prvCreatemwf_approvalmatrix" level="Global" />
+    <RolePrivilege name="prvCreatemwf_ApproverAssignment" level="Global" />
+    <RolePrivilege name="prvCreatemwf_Counterparty" level="Global" />
+    <RolePrivilege name="prvDeletemwf_approvalmatrix" level="Global" />
+    <RolePrivilege name="prvDeletemwf_ApproverAssignment" level="Global" />
+    <RolePrivilege name="prvDeletemwf_Counterparty" level="Global" />
+    <RolePrivilege name="prvReadmwf_approvalmatrix" level="Global" />
+    <RolePrivilege name="prvReadmwf_ApprovalStep" level="Global" />
+    <RolePrivilege name="prvReadmwf_ApproverAssignment" level="Global" />
+    <RolePrivilege name="prvReadmwf_Contract" level="Global" />
+    <RolePrivilege name="prvReadmwf_Counterparty" level="Global" />
+    <RolePrivilege name="prvWritemwf_approvalmatrix" level="Global" />
+    <RolePrivilege name="prvWritemwf_ApproverAssignment" level="Global" />
+    <RolePrivilege name="prvWritemwf_Counterparty" level="Global" />
+  </RolePrivileges>
+</Role>

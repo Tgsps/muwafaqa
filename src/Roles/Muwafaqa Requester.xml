@@ -1,0 +1,16 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Role id="{62f77bca-4cce-f111-a05a-000d3ab4ceb3}" name="Muwafaqa Requester" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <IsCustomizable>1</IsCustomizable>
+  <IsAutoAssigned>0</IsAutoAssigned>
+  <Description>Creates and submits own contracts: Create, Read, Write and Delete of own contracts (User level), and picks a counterparty. No access to approval steps, the matrix, the assignments or the counter.</Description>
+  <RolePrivileges>
+    <RolePrivilege name="prvAppendmwf_Contract" level="Basic" />
+    <RolePrivilege name="prvAppendTomwf_Contract" level="Basic" />
+    <RolePrivilege name="prvAppendTomwf_Counterparty" level="Global" />
+    <RolePrivilege name="prvCreatemwf_Contract" level="Basic" />
+    <RolePrivilege name="prvDeletemwf_Contract" level="Basic" />
+    <RolePrivilege name="prvReadmwf_Contract" level="Basic" />
+    <RolePrivilege name="prvReadmwf_Counterparty" level="Global" />
+    <RolePrivilege name="prvWritemwf_Contract" level="Basic" />
+  </RolePrivileges>
+</Role>

@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Role id="{a6bacbd1-4cce-f111-a05a-000d3ab4ceb3}" name="Muwafaqa Approver" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <IsCustomizable>1</IsCustomizable>
+  <IsAutoAssigned>0</IsAutoAssigned>
+  <Description>Reads all contracts, their counterparties and their approval steps (Organization level). Decisions are made in the approval requests, not through this role.</Description>
+  <RolePrivileges>
+    <RolePrivilege name="prvReadmwf_ApprovalStep" level="Global" />
+    <RolePrivilege name="prvReadmwf_Contract" level="Global" />
+    <RolePrivilege name="prvReadmwf_Counterparty" level="Global" />
+  </RolePrivileges>
+</Role>
