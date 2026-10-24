@@ -222,3 +222,66 @@ test('missingDesigned finds the audit read privileges an existing Admin role lac
 test('addPrivilegesBody uses the depth numbers (Global = 3, Basic = 0)', () => {
   assert.deepEqual(addPrivilegesBody([{ privilegeid: 'a', depth: 'Global' }, { privilegeid: 'b', depth: 'Basic' }]), { Privileges: [{ PrivilegeId: 'a', Depth: '3' }, { PrivilegeId: 'b', Depth: '0' }] });
 });
+
+// ---- S8 of verify-approval-chain-schema: the project roles on the steps and the assignments, against the design
+import { compareProjectRolesOnTables } from './security-roles.mjs';
+
+const TWO = ['mwf_approvalstep', 'mwf_approverassignment'];
+const designedOnTwo = () => Object.fromEntries(ROLES.map((r) => [r.name, desiredPrivileges(r).filter((d) => d.table === 'step' || d.table === 'assignment').map((d) => d.key)]));
+
+test('S8: the design itself passes (Requester none, Approver steps Read, Finance steps and assignments Read, Admin steps Read and all six on the assignments)', () => {
+  const a = designedOnTwo();
+  assert.equal(a['Muwafaqa Requester'].length, 0);
+  assert.deepEqual(a['Muwafaqa Approver'], ['prvreadmwf_approvalstep']);
+  assert.equal(a['Muwafaqa Finance'].length, 2);
+  assert.equal(a['Muwafaqa Admin'].length, 7);
+  assert.deepEqual(compareProjectRolesOnTables(a, TWO), { ok: true, unknownRoles: [], extra: [], missing: [] });
+});
+
+test('S8: privilege names are compared without regard to letter case', () => {
+  const a = designedOnTwo();
+  a['Muwafaqa Admin'] = a['Muwafaqa Admin'].map((n) => n.replace('prvr', 'prvR').replace('mwf_approverassignment', 'mwf_ApproverAssignment'));
+  assert.equal(compareProjectRolesOnTables(a, TWO).ok, true);
+});
+
+test('S8: Write, Create, Delete or Append on the steps is an extra privilege, for any role', () => {
+  for (const role of ['Muwafaqa Requester', 'Muwafaqa Approver', 'Muwafaqa Finance', 'Muwafaqa Admin']) for (const act of ['create', 'write', 'delete', 'append', 'appendto']) {
+    const a = designedOnTwo(); a[role].push(`prv${act}mwf_approvalstep`);
+    const v = compareProjectRolesOnTables(a, TWO);
+    assert.equal(v.ok, false, `${role} ${act}`);
+    assert.deepEqual(v.extra, [{ role, name: `prv${act}mwf_approvalstep` }]);
+  }
+});
+
+test('S8: the Requester reading the steps, or any role reading the assignments beyond the design, is extra', () => {
+  let a = designedOnTwo(); a['Muwafaqa Requester'].push('prvreadmwf_approvalstep');
+  assert.equal(compareProjectRolesOnTables(a, TWO).ok, false);
+  a = designedOnTwo(); a['Muwafaqa Approver'].push('prvreadmwf_approverassignment');
+  assert.equal(compareProjectRolesOnTables(a, TWO).ok, false);
+});
+
+test('S8: Assign and Share are extra, whatever the role', () => {
+  for (const n of ['prvassignmwf_approvalstep', 'prvsharemwf_approverassignment']) {
+    const a = designedOnTwo(); a['Muwafaqa Admin'].push(n);
+    assert.deepEqual(compareProjectRolesOnTables(a, TWO).extra, [{ role: 'Muwafaqa Admin', name: n }]);
+  }
+});
+
+test('S8: a designed privilege that a role lacks is missing, and so is a whole role that is absent', () => {
+  let a = designedOnTwo(); a['Muwafaqa Admin'] = a['Muwafaqa Admin'].filter((n) => n !== 'prvdeletemwf_approverassignment');
+  assert.deepEqual(compareProjectRolesOnTables(a, TWO).missing, [{ role: 'Muwafaqa Admin', name: 'prvdeletemwf_approverassignment' }]);
+  a = designedOnTwo(); delete a['Muwafaqa Approver'];
+  assert.deepEqual(compareProjectRolesOnTables(a, TWO).missing, [{ role: 'Muwafaqa Approver', name: 'prvreadmwf_approvalstep' }]);
+});
+
+test('S8: a project role that is not one of the four and holds a privilege on the tables is unknown; one that holds none is ignored', () => {
+  let a = designedOnTwo(); a['Some Other Role'] = ['prvreadmwf_approvalstep'];
+  assert.deepEqual(compareProjectRolesOnTables(a, TWO).unknownRoles, ['Some Other Role']);
+  a = designedOnTwo(); a['Some Other Role'] = [];
+  assert.equal(compareProjectRolesOnTables(a, TWO).ok, true);
+});
+
+test('S8: privileges on other tables are not looked at', () => {
+  const a = designedOnTwo(); a['Muwafaqa Requester'].push('prvcreatemwf_contract', 'prvdeletemwf_counterparty');
+  assert.equal(compareProjectRolesOnTables(a, TWO).ok, true);
+});

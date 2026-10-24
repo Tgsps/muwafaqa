@@ -283,3 +283,26 @@ export function roleFromArg(value) {
   if (!hit) throw new Error(`unknown role "${value || ''}" (use one of: ${ROLE_NAMES.join(', ')})`);
   return hit;
 }
+
+/**
+ * S8 of verify-approval-chain-schema: what the project roles hold on a few tables, against the design (ADR-008), by privilege NAME only.
+ * Depth is not looked at here; `create-security-roles --mode=verify` checks the depth of every privilege.
+ * actualByRole: { roleName: [privilege names on those tables] }, only roles that are NOT managed (the project's own).
+ * A project role that is not one of the four, an extra privilege (Create/Write/Delete/Append on the steps, Assign, Share, anything the design does not list) and a designed privilege
+ * that is missing are all findings.
+ * @returns {{ok:boolean, unknownRoles:string[], extra:{role:string,name:string}[], missing:{role:string,name:string}[]}}
+ */
+export function compareProjectRolesOnTables(actualByRole, logicals, roles = ROLES) {
+  const want = new Set((logicals || []).map((l) => String(l).toLowerCase()));
+  const onTables = (name) => { const p = parsePrivilegeName(name); return !!p && want.has(p.logical); };
+  const designed = new Map(roles.map((r) => [r.name, new Set(desiredPrivileges(r).filter((d) => d.table !== '(audit)' && want.has(TABLES[d.table].logical.toLowerCase())).map((d) => d.key))]));
+  const unknownRoles = []; const extra = []; const missing = [];
+  const seen = new Map(Object.entries(actualByRole || {}).map(([role, names]) => [role, new Set((names || []).map((n) => String(n).toLowerCase()))]));
+  for (const [role, names] of seen) {
+    const held = [...names].filter((n) => onTables(n) || /^prv(assign|share)/.test(n));
+    if (!designed.has(role)) { if (held.length) unknownRoles.push(role); continue; }
+    for (const n of held) if (!designed.get(role).has(n)) extra.push({ role, name: n });
+  }
+  for (const [role, set] of designed) for (const n of set) if (!(seen.get(role) || new Set()).has(n)) missing.push({ role, name: n });
+  return { ok: !unknownRoles.length && !extra.length && !missing.length, unknownRoles, extra, missing };
+}

@@ -10,7 +10,9 @@
  *   S5  Approver Assignment rows: 5, one per role, Active, each with a user, distinct users counted (no identity printed)
  *   S6  ApprovalMatrix: the two corrected descriptions
  *   S7  solution membership of both tables
- *   S8  security roles with a privilege on the two tables (names and managed flag only). A project role is a role that is NOT managed
+ *   S8  what the project roles (roles that are NOT managed) hold on the two tables, against the design of ADR-008 (lib/security-roles.mjs), by privilege name:
+ *       steps: Read only, for Approver, Finance and Admin; assignments: Read for Finance, all six for Admin; Requester nothing; no Assign / Share; no other project role.
+ *       Depth is checked by create-security-roles --mode=verify. Managed platform roles are listed by name only (OBS)
  *   S9  (only with --cascade-test) live test of the relationship and the key, on FICTIONAL rows named TEST-TMP-STEP*:
  *       a Draft contract + 2 steps; a duplicate (contract, round, order) is rejected; deleting the contract deletes its steps;
  *       counters are snapshotted first and restored by the rule of scripts/lib/counter-snapshot.mjs; everything created is deleted.
@@ -25,6 +27,7 @@ import { snapshotCounters, restoreCounters, requireStableConnection } from './li
 import { approvalFlowState, deleteContracts } from './lib/contract-cleanup.mjs';
 import { enterCleanupPhase } from './lib/resilient-fetch.mjs';
 import { expectContractsOrExit, describeExpectContracts } from './lib/expect-contracts.mjs';
+import { compareProjectRolesOnTables } from './lib/security-roles.mjs';
 
 const { argOf, env: ENV, auth: AUTH, has } = parseArgs();
 const SOLUTION = argOf('solution') || 'Muwafaqa';
@@ -131,10 +134,12 @@ const check = (id, name, ok, detail) => out(id, ok ? 'PASS' : 'FAIL', name, deta
       for (const p of privs.j.value) {
         const r = await call('GET', `privileges(${p.privilegeid})?$select=name&$expand=roleprivileges_association($select=name,ismanaged)`);
         if (!r.ok) { unread++; continue; }
-        for (const role of r.j.roleprivileges_association || []) roles.set(role.name, { managed: role.ismanaged, n: (roles.get(role.name)?.n || 0) + 1 });
+        for (const role of r.j.roleprivileges_association || []) { const cur = roles.get(role.name) || { managed: role.ismanaged, n: 0, names: new Set() }; cur.n++; cur.names.add(p.name); roles.set(role.name, cur); }
       }
       const project = [...roles.entries()].filter(([, v]) => !v.managed);
-      check('S8', 'no project (non-managed) security role holds a privilege on the two tables', unread === 0 && project.length === 0, `${privs.j.value.length} privileges read, ${unread} unread, ${project.length} project role(s)`);
+      const verdict = compareProjectRolesOnTables(Object.fromEntries(project.map(([n, v]) => [n, [...v.names]])), Object.keys(EXPECT));
+      const found = [...verdict.unknownRoles.map((r) => `unknown project role ${r}`), ...verdict.extra.map((x) => `extra ${x.role}: ${x.name}`), ...verdict.missing.map((x) => `missing ${x.role}: ${x.name}`)];
+      check('S8', 'the project roles hold exactly the designed privileges on the two tables (ADR-008: steps Read only; Admin maintains the assignments; no Assign or Share)', unread === 0 && verdict.ok, `${privs.j.value.length} privileges read, ${unread} unread, ${project.length} project role(s) holding some${found.length ? '; ' + found.slice(0, 6).join('; ') : ''}`);
       out('S8', 'OBS', 'managed platform roles that hold privileges on the two tables (names only, as for the counter table, owner decision of ADR-006)', [...roles.keys()].join('; ') || 'none');
     }
 
