@@ -14,6 +14,7 @@
  * 5 minutes), runs the cases of that role, and ALWAYS removes the role in a finally block and polls until the read is refused again. A role that cannot
  * be shown removed stops the run (no other role is assigned on top of it). The Web API association syntax is the standard one and was not tested here.
  *
+ * Option --roles=Requester,Finance (short or full names; default all four, always in the fixed order) runs only those phases.
  * Cases (see lib/security-test.mjs CASES; PASS / FAIL / OBS, nothing assumed; every failure prints the literal error message, redacted):
  *   Requester  R1 create a Draft (number generated) R2 read own R3 edit own Draft R4 submit (builder builds steps, USD frozen) R5 read steps denied
  *              R6 create Counterparty denied R7 delete Draft allowed / delete Pending refused R8 withdraw then delete a Draft with steps (observed)
@@ -42,7 +43,7 @@ import { deleteContracts } from './lib/contract-cleanup.mjs';
 import { enterCleanupPhase, resilientFetch } from './lib/resilient-fetch.mjs';
 import { allFlowsOff } from './lib/bulk-messages.mjs';
 import { BUILDER_STEP_NAME } from './lib/flow-failures.mjs';
-import { ENV_NAMES, PREFIX, NIL_ID, ROLE_ORDER, CASES, missingEnv, tokenRequest, associatePath, associateBody, disassociatePath, makeRedactor, judge, judgeProbeOnNilId, shortMessage, pollUntil, startRolesOk, phaseDecision, rolesToRelease } from './lib/security-test.mjs';
+import { ENV_NAMES, PREFIX, NIL_ID, ROLE_ORDER, CASES, missingEnv, tokenRequest, associatePath, associateBody, disassociatePath, makeRedactor, judge, judgeProbeOnNilId, shortMessage, pollUntil, startRolesOk, phaseDecision, rolesToRelease, parseRolesArg, redactThenShorten } from './lib/security-test.mjs';
 import { membersVerdict } from './lib/security-roles.mjs';
 
 const MODE = (process.argv.find((a) => a.startsWith('--mode=')) || '').slice(7);
@@ -62,6 +63,8 @@ if (MODE === 'plan') {
 
 const { argOf, env: ENV, auth: AUTH, has } = parseArgs();
 const DRY = has('--dry-run');
+let SELECTED;
+try { SELECTED = parseRolesArg(argOf('roles')); } catch (e) { console.error(`${e.message}. Nothing was run.`); process.exit(2); }
 if (!['baseline', 'run', 'cleanup'].includes(MODE)) { console.error('Missing or invalid --mode=plan|baseline|run|cleanup. Nothing was run.'); process.exit(2); }
 if (['run', 'cleanup'].includes(MODE) && !DRY && !has('--confirm-mutates-environment')) {
   console.error(`WARNING: --mode=${MODE} assigns roles to the application user and creates and deletes ${PREFIX}* rows. Add --confirm-mutates-environment to run it on purpose, or --dry-run to see what it would do. Nothing was run.`);
@@ -106,7 +109,7 @@ async function app(method, path, body, extra = {}) {
   const r = await resilientFetch(`${API}/${path}`, { method, headers: { Authorization: `Bearer ${appTok}`, Accept: 'application/json', 'OData-MaxVersion': '4.0', 'OData-Version': '4.0', 'Content-Type': 'application/json; charset=utf-8', ...extra }, body: body === undefined ? undefined : JSON.stringify(body) });
   const text = await r.text(); let j = null; try { j = text ? JSON.parse(text) : null; } catch { /* not json */ }
   const m = /\(([0-9a-fA-F-]{36})\)/.exec(r.headers.get('OData-EntityId') || '');
-  return { ok: r.ok, status: r.status, j, id: m ? m[1] : null, message: RED(shortMessage(j?.error?.message || (r.ok ? '' : text))) };
+  return { ok: r.ok, status: r.status, j, id: m ? m[1] : null, message: redactThenShorten(j?.error?.message || (r.ok ? '' : text), RED, 400) };
 }
 async function findUser() {
   const u = (await get(`systemusers?$select=fullname,isdisabled,applicationid&$filter=applicationid eq ${CLIENT}`)).value;
@@ -278,11 +281,12 @@ async function requesterSuite() {
       out('R8', del.ok ? 'PASS' : 'OBS', 'delete a Draft that still has steps, without a Delete privilege on the steps', `HTTP ${del.status}${del.message ? `: ${del.message}` : ''}; steps left ${left}`);
     }
   }
-  for (const [key, label, body] of [['matrix', 'the matrix', { mwf_rulename: PREFIX }], ['assignment', 'the assignments', { mwf_name: PREFIX }], ['counter', 'the counter', { mwf_prefix: 'SEC' }]]) {
+  for (const [key, label, body, same] of [['matrix', 'the matrix', { mwf_rulename: PREFIX }, { mwf_rulename: F.matrix.name }], ['assignment', 'the assignments', { mwf_name: PREFIX }, { mwf_name: F.assignment.name }], ['counter', 'the counter', { mwf_prefix: 'SEC' }, { mwf_prefix: F.counter.prefix }]]) {
     const set = F.sets[key];
     A('R9', `read ${label}`, await app('GET', `${set}?$top=1`), 'deny');
     A('R9', `create in ${label}`, await app('POST', set, body), 'deny');
-    A('R9', `write ${label} (row that cannot exist)`, await app('PATCH', `${set}(${NIL_ID})`, body, { 'If-Match': '*' }), 'deny', { probe: true });
+    // a SAME-VALUE write on an existing row: a refusal changes nothing, and it proves the refusal of Write itself (a row that does not exist gave 404 in the first run)
+    A('R9', `write ${label} (existing row, same value)`, await app('PATCH', `${set}(${F[key].id})`, same, { 'If-Match': '*' }), 'deny');
   }
   const t = await app('POST', 'mwf_contracts?$select=mwf_contractnumber', contractBody(`${PREFIX}-R10`), RET); createdByApp(t);
   if (t.ok) {
@@ -359,7 +363,7 @@ async function runAll() {
   console.log('INFO  counters before: ' + Object.values(SNAP.byType).map((c) => `${c.prefix}=${c.last}`).join(' '));
   try {
     await makeFixtures();
-    for (const role of ROLE_ORDER) {
+    for (const role of SELECTED) {
       console.log(`\n=== ${role} ===`);
       let effective = false; const leaksBefore = leaks;
       try {

@@ -10,6 +10,10 @@
  *                   (or --dry-run: reads and prints the requests, sends nothing)
  *   --mode=verify   read only: for each role, the privileges and depths really stored (roleprivileges), compared with the design, the solution membership,
  *                   the member count (must be 0), and the NEGATIVE check: no bypass privilege and no privilege on the counter table in any role
+ *   --mode=remove-baseline --role=<Requester|Approver|Finance|Admin>   controlled experiment (ADR-008): one RemovePrivilegeRole call per baseline privilege that is there (up to 9), idempotent, --dry-run reads and prints.
+ *                   A 4xx stops at once, no other form is tried, nothing is retried. Needs --confirm-mutates-environment.
+ *   --mode=restore-baseline --role=...   one AddPrivilegesRole call that puts the missing baseline privileges back at Global (idempotent)
+ *   verify takes --expect-baseline=none|all|any (default any): how many of the nine must be there
  *   --mode=cleanup  deletes ONLY the four roles named in the design, and only if no user and no team is a member of it. Needs --confirm-mutates-environment
  *
  * Before every write: 3 consecutive successful reads. A write is never retried. If the result of a write is unknown the script stops and says so.
@@ -20,15 +24,17 @@
 import { parseArgs, openSession, noGuid, Stop } from './lib/dv-session.mjs';
 import { requireStableConnection } from './lib/counter-snapshot.mjs';
 import { allFlowsOff } from './lib/bulk-messages.mjs';
-import { membersVerdict, TABLES, ROLES, ROLE_NAMES, DEPTH_VALUE, DEPTH_LABEL, FORBIDDEN_BYPASS, ACTIONS, validateDesign, resolvePrivilege, depthAllowed, depthOfMask, compareRolePrivileges, negativeFindings, desiredPrivileges, describeRole, parsePrivilegeName, PLATFORM_BASELINE } from './lib/security-roles.mjs';
+import { membersVerdict, baselineState, checkBaselineExpectation, removePrivilegeBody, restoreBaselineBody, roleFromArg, TABLES, ROLES, ROLE_NAMES, DEPTH_VALUE, DEPTH_LABEL, FORBIDDEN_BYPASS, ACTIONS, validateDesign, resolvePrivilege, depthAllowed, depthOfMask, compareRolePrivileges, negativeFindings, desiredPrivileges, describeRole, parsePrivilegeName, PLATFORM_BASELINE } from './lib/security-roles.mjs';
 
 const { argOf, env: ENV, auth: AUTH, has } = parseArgs();
 const MODE = argOf('mode');
 const DRY = has('--dry-run');
 const SOLUTION = 'Muwafaqa';
 const q = encodeURIComponent;
-if (!['check', 'create', 'verify', 'cleanup'].includes(MODE)) { console.error('Missing or invalid --mode=check|create|verify|cleanup. Nothing was run.'); process.exit(2); }
-if (['create', 'cleanup'].includes(MODE) && !DRY && !has('--confirm-mutates-environment')) {
+if (!['check', 'create', 'verify', 'cleanup', 'remove-baseline', 'restore-baseline'].includes(MODE)) { console.error('Missing or invalid --mode=check|create|verify|cleanup|remove-baseline|restore-baseline. Nothing was run.'); process.exit(2); }
+const EXPECT = argOf('expect-baseline') || 'any';
+try { checkBaselineExpectation(EXPECT, 0); } catch (e) { console.error(`${e.message}. Nothing was run.`); process.exit(2); }
+if (['create', 'cleanup', 'remove-baseline', 'restore-baseline'].includes(MODE) && !DRY && !has('--confirm-mutates-environment')) {
   console.error(`WARNING: --mode=${MODE} writes security roles to the environment. Add --confirm-mutates-environment to run it on purpose, or --dry-run to see what it would send. Nothing was run.`);
   process.exit(2);
 }
@@ -168,6 +174,8 @@ async function modeVerify() {
     const unknown = stored.filter((x) => x.depth === null);
     const diff = compareRolePrivileges(desiredPrivileges(role), stored, PLATFORM_BASELINE);
     check('role', `${role.name}: privileges and depths equal the design, plus only the platform baseline at Global (${stored.length} stored: ${desiredPrivileges(role).length} designed + ${diff.tolerated} tolerated)`, diff.same && unknown.length === 0, `missing ${diff.missing.length}, extra ${diff.extra.length}${diff.extra.length ? ` (${diff.extra.join(', ')})` : ''}, wrong depth ${diff.wrongDepth.length}, unknown mask ${unknown.length}${unknown.length ? ` (${[...new Set(unknown.map((x) => x.mask))].join(',')})` : ''}, tolerated baseline ${diff.tolerated} of ${PLATFORM_BASELINE.length}`);
+    const be = checkBaselineExpectation(EXPECT, baselineState(stored).present.length);
+    check('role', `${role.name}: the platform baseline matches --expect-baseline=${EXPECT} (${be.expected})`, be.ok, `${baselineState(stored).present.length} of ${PLATFORM_BASELINE.length} present at Global, ${baselineState(stored).wrongDepth.length} at another depth`);
     check('role', `${role.name}: in the solution ${SOLUTION}`, comp.has(String(id).toLowerCase()));
     check('role', `${role.name}: Direct User (Basic) access level and Team privileges (isinherited 1)`, rows[0].isinherited === 1, `isinherited ${rows[0].isinherited}`);
     const m = await membersOf(id);
@@ -190,6 +198,73 @@ async function modeVerify() {
   return bad === 0;
 }
 
+// ---------------------------------------------------------------------------------------------------------------- the nine baseline privileges: remove / restore (controlled experiment, ADR-008)
+async function oneRole() {
+  let name; try { name = roleFromArg(argOf('role')); } catch (e) { throw new Stop(`${e.message}. One role per run: --role=Requester|Approver|Finance|Admin. Nothing was changed.`); }
+  const rows = (await get(`roles?$select=name&$filter=${q(`name eq '${name}'`)}`)).value;
+  if (rows.length !== 1) throw new Stop(`Expected one role named "${name}", found ${rows.length}. Nothing was changed.`);
+  return { name, id: rows[0].roleid, role: ROLES.find((r) => r.name === name) };
+}
+async function baselineRows() {
+  const rows = [];
+  for (const n of PLATFORM_BASELINE) {
+    const r = (await get(`privileges?$select=name&$filter=${q(`name eq '${n}'`)}`)).value;
+    if (r.length !== 1) throw new Stop(`Expected one privilege named ${n}, found ${r.length}. Nothing was changed.`);
+    rows.push({ name: n, privilegeid: r[0].privilegeid });
+  }
+  return rows;
+}
+async function preconditions(r) {
+  const f = await flowsOff(); check('flows', `both approval flows are OFF (${f.line})`, f.ok);
+  if (!f.ok) throw new Stop('An approval flow is ON or not readable. Nothing was changed.');
+  const m = await membersOf(r.id); const mv = membersVerdict(r.name, m.userRows, m.teams, process.env.MWF_TEST_CLIENT_ID);
+  check('role', `${r.name}: no member except, for the Requester, the application user`, mv.ok, `${m.users} user(s), ${m.teams} team(s)`);
+  if (!mv.ok) throw new Stop('The role has a member that is not allowed. Nothing was changed.');
+  const stored = await storedPrivileges(r.id);
+  const diff = compareRolePrivileges(desiredPrivileges(r.role), stored, PLATFORM_BASELINE);
+  check('role', `${r.name}: the designed privileges are intact before the change`, diff.same, `missing ${diff.missing.length}, extra ${diff.extra.length}, wrong depth ${diff.wrongDepth.length}`);
+  if (!diff.same) throw new Stop('The role differs from the design before the change. Nothing was changed.');
+  return stored;
+}
+/** One RemovePrivilegeRole call per privilege that is there. Idempotent (a privilege that is already gone is skipped). A 4xx or any other failure stops at once; nothing is retried and no other form is tried. */
+async function modeRemoveBaseline() {
+  const r = await oneRole(); const stored = await preconditions(r);
+  const st = baselineState(stored);
+  if (st.wrongDepth.length) throw new Stop(`${st.wrongDepth.length} baseline privilege(s) are at a depth other than Global (${st.wrongDepth.join(', ')}). Unknown state; nothing was changed.`);
+  const rows = await baselineRows();
+  const todo = rows.filter((x) => st.present.includes(x.name));
+  console.log(`INFO  ${r.name}: ${st.present.length} of ${PLATFORM_BASELINE.length} baseline privileges are there; ${todo.length} RemovePrivilegeRole call(s) (one per privilege)`);
+  let done = 0;
+  for (const x of todo) {
+    const w = await write('POST', `roles(${r.id})/Microsoft.Dynamics.CRM.RemovePrivilegeRole`, removePrivilegeBody(x.privilegeid), undefined, `[remove ${x.name}]`);
+    if (DRY) continue;
+    if (!w.ok) throw new Stop(`RemovePrivilegeRole for ${x.name} answered HTTP ${w.status} ${S.msgOf(w)}. ${done} of ${todo.length} were removed before it. No other form is tried and nothing is retried; read the state with --mode=verify, restore with --mode=restore-baseline if needed.`);
+    done++; console.log(`INFO  removed ${x.name} (HTTP ${w.status})`);
+  }
+  if (DRY) { console.log('\nDRY-RUN: nothing was sent.'); return true; }
+  const after = await storedPrivileges(r.id);
+  const diff = compareRolePrivileges(desiredPrivileges(r.role), after, PLATFORM_BASELINE);
+  check('role', `${r.name}: after the removal the designed privileges are intact and ${baselineState(after).present.length} baseline privilege(s) remain`, diff.same && baselineState(after).present.length === 0, `stored ${after.length}, missing ${diff.missing.length}, extra ${diff.extra.length}, wrong depth ${diff.wrongDepth.length}`);
+  console.log('\nNEXT: --mode=verify --expect-baseline=none, then read again after a few minutes, then run the behavioral test for this role (--roles=...).');
+  return !results.some((x) => x.status === 'FAIL');
+}
+/** One AddPrivilegesRole call for the baseline privileges that are missing. Idempotent. */
+async function modeRestoreBaseline() {
+  const r = await oneRole(); const stored = await preconditions(r);
+  const st = baselineState(stored);
+  if (st.wrongDepth.length) throw new Stop(`${st.wrongDepth.length} baseline privilege(s) are at a depth other than Global. Unknown state; nothing was changed.`);
+  const rows = await baselineRows();
+  const todo = rows.filter((x) => st.missing.includes(x.name));
+  console.log(`INFO  ${r.name}: ${st.missing.length} baseline privilege(s) are missing; ${todo.length ? '1 AddPrivilegesRole call' : 'nothing to restore'}`);
+  if (!todo.length) return true;
+  const w = await write('POST', `roles(${r.id})/Microsoft.Dynamics.CRM.AddPrivilegesRole`, restoreBaselineBody(todo), undefined, `[restore ${todo.length} privileges at Global]`);
+  if (DRY) { console.log('\nDRY-RUN: nothing was sent.'); return true; }
+  if (!w.ok) throw new Stop(`AddPrivilegesRole answered HTTP ${w.status} ${S.msgOf(w)}. Not retried; read the state with --mode=verify.`);
+  const after = await storedPrivileges(r.id);
+  check('role', `${r.name}: after the restore all ${PLATFORM_BASELINE.length} baseline privileges are back at Global`, baselineState(after).present.length === PLATFORM_BASELINE.length, `${baselineState(after).present.length} present`);
+  return !results.some((x) => x.status === 'FAIL');
+}
+
 // ---------------------------------------------------------------------------------------------------------------- cleanup
 async function modeCleanup() {
   const existing = await rolesByName();
@@ -210,7 +285,7 @@ async function modeCleanup() {
   try {
     S = await openSession({ env: ENV, auth: AUTH });
     await requireStableConnection(S.call);
-    const ok = MODE === 'check' ? await modeCheck() : MODE === 'create' ? await modeCreate() : MODE === 'verify' ? await modeVerify() : await modeCleanup();
+    const ok = MODE === 'check' ? await modeCheck() : MODE === 'create' ? await modeCreate() : MODE === 'verify' ? await modeVerify() : MODE === 'remove-baseline' ? await modeRemoveBaseline() : MODE === 'restore-baseline' ? await modeRestoreBaseline() : await modeCleanup();
     process.exit(ok ? 0 : 1);
   } catch (e) {
     console.error(`\nSTOPPED: ${noGuid(e.message)}`);

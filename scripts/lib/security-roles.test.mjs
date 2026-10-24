@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ACTIONS, TABLES, ROLES, ROLE_NAMES, FORBIDDEN_BYPASS, privKey, flattenRole, validateDesign, resolvePrivilege, depthAllowed, depthOfMask, compareRolePrivileges, negativeFindings, desiredPrivileges, describeRole, parsePrivilegeName, PLATFORM_BASELINE, membersVerdict } from './security-roles.mjs';
+import { ACTIONS, TABLES, ROLES, ROLE_NAMES, FORBIDDEN_BYPASS, privKey, flattenRole, validateDesign, resolvePrivilege, depthAllowed, depthOfMask, compareRolePrivileges, negativeFindings, desiredPrivileges, describeRole, parsePrivilegeName, PLATFORM_BASELINE, membersVerdict, baselineState, checkBaselineExpectation, removePrivilegeBody, restoreBaselineBody, roleFromArg } from './security-roles.mjs';
 
 const clone = (x) => JSON.parse(JSON.stringify(x));
 
@@ -148,4 +148,31 @@ test('membersVerdict: the application user is accepted as the one member of the 
   for (const r of ['Muwafaqa Approver', 'Muwafaqa Finance', 'Muwafaqa Admin']) assert.equal(membersVerdict(r, [app], 0, cid).ok, false, r);   // not allowed in the other roles
   assert.equal(membersVerdict('Muwafaqa Requester', [app], 0, undefined).ok, false);   // without the client id nobody is recognized
   assert.equal(membersVerdict('Muwafaqa Approver', [], 0, cid).ok, true);
+});
+
+test('baselineState: present at Global, wrong depth, missing', () => {
+  const all = PLATFORM_BASELINE.map((name) => ({ name, depth: 'Global' }));
+  assert.deepEqual(baselineState(all).missing, []); assert.equal(baselineState(all).present.length, 9);
+  assert.equal(baselineState([]).missing.length, 9);
+  const s = baselineState([{ name: 'prvreadsdkmessage', depth: 'Global' }, { name: 'prvReadPluginType', depth: 'Basic' }, { name: 'prvReadmwf_Contract', depth: 'Basic' }]);
+  assert.deepEqual(s.present, ['prvReadSdkMessage']); assert.deepEqual(s.wrongDepth, ['prvReadPluginType']); assert.equal(s.missing.length, 7);
+});
+
+test('checkBaselineExpectation: none, all, any, and an invalid value', () => {
+  assert.equal(checkBaselineExpectation('none', 0).ok, true); assert.equal(checkBaselineExpectation('none', 1).ok, false);
+  assert.equal(checkBaselineExpectation('all', 9).ok, true); assert.equal(checkBaselineExpectation('all', 8).ok, false);
+  for (const n of [0, 5, 9]) assert.equal(checkBaselineExpectation('any', n).ok, true);
+  assert.equal(checkBaselineExpectation(undefined, 3).ok, true);   // the default is any
+  assert.throws(() => checkBaselineExpectation('some', 3));
+});
+
+test('the remove and restore bodies', () => {
+  assert.deepEqual(removePrivilegeBody('p1'), { Privilege: { '@odata.type': 'Microsoft.Dynamics.CRM.privilege', privilegeid: 'p1' } });
+  assert.deepEqual(restoreBaselineBody([{ privilegeid: 'a' }, { privilegeid: 'b' }]), { Privileges: [{ PrivilegeId: 'a', Depth: '3' }, { PrivilegeId: 'b', Depth: '3' }] });
+});
+
+test('roleFromArg accepts the short and the full name, case-insensitively, and rejects the rest', () => {
+  assert.equal(roleFromArg('Requester'), 'Muwafaqa Requester');
+  assert.equal(roleFromArg('muwafaqa admin'), 'Muwafaqa Admin');
+  assert.throws(() => roleFromArg('Manager')); assert.throws(() => roleFromArg(''));
 });

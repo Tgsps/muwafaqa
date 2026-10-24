@@ -123,3 +123,23 @@ export const CASES = {
     ['D5', 'Counterparty: create, edit, delete: allowed'], ['D6', 'read the steps: allowed'],
   ],
 };
+
+/** --roles=Requester,Finance (short or full names) -> the full names in the fixed test order; empty = all four. */
+export function parseRolesArg(value) {
+  const v = String(value || '').trim();
+  if (!v) return [...ROLE_ORDER];
+  const wanted = new Set(v.split(',').map((x) => x.trim()).filter(Boolean).map((x) => {
+    const hit = ROLE_ORDER.find((n) => n.toLowerCase() === x.toLowerCase() || n.toLowerCase() === `muwafaqa ${x.toLowerCase()}`);
+    if (!hit) throw new Error(`unknown role "${x}" in --roles (use: ${ROLE_ORDER.map((n) => n.replace('Muwafaqa ', '')).join(', ')})`);
+    return hit;
+  }));
+  return ROLE_ORDER.filter((n) => wanted.has(n));
+}
+
+/**
+ * The message for the log: the redactor FIRST (the host, the organization name, every GUID and any secret become short placeholders), THEN the cut.
+ * Cutting first would spend the budget on GUIDs and could leave half of an identifier behind.
+ */
+export function redactThenShorten(text, redact, max = 400) {
+  return shortMessage(redact(String(text ?? '')), max);
+}

@@ -201,3 +201,44 @@ export function describeRole(role, tables = TABLES) {
     return `${tables[t].title}: ${acts ? ACTIONS.filter((a) => acts[a]).map((a) => `${a} ${short[acts[a]]}`).join(', ') : 'none'}`;
   });
 }
+
+// ---------------------------------------------------------------------------------------------------------------- the platform baseline (remove / restore experiment)
+
+/**
+ * Where the nine baseline privileges are in a role. stored: [{ name, depth }].
+ * present = at Global; wrongDepth = the name is there at another (or an unknown) depth; missing = not there at all.
+ */
+export function baselineState(stored) {
+  const wanted = new Map(PLATFORM_BASELINE.map((n) => [n.toLowerCase(), n]));
+  const present = []; const wrongDepth = [];
+  for (const s of stored || []) {
+    const canon = wanted.get(String(s.name).toLowerCase());
+    if (!canon) continue;
+    if (s.depth === 'Global') present.push(canon); else wrongDepth.push(canon);
+  }
+  const missing = PLATFORM_BASELINE.filter((n) => !present.includes(n) && !wrongDepth.includes(n));
+  return { present, wrongDepth, missing };
+}
+
+/** --expect-baseline=none|all|any for verify: the number of baseline privileges that must be there (0, all nine, or any number). */
+export function checkBaselineExpectation(expect, presentCount, total = PLATFORM_BASELINE.length) {
+  const e = expect || 'any';
+  if (!['none', 'all', 'any'].includes(e)) throw new Error(`invalid --expect-baseline=${e} (none|all|any)`);
+  if (e === 'none') return { ok: presentCount === 0, expected: 'none of the nine' };
+  if (e === 'all') return { ok: presentCount === total, expected: `all ${total}` };
+  return { ok: true, expected: 'any number' };
+}
+
+/** The body of RemovePrivilegeRole (bound to roles(<id>)): one privilege. Learn gives the parameter (Privilege, a privilege row) but no sample body; this is the usual form for an entity parameter and is NOT tested. */
+export const removePrivilegeBody = (privilegeId) => ({ Privilege: { '@odata.type': 'Microsoft.Dynamics.CRM.privilege', privilegeid: privilegeId } });
+
+/** The body of AddPrivilegesRole that puts the given baseline privileges back at Global. rows: [{ privilegeid }] */
+export const restoreBaselineBody = (rows) => ({ Privileges: rows.map((r) => ({ PrivilegeId: r.privilegeid, Depth: String(DEPTH_VALUE.Global) })) });
+
+/** A role given as "Requester" or "Muwafaqa Requester" -> the full name, or an error. */
+export function roleFromArg(value) {
+  const v = String(value || '').trim().toLowerCase();
+  const hit = ROLE_NAMES.find((n) => n.toLowerCase() === v || n.toLowerCase() === `muwafaqa ${v}`);
+  if (!hit) throw new Error(`unknown role "${value || ''}" (use one of: ${ROLE_NAMES.join(', ')})`);
+  return hit;
+}

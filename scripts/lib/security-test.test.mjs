@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ENV_NAMES, PREFIX, NIL_ID, ROLE_ORDER, CASES, missingEnv, tokenRequest, associatePath, associateBody, disassociatePath, makeRedactor, judge, judgeProbeOnNilId, shortMessage, pollUntil, startRolesOk, phaseDecision, rolesToRelease } from './security-test.mjs';
+import { ENV_NAMES, PREFIX, NIL_ID, ROLE_ORDER, CASES, missingEnv, tokenRequest, associatePath, associateBody, disassociatePath, makeRedactor, judge, judgeProbeOnNilId, shortMessage, pollUntil, startRolesOk, phaseDecision, rolesToRelease, parseRolesArg, redactThenShorten } from './security-test.mjs';
 import { ROLE_NAMES } from './security-roles.mjs';
 
 test('the environment variable names are exactly the three agreed ones', () => {
@@ -103,4 +103,25 @@ test('rolesToRelease: only project roles, never another role', () => {
   assert.deepEqual(rolesToRelease(['Muwafaqa Requester', 'Basic User', 'Muwafaqa Admin']), ['Muwafaqa Requester', 'Muwafaqa Admin']);
   assert.deepEqual(rolesToRelease(['Basic User']), []);
   assert.deepEqual(rolesToRelease(undefined), []);
+});
+
+test('parseRolesArg: empty means all four; short and full names; the fixed order; unknown names are an error', () => {
+  assert.deepEqual(parseRolesArg(''), ROLE_ORDER); assert.deepEqual(parseRolesArg(undefined), ROLE_ORDER);
+  assert.deepEqual(parseRolesArg('Requester'), ['Muwafaqa Requester']);
+  assert.deepEqual(parseRolesArg('admin, Muwafaqa Approver , requester'), ['Muwafaqa Requester', 'Muwafaqa Approver', 'Muwafaqa Admin']);
+  assert.deepEqual(parseRolesArg('Finance,finance'), ['Muwafaqa Finance']);
+  assert.throws(() => parseRolesArg('Requester,Boss'), /unknown role "Boss"/);
+});
+
+test('redactThenShorten redacts first, so identifiers shrink and the cut keeps more text; a cut never leaves part of a host or an id', () => {
+  const red = makeRedactor('https://orgabc123.crm4.dynamics.com', []);
+  const g1 = ['11111111', '2222', '3333', '4444', '555555555555'].join('-');
+  const text = `Principal user (Id=${g1}, roleCount=1, host=orgabc123.crm4.dynamics.com) is missing prvReadmwf_ApprovalStep privilege (Id=${g1})`;
+  const out = redactThenShorten(text, red, 90);
+  assert.ok(out.includes('prvReadmwf_ApprovalStep'), out);
+  assert.ok(!out.includes('orgabc123') && !out.includes('1111') && !out.includes('dynamics.com'));
+  // cutting first would have cut inside the privilege name for the same budget
+  assert.ok(!shortMessage(text, 90).includes('prvReadmwf_ApprovalStep'));
+  assert.ok(redactThenShorten('x'.repeat(1000), red, 400).length <= 400);
+  assert.equal(redactThenShorten(undefined, red), '');
 });
