@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ACTIONS, TABLES, ROLES, ROLE_NAMES, FORBIDDEN_BYPASS, privKey, flattenRole, validateDesign, resolvePrivilege, depthAllowed, depthOfMask, compareRolePrivileges, negativeFindings, desiredPrivileges, describeRole, parsePrivilegeName, PLATFORM_BASELINE } from './security-roles.mjs';
+import { ACTIONS, TABLES, ROLES, ROLE_NAMES, FORBIDDEN_BYPASS, privKey, flattenRole, validateDesign, resolvePrivilege, depthAllowed, depthOfMask, compareRolePrivileges, negativeFindings, desiredPrivileges, describeRole, parsePrivilegeName, PLATFORM_BASELINE, membersVerdict } from './security-roles.mjs';
 
 const clone = (x) => JSON.parse(JSON.stringify(x));
 
@@ -133,4 +133,19 @@ test('desiredPrivileges and describeRole cover every grant', () => {
   }
   assert.ok(describeRole(ROLES[0])[0].startsWith('Contract: Create User, Read User'));
   assert.ok(ACTIONS.includes('AppendTo'));
+});
+
+test('membersVerdict: the application user is accepted as the one member of the Requester role only; any other member or any team fails', () => {
+  const cid = 'client-1';
+  const app = { applicationid: 'CLIENT-1' };   // compared case-insensitively
+  const human = { applicationid: null };
+  assert.deepEqual(membersVerdict('Muwafaqa Requester', [], 0, cid), { ok: true, appUsers: 0, others: 0 });
+  assert.deepEqual(membersVerdict('Muwafaqa Requester', [app], 0, cid), { ok: true, appUsers: 1, others: 0 });
+  assert.equal(membersVerdict('Muwafaqa Requester', [app, human], 0, cid).ok, false);
+  assert.equal(membersVerdict('Muwafaqa Requester', [human], 0, cid).ok, false);
+  assert.equal(membersVerdict('Muwafaqa Requester', [app], 1, cid).ok, false);          // a team member fails
+  assert.equal(membersVerdict('Muwafaqa Requester', [app, app], 0, cid).ok, false);     // never more than one
+  for (const r of ['Muwafaqa Approver', 'Muwafaqa Finance', 'Muwafaqa Admin']) assert.equal(membersVerdict(r, [app], 0, cid).ok, false, r);   // not allowed in the other roles
+  assert.equal(membersVerdict('Muwafaqa Requester', [app], 0, undefined).ok, false);   // without the client id nobody is recognized
+  assert.equal(membersVerdict('Muwafaqa Approver', [], 0, cid).ok, true);
 });

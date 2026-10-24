@@ -163,6 +163,18 @@ export function negativeFindings(actualByRole) {
   return hits;
 }
 
+/**
+ * Members of a project role. Nobody may be a member, except that the Requester role may have ONE member: the application user of the behavioral test
+ * (ADR-008), recognized by its applicationid (the value of MWF_TEST_CLIENT_ID, never printed). Any other member, and any team, fails.
+ * @param users [{ applicationid }]  @returns {{ok:boolean, appUsers:number, others:number}}
+ */
+export function membersVerdict(roleName, users, teams, clientId) {
+  const isApp = (u) => !!clientId && String(u?.applicationid ?? '').toLowerCase() === String(clientId).trim().toLowerCase();
+  const appUsers = roleName === 'Muwafaqa Requester' ? (users || []).filter(isApp).length : 0;
+  const others = (users || []).length - appUsers;
+  return { ok: others === 0 && (teams || 0) === 0 && appUsers <= 1, appUsers, others };
+}
+
 /** "prvAppendTomwf_Contract" -> { action: 'AppendTo', logical: 'mwf_contract' } for the project tables, null for any other name. */
 export function parsePrivilegeName(name, tables = TABLES) {
   const n = String(name || '');

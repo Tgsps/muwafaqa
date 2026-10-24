@@ -42,7 +42,8 @@ import { deleteContracts } from './lib/contract-cleanup.mjs';
 import { enterCleanupPhase, resilientFetch } from './lib/resilient-fetch.mjs';
 import { allFlowsOff } from './lib/bulk-messages.mjs';
 import { BUILDER_STEP_NAME } from './lib/flow-failures.mjs';
-import { ENV_NAMES, PREFIX, NIL_ID, ROLE_ORDER, CASES, missingEnv, tokenRequest, associatePath, associateBody, disassociatePath, makeRedactor, judge, judgeProbeOnNilId, shortMessage, pollUntil } from './lib/security-test.mjs';
+import { ENV_NAMES, PREFIX, NIL_ID, ROLE_ORDER, CASES, missingEnv, tokenRequest, associatePath, associateBody, disassociatePath, makeRedactor, judge, judgeProbeOnNilId, shortMessage, pollUntil, startRolesOk, phaseDecision, rolesToRelease } from './lib/security-test.mjs';
+import { membersVerdict } from './lib/security-roles.mjs';
 
 const MODE = (process.argv.find((a) => a.startsWith('--mode=')) || '').slice(7);
 const q = encodeURIComponent;
@@ -51,7 +52,7 @@ if (MODE === 'plan') {
   console.log(`Behavioral test of the project roles (offline plan; nothing is read or written). Prefix ${PREFIX}. Both flows OFF.\n`);
   console.log(`Environment variables (names only; values are never printed or stored): ${ENV_NAMES.join(', ')}`);
   console.log('Sequence: read state -> token of the application user -> admin fixtures (counterparty, a Draft owned by the admin, a submitted contract of USD 25,000 owned by the admin)');
-  console.log('          -> for each role in order: assign ONE role, poll until it is effective (max 5 min), run its cases, ALWAYS unassign, poll until it is refused again (max 5 min)');
+  console.log('          -> for each role in order: assign ONE role, poll until it is effective (max 5 min), run its cases, ALWAYS release in a finally block (every project role the user holds), poll until the read is refused again (max 5 min)');
   console.log('          -> cleanup with the admin account, restore the counters, check-clean.\n');
   for (const role of ROLE_ORDER) { console.log(role); for (const [id, t] of CASES[role]) console.log(`   ${id.padEnd(4)} ${t}`); }
   console.log('\nSide effects to know: the Admin case D1 creates and deletes one matrix row (a band far above the seed data, in the table for a few seconds); D2 writes the same value into one assignment row (its modifiedon changes);');
@@ -100,6 +101,7 @@ async function appToken() {
 }
 /** One request as the application user. Reads are retried on network errors only (shared wrapper); a write never is. */
 async function app(method, path, body, extra = {}) {
+  if (method !== 'GET') await gate();   // 3 consecutive successful reads before any write, the writes of the application user included
   if (!appTok || Date.now() - appTokAt > 40 * 60 * 1000) await appToken();
   const r = await resilientFetch(`${API}/${path}`, { method, headers: { Authorization: `Bearer ${appTok}`, Accept: 'application/json', 'OData-MaxVersion': '4.0', 'OData-Version': '4.0', 'Content-Type': 'application/json; charset=utf-8', ...extra }, body: body === undefined ? undefined : JSON.stringify(body) });
   const text = await r.text(); let j = null; try { j = text ? JSON.parse(text) : null; } catch { /* not json */ }
@@ -126,8 +128,8 @@ async function roleIds() {
   return ids;
 }
 async function membersOf(roleId) {
-  const r = await get(`roles(${roleId})?$select=name&$expand=systemuserroles_association($select=systemuserid),teamroles_association($select=teamid)`);
-  return { users: (r.systemuserroles_association || []).length, teams: (r.teamroles_association || []).length };
+  const r = await get(`roles(${roleId})?$select=name&$expand=systemuserroles_association($select=systemuserid,applicationid),teamroles_association($select=teamid)`);
+  return { users: (r.systemuserroles_association || []).length, teams: (r.teamroles_association || []).length, userRows: r.systemuserroles_association || [] };
 }
 
 // ---------------------------------------------------------------------------------------------------------------- state
@@ -147,9 +149,9 @@ async function checkClean() {
 async function baseline() {
   const f = await flowsOff(); out('state', f.ok ? 'PASS' : 'FAIL', `both approval flows are OFF (${f.line})`);
   const ids = await roleIds();
-  for (const n of ROLE_ORDER) { const m = await membersOf(ids[n]); out('state', m.users === 0 && m.teams === 0 ? 'PASS' : 'FAIL', `${n}: 0 members before the test`, `${m.users} user(s), ${m.teams} team(s)`); }
+  for (const n of ROLE_ORDER) { const m = await membersOf(ids[n]); const v = membersVerdict(n, m.userRows, m.teams, CLIENT); out('state', v.ok ? 'PASS' : 'FAIL', `${n}: no member except, for the Requester, the application user`, `${m.users} user(s) (application user ${v.appUsers}, others ${v.others}), ${m.teams} team(s)`); }
   await findUser(); out('state', 'PASS', 'the application user exists and is enabled');
-  const names = await rolesOfUser(); out('state', names.filter((n) => ROLE_ORDER.includes(n)).length === 0 ? 'PASS' : 'FAIL', 'the application user holds no project role', `${names.length} role(s) of any kind`);
+  const names = await rolesOfUser(); out('state', startRolesOk(names) ? 'PASS' : 'FAIL', 'the application user holds no role, or the Requester role only', `${names.length} role(s): ${names.join(' | ') || 'none'}`);
   try { await appToken(); out('state', 'PASS', 'a token was obtained for the application user (client credentials)'); } catch (e) { out('state', 'FAIL', 'token for the application user', RED(e.message)); }
   const c = await checkClean();
   out('state', c.a === 0 && c.b === 0 && c.mx === 0 && c.total === 11 && c.steps === 0 && c.m === 110 && c.asg === 5 ? 'PASS' : 'FAIL', 'the starting state is clean');
@@ -160,6 +162,15 @@ async function baseline() {
 const CACHE = { timeoutMs: 5 * 60 * 1000, everyMs: 15 * 1000 };
 const probeRead = () => app('GET', 'mwf_contracts?$select=mwf_contractid&$top=1');
 async function assign(role, ids) {
+  const dec = phaseDecision(await rolesOfUser(), role);
+  if (dec.action === 'stop') throw new Stop(`${role}: ${dec.reason}. Nothing is removed outside a finally block; the roles are taken away by releaseAll() at the end of the previous phase. Stopped.`);
+  if (dec.action === 'already') {
+    out('role', 'OBS', `${role}: already held by the application user at the start (accepted: Requester only)`);
+    if (DRY) return true;
+    const w0 = await pollUntil(async () => (await probeRead()).status === 200, { ...CACHE, sleep });
+    out('role', w0.reached ? 'PASS' : 'FAIL', `${role}: effective for the application user (a read of contracts answers 200)`, `${Math.round(w0.waitedMs / 1000)} s`);
+    return w0.reached;
+  }
   const r = await write('POST', associatePath(USERID), associateBody(ENV, ids[role]), undefined, `[assign ${role}]`);
   if (!r.ok) throw new Stop(`assigning ${role} failed HTTP ${r.status} ${RED(S.msgOf(r))}. Not retried. Read the state with --mode=baseline.`);
   if (DRY) return true;
@@ -167,15 +178,32 @@ async function assign(role, ids) {
   out('role', w.reached ? 'PASS' : 'FAIL', `${role}: effective for the application user (a read of contracts answers 200)`, `${Math.round(w.waitedMs / 1000)} s`);
   return w.reached;
 }
-async function unassign(role, ids) {
-  const r = await write('DELETE', disassociatePath(USERID, ids[role]), undefined, undefined, `[unassign ${role}]`);
+/**
+ * Takes away EVERY project role the application user holds, then checks that it holds none, then waits until a read is refused. It is called from finally
+ * blocks only (the end of each phase and the cleanup of the run) and from the explicit --mode=cleanup. The form is DELETE ...$ref?$id=<absolute url of the role>.
+ * A 4xx answer stops the script at once and no other form is tried. Roles that are not ours are never touched.
+ */
+async function releaseAll(ids, label) {
+  if (!USERID) return;
+  const held = rolesToRelease(await rolesOfUser());
+  for (const n of held) {
+    const r = await write('DELETE', disassociatePath(USERID, ids[n], ENV), undefined, undefined, `[release ${n}]`);
+    if (DRY) continue;
+    if (r.status >= 400 && r.status < 500) throw new Stop(`releasing ${n} answered HTTP ${r.status} ${RED(S.msgOf(r))}. Another form is NOT tried. STATE: ${n} may still be held; remove it by hand, then run --mode=cleanup. Stopped before any other role is assigned.`);
+    if (!r.ok) throw new Stop(`releasing ${n} answered HTTP ${r.status} ${RED(S.msgOf(r))}. Not retried. The state is unknown: read it with --mode=baseline. Stopped.`);
+    console.log(`INFO  released ${n} (HTTP ${r.status})`);
+  }
   if (DRY) return;
-  if (!r.ok && r.status !== 404) console.error(RED(`WARNING: removing ${role} answered HTTP ${r.status} ${S.msgOf(r)}. Not retried.`));
-  const m = await membersOf(ids[role]);
-  if (m.users !== 0) throw new Stop(`STATE UNKNOWN: ${role} still has ${m.users} user member(s) after the removal. Remove it by hand, then run --mode=cleanup. Stopping before any other role is assigned.`);
+  const left = rolesToRelease(await rolesOfUser());
+  if (left.length) throw new Stop(`STATE UNKNOWN: the application user still holds ${left.length} project role(s) after the release. Remove them by hand, then run --mode=cleanup. Stopping before any other role is assigned.`);
+  for (const n of ROLE_ORDER) {
+    const m = await membersOf(ids[n]);
+    const v = membersVerdict(n, m.userRows.filter((u) => String(u.systemuserid).toLowerCase() !== String(USERID).toLowerCase()), m.teams, CLIENT);
+    if (!v.ok) throw new Stop(`${n} has a member that is not the application user after the release. Stopped.`);
+  }
   const w = await pollUntil(async () => { const x = await probeRead(); return x.status === 401 || x.status === 403; }, { ...CACHE, sleep });
-  out('role', w.reached ? 'PASS' : 'FAIL', `${role}: removed, and the read of contracts is refused again`, `${Math.round(w.waitedMs / 1000)} s`);
-  if (!w.reached) throw new Stop(`${role} was removed but the application user can still read contracts after 5 minutes (cache). Stopping before another role is assigned.`);
+  out('role', w.reached ? 'PASS' : 'FAIL', `${label || 'release'}: no project role is held (read back) and the read of contracts is refused again`, `${Math.round(w.waitedMs / 1000)} s`);
+  if (!w.reached) throw new Stop('The roles were removed but the application user can still read contracts after 5 minutes (cache). Stopping before another role is assigned.');
 }
 
 // ---------------------------------------------------------------------------------------------------------------- recording helpers
@@ -340,7 +368,7 @@ async function runAll() {
         else if (effective) await SUITES[role]();
         else out('role', 'FAIL', `${role}: the cases were not run because the role was not effective in time`);
       } finally {
-        if (USERID) await unassign(role, ids);
+        if (USERID) await releaseAll(ids, role);
       }
       if (leaks > leaksBefore) throw new Stop(`${role}: a denial case was ACCEPTED (a privilege is granted that the design denies). Stopped after this role; cleanup runs.`);
     }
@@ -354,10 +382,7 @@ async function runAll() {
 }
 
 async function cleanupData(fromArgs = false) {
-  if (USERID) {
-    const ids = await roleIds();
-    for (const n of await rolesOfUser()) if (ROLE_ORDER.includes(n)) { const d = await S.call('DELETE', disassociatePath(USERID, ids[n])); console.log(`INFO  cleanup: removed ${n} from the application user, HTTP ${d.status}`); }
-  }
+  if (USERID) await releaseAll(await roleIds(), 'cleanup');
   const rows = (await get(`mwf_contracts?$select=mwf_name&$filter=${q(`startswith(mwf_name,'${PREFIX}')`)}`)).value;
   const del = await deleteContracts(S.io, rows.map((r) => r.mwf_contractid));
   console.log(`INFO  cleanup: ${rows.length} contract row(s) found, ${del.deleted} deleted, ${del.failed.length} failed (their steps go by the cascade)`);

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ENV_NAMES, PREFIX, NIL_ID, ROLE_ORDER, CASES, missingEnv, tokenRequest, associatePath, associateBody, disassociatePath, makeRedactor, judge, judgeProbeOnNilId, shortMessage, pollUntil } from './security-test.mjs';
+import { ENV_NAMES, PREFIX, NIL_ID, ROLE_ORDER, CASES, missingEnv, tokenRequest, associatePath, associateBody, disassociatePath, makeRedactor, judge, judgeProbeOnNilId, shortMessage, pollUntil, startRolesOk, phaseDecision, rolesToRelease } from './security-test.mjs';
 import { ROLE_NAMES } from './security-roles.mjs';
 
 test('the environment variable names are exactly the three agreed ones', () => {
@@ -28,7 +28,9 @@ test('tokenRequest is a client credentials request with the environment scope', 
 test('role association paths and body', () => {
   assert.equal(associatePath('u1'), 'systemusers(u1)/systemuserroles_association/$ref');
   assert.deepEqual(associateBody('https://example.test/', 'r1'), { '@odata.id': 'https://example.test/api/data/v9.2/roles(r1)' });
-  assert.equal(disassociatePath('u1', 'r1'), 'systemusers(u1)/systemuserroles_association(r1)/$ref');
+  // the form chosen by the owner: $ref?$id= with the absolute url of the role (Learn documents it next to the form with the key in parentheses)
+  assert.equal(disassociatePath('u1', 'r1', 'https://example.test/'), 'systemusers(u1)/systemuserroles_association/$ref?$id=https://example.test/api/data/v9.2/roles(r1)');
+  assert.equal(disassociatePath('u1', 'r1', 'https://example.test'), disassociatePath('u1', 'r1', 'https://example.test/'));
 });
 
 test('the redactor removes the host, the org name, GUIDs and any secret value', () => {
@@ -77,4 +79,28 @@ test('the role order and the cases match the four roles of ADR-008; the prefix i
   }
   const ids = Object.values(CASES).flat().map((c) => c[0]);
   assert.equal(new Set(ids).size, ids.length);
+});
+
+test('startRolesOk: none, or the Requester only', () => {
+  assert.equal(startRolesOk([]), true);
+  assert.equal(startRolesOk(['Muwafaqa Requester']), true);
+  assert.equal(startRolesOk(['Muwafaqa Approver']), false);
+  assert.equal(startRolesOk(['Muwafaqa Requester', 'Muwafaqa Admin']), false);
+  assert.equal(startRolesOk(['Muwafaqa Requester', 'Basic User']), false);   // a role that is not ours also stops the start
+  assert.equal(startRolesOk(undefined), true);
+});
+
+test('phaseDecision: assign when none is held, already when only the phase role is held, stop for anything else', () => {
+  assert.deepEqual(phaseDecision([], 'Muwafaqa Approver'), { action: 'assign' });
+  assert.deepEqual(phaseDecision(['Muwafaqa Requester'], 'Muwafaqa Requester'), { action: 'already' });
+  assert.equal(phaseDecision(['Muwafaqa Requester'], 'Muwafaqa Approver').action, 'stop');
+  assert.equal(phaseDecision(['Muwafaqa Approver', 'Muwafaqa Requester'], 'Muwafaqa Approver').action, 'stop');
+  assert.equal(phaseDecision(['Basic User'], 'Muwafaqa Finance').action, 'stop');
+  assert.match(phaseDecision(['Muwafaqa Admin'], 'Muwafaqa Finance').reason, /1 role\(s\) besides Muwafaqa Finance/);
+});
+
+test('rolesToRelease: only project roles, never another role', () => {
+  assert.deepEqual(rolesToRelease(['Muwafaqa Requester', 'Basic User', 'Muwafaqa Admin']), ['Muwafaqa Requester', 'Muwafaqa Admin']);
+  assert.deepEqual(rolesToRelease(['Basic User']), []);
+  assert.deepEqual(rolesToRelease(undefined), []);
 });

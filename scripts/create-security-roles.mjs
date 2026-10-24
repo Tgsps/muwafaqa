@@ -20,7 +20,7 @@
 import { parseArgs, openSession, noGuid, Stop } from './lib/dv-session.mjs';
 import { requireStableConnection } from './lib/counter-snapshot.mjs';
 import { allFlowsOff } from './lib/bulk-messages.mjs';
-import { TABLES, ROLES, ROLE_NAMES, DEPTH_VALUE, DEPTH_LABEL, FORBIDDEN_BYPASS, ACTIONS, validateDesign, resolvePrivilege, depthAllowed, depthOfMask, compareRolePrivileges, negativeFindings, desiredPrivileges, describeRole, parsePrivilegeName, PLATFORM_BASELINE } from './lib/security-roles.mjs';
+import { membersVerdict, TABLES, ROLES, ROLE_NAMES, DEPTH_VALUE, DEPTH_LABEL, FORBIDDEN_BYPASS, ACTIONS, validateDesign, resolvePrivilege, depthAllowed, depthOfMask, compareRolePrivileges, negativeFindings, desiredPrivileges, describeRole, parsePrivilegeName, PLATFORM_BASELINE } from './lib/security-roles.mjs';
 
 const { argOf, env: ENV, auth: AUTH, has } = parseArgs();
 const MODE = argOf('mode');
@@ -73,8 +73,8 @@ async function rolesByName() {
   return found;
 }
 async function membersOf(roleId) {
-  const r = await get(`roles(${roleId})?$select=name&$expand=systemuserroles_association($select=systemuserid),teamroles_association($select=teamid)`);
-  return { users: (r.systemuserroles_association || []).length, teams: (r.teamroles_association || []).length };
+  const r = await get(`roles(${roleId})?$select=name&$expand=systemuserroles_association($select=systemuserid,applicationid),teamroles_association($select=teamid)`);
+  return { users: (r.systemuserroles_association || []).length, teams: (r.teamroles_association || []).length, userRows: r.systemuserroles_association || [] };
 }
 /** [{ name, depth, mask }] really stored for a role. The depth is null (never guessed) for a mask that is not 1, 2, 4 or 8. */
 async function storedPrivileges(roleId) {
@@ -171,7 +171,8 @@ async function modeVerify() {
     check('role', `${role.name}: in the solution ${SOLUTION}`, comp.has(String(id).toLowerCase()));
     check('role', `${role.name}: Direct User (Basic) access level and Team privileges (isinherited 1)`, rows[0].isinherited === 1, `isinherited ${rows[0].isinherited}`);
     const m = await membersOf(id);
-    check('role', `${role.name}: no user and no team is a member (nothing was assigned)`, m.users === 0 && m.teams === 0, `${m.users} user(s), ${m.teams} team(s)`);
+    const mv = membersVerdict(role.name, m.userRows, m.teams, process.env.MWF_TEST_CLIENT_ID);   // the value is only compared, never printed
+    check('role', `${role.name}: no member, except the application user of the behavioral test in the Requester role (no other user, no team)`, mv.ok, `${m.users} user(s) (application user ${mv.appUsers}, others ${mv.others}), ${m.teams} team(s)`);
     // the table the owner asked for: per table, the privilege and the depth really stored
     const byTable = {};
     for (const x of stored) { const p = parsePrivilegeName(x.name); if (p) (byTable[p.logical] ||= {})[p.action] = x.depth; }

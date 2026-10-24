@@ -25,8 +25,25 @@ export function tokenRequest(tenantId, clientId, clientSecret, envUrl) {
 /** Assign a role to a user: POST systemusers(<user>)/systemuserroles_association/$ref with the id of the role. */
 export const associatePath = (userId) => `systemusers(${userId})/systemuserroles_association/$ref`;
 export const associateBody = (envUrl, roleId) => ({ '@odata.id': `${envUrl.replace(/\/+$/, '')}/api/data/v9.2/roles(${roleId})` });
-/** Remove a role from a user: DELETE systemusers(<user>)/systemuserroles_association(<role>)/$ref. */
-export const disassociatePath = (userId, roleId) => `systemusers(${userId})/systemuserroles_association(${roleId})/$ref`;
+/**
+ * Remove a role from a user: DELETE systemusers(<user>)/systemuserroles_association/$ref?$id=<absolute url of the role>. Learn documents this form ("The
+ * following request also works") next to the one with the key in parentheses; the owner chose this one. A 4xx answer stops the script: no other form is tried.
+ */
+export const disassociatePath = (userId, roleId, envUrl) => `systemusers(${userId})/systemuserroles_association/$ref?$id=${envUrl.replace(/\/+$/, '')}/api/data/v9.2/roles(${roleId})`;
+
+/** The roles held by the application user at the start: none or the Requester only (owner decision). */
+export const startRolesOk = (held) => (held || []).every((n) => n === 'Muwafaqa Requester');
+/**
+ * What to do before the phase of `role`, from the roles the application user holds now: nothing other than the role of the phase may be held
+ * ('stop'); the role itself is already there ('already'); none is held ('assign').
+ */
+export function phaseDecision(held, role) {
+  const other = (held || []).filter((n) => n !== role);
+  if (other.length) return { action: 'stop', reason: `the application user holds ${other.length} role(s) besides ${role}` };
+  return (held || []).includes(role) ? { action: 'already' } : { action: 'assign' };
+}
+/** The roles to take away in the finally block: every PROJECT role that is held (a role that is not ours is never touched). */
+export const rolesToRelease = (held) => (held || []).filter((n) => ROLE_ORDER.includes(n));
 
 /**
  * A function that removes from a text: the environment URL and host, the organization name (first label of the host), every GUID, and any secret
