@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Builds, checks and (on purpose) creates the flow "Muwafaqa - Contract Approval v2" (ADR-007, batch 3, docs/flow-approval-v2.md).
- * The flow is created OFF (a new cloud flow row is in the Draft state). This script NEVER turns a flow on or off, never changes v1, and
+ * The flow is created OFF (a new cloud flow row is in the Draft state). This script NEVER turns a flow on or off, never changes another flow (v1, while it exists), and
  * never starts a run. The flow definition is code in this file, so no id, address or host is stored anywhere in the repository: the
  * record link keeps the placeholder <ORG_HOST>, which `create` replaces with the host of --env in memory only.
  *
@@ -10,14 +10,14 @@
  *                  (still with the placeholder). No network.
  *   --mode=check   offline. Structural checks of the definition (what can be checked without the designer): unique action names, runAfter
  *                  targets, references to earlier actions in the same or an enclosing scope, items() inside the loop, variables (top level, defined before use), no Terminate under a loop, the closing Switch, balanced
- *                  expressions, connection names, nesting depth, concurrency 1, Terminate Failed has runError, the trigger equals the trigger of
- *                  v1 in src/Workflows, no name of v1, no address or id. Exit code 1 on any failure.
- *   --mode=create  needs --env and --confirm-mutates-environment. 3 GET requests first. Reads v1 (read only) for its connection references,
- *                  stops if v2 already exists, POSTs ONE workflows row (never retried; if the network fails it reads whether the row exists and
- *                  prints that), then reads it back: category, OFF, solution membership, structure, and that v1 is unchanged.
- *   --mode=verify  read only. Re-reads v2 and v1: both OFF, v2 in the solution, the size of the stored clientdata, its structure (the same checks as --mode=check)
- *                  and that v1 is unchanged since the first read of this run is not possible here, so v1's modifiedon is printed for comparison.
- *   --mode=cleanup deletes ONLY the row named "Muwafaqa - Contract Approval v2" (category 5) and only if it is OFF; never v1. Needs --confirm-mutates-environment.
+ *                  expressions, connection names, nesting depth, concurrency 1, Terminate Failed has runError, the trigger equals the documented
+ *                  trigger of v1 (the constant EXPECTED_TRIGGER; no file of v1 is read), no name of v1, no address or id. Exit code 1 on any failure.
+ *   --mode=create  needs --env and --confirm-mutates-environment. 3 GET requests first. Takes the connection references from the solution (exactly one
+ *                  per connector, read only), stops if v2 already exists, POSTs ONE workflows row (never retried; if the network fails it reads whether
+ *                  the row exists and prints that), then reads it back: category, OFF, solution membership, structure, and that v1, if it exists, is unchanged.
+ *   --mode=verify  read only. Re-reads v2 (and v1 if it still exists): OFF, v2 in the solution, the size of the stored clientdata, its structure (the same checks as --mode=check).
+ *                  v1's modifiedon is printed for comparison when v1 exists; a missing v1 is accepted (retired).
+ *   --mode=cleanup deletes ONLY the row named "Muwafaqa - Contract Approval v2" (category 5) and only if it is OFF; never another flow. Needs --confirm-mutates-environment.
  *                  For a half-created row after a POST whose outcome is unknown.
  *
  * Usage:
@@ -315,7 +315,26 @@ const V1_NAMES = ['Approval_DeptHead', 'Check_Stage1', 'Get_contract_after_stage
   'Is_still_Pending_(stage_2)', 'Update_a_row', 'Update_a_row_2', 'Update_a_row_3', 'Terminate', 'Terminate_2', 'Stop_-_contract_no_longer_Pending_(stage_1)',
   'Stop_-_contract_no_longer_Pending_(stage_2)', 'When_a_row_is_added,_modified_or_deleted'];
 
-export function checkClientdata(cd, { v1Trigger = null } = {}) {
+/**
+ * The trigger of the flow "Muwafaqa - Contract Approval v1", written here as a constant because v1 is being retired and its file leaves src/Workflows.
+ * v2 must keep the IDENTICAL trigger (ADR-007, docs/flow-approval-v2.md): message 3 (Update), table mwf_contract, scope 4 (Organization), filtering column
+ * mwf_valueusdfrozen, filter statuscode eq 867640000 (Pending Approval). Captured from the v1 source (src/Workflows, last changed in commit 62519cb)
+ * and checked against it by a unit test for as long as that file exists. It holds no id, host or address.
+ */
+export const EXPECTED_TRIGGER = {
+  inputs: {
+    parameters: {
+      'subscriptionRequest/message': 3,
+      'subscriptionRequest/entityname': 'mwf_contract',
+      'subscriptionRequest/scope': 4,
+      'subscriptionRequest/filteringattributes': 'mwf_valueusdfrozen',
+      'subscriptionRequest/filterexpression': 'statuscode eq 867640000',
+    },
+    host: { apiId: '/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps', operationId: 'SubscribeWebhookTrigger', connectionName: 'shared_commondataserviceforapps' },
+  },
+};
+
+export function checkClientdata(cd, { v1Trigger = EXPECTED_TRIGGER } = {}) {
   const results = [];
   const ok = (name, pass, detail = '') => results.push({ name, pass: !!pass, detail });
   const def = cd.properties.definition; const refs = cd.properties.connectionReferences;
@@ -432,18 +451,11 @@ export function checkClientdata(cd, { v1Trigger = null } = {}) {
   ok('the approver placeholder of v1 is not used', !text.includes('<APPROVER_TEST_ACCOUNT>'));
   // trigger equals v1
   const t = Object.values(def.triggers)[0];
-  if (v1Trigger) ok('the trigger parameters equal the trigger of v1 (message, table, scope, filtering column, filter expression)', JSON.stringify(t.inputs.parameters) === JSON.stringify(v1Trigger.inputs.parameters) && JSON.stringify(t.inputs.host) === JSON.stringify(v1Trigger.inputs.host));
-  else ok('v1 trigger comparison', false, 'v1 source file not found in src/Workflows');
+  if (v1Trigger) ok('the trigger parameters equal the trigger of v1 (message, table, scope, filtering column, filter expression; the documented constant EXPECTED_TRIGGER)', JSON.stringify(t.inputs.parameters) === JSON.stringify(v1Trigger.inputs.parameters) && JSON.stringify(t.inputs.host) === JSON.stringify(v1Trigger.inputs.host));
+  else ok('v1 trigger comparison', false, 'no expected trigger was given');
   return { results, list, depth };
 }
-function v1TriggerFromSrc() {
-  try {
-    const dir = join(HERE, '..', 'src', 'Workflows');
-    const f = readdirSync(dir).find((x) => /ContractApprovalv1.*\.json$/.test(x) && !x.endsWith('.data.xml'));
-    const d = JSON.parse(readFileSync(join(dir, f), 'utf8'));
-    return Object.values(d.properties.definition.triggers)[0];
-  } catch { return null; }
-}
+function v1TriggerFromSrc() { return EXPECTED_TRIGGER; }   // v1's file is not read any more (v1 is retired): see EXPECTED_TRIGGER
 
 // ------------------------------------------------------------------------------------------------ modes
 function printResults(results) {
@@ -491,12 +503,13 @@ const check = (n, ok, d = '') => { console.log(`${ok ? 'PASS' : 'FAIL'}  ${n}${d
     await requireStableConnection(call);
     const q = encodeURIComponent;
     const rowOf = async (name) => (await must('GET', `workflows?$select=name,statecode,statuscode,category,modifiedon,clientdata&$filter=${q(`name eq '${name}' and category eq 5`)}`)).j.value;
-    const v1a = await rowOf(V1_NAME);
-    if (v1a.length !== 1) throw new Stop(`v1: expected 1 flow row, found ${v1a.length}`);
+    const v1a = await rowOf(V1_NAME);   // v1 is optional (retired): 0 rows is accepted, 1 row must stay OFF and untouched, more than 1 is refused
+    if (v1a.length > 1) throw new Stop(`v1: expected 0 or 1 flow row, found ${v1a.length}`);
+    console.log(v1a.length ? 'INFO  v1 exists (it is only read, never changed)' : 'INFO  v1 does not exist (retired): nothing to compare');
 
     if (MODE === 'verify') {
       const v2 = await rowOf(FLOW_NAME);
-      check('v1 is OFF (statecode 0)', v1a[0].statecode === 0, `statecode ${v1a[0].statecode}, modifiedon ${v1a[0].modifiedon}`);
+      if (v1a.length) check('v1 is OFF (statecode 0)', v1a[0].statecode === 0, `statecode ${v1a[0].statecode}, modifiedon ${v1a[0].modifiedon}`);
       check('v2 exists once and is OFF (statecode 0)', v2.length === 1 && v2[0].statecode === 0, `${v2.length} row(s)`);
       if (v2.length === 1) {
         const host = new URL(ENV).host;
@@ -524,16 +537,24 @@ const check = (n, ok, d = '') => { console.log(`${ok ? 'PASS' : 'FAIL'}  ${n}${d
       check('v2 row deleted', d.ok, `HTTP ${d.status}`);
       check('no row named v2 remains', (await rowOf(FLOW_NAME)).length === 0);
       const v1c = await rowOf(V1_NAME);
-      check('v1 is untouched (same modifiedon, OFF)', v1c.length === 1 && v1c[0].modifiedon === v1a[0].modifiedon && v1c[0].statecode === 0);
+      if (v1a.length) check('v1 is untouched (same modifiedon, OFF)', v1c.length === 1 && v1c[0].modifiedon === v1a[0].modifiedon && v1c[0].statecode === 0);
       process.exit(bad ? 1 : 0);
     }
 
     // create
     if ((await rowOf(FLOW_NAME)).length) throw new Stop(`"${FLOW_NAME}" already exists. Nothing was created (this script never modifies an existing flow).`);
-    const v1cd = JSON.parse(v1a[0].clientdata);
-    const refs = v1cd.properties.connectionReferences;
-    check('v1 has the two connection references the definition uses', ['shared_commondataserviceforapps', 'shared_approvals'].every((k) => refs[k]?.connection?.connectionReferenceLogicalName), Object.keys(refs).join(','));
-    if (bad) throw new Stop('The connection references of v1 are not as expected. Nothing was created.');
+    // the connection references: exactly ONE per connector among the components of the solution (read only); v1 is not consulted
+    const solRef = (await must('GET', `solutions?$filter=uniquename eq '${SOLUTION}'&$select=solutionid`)).j.value;
+    if (solRef.length !== 1) throw new Stop(`solution ${SOLUTION}: expected 1 row, found ${solRef.length}`);
+    const members = new Set((await must('GET', `solutioncomponents?$filter=_solutionid_value eq ${solRef[0].solutionid}&$select=objectid&$top=5000`)).j.value.map((x) => String(x.objectid).toLowerCase()));
+    const allRefs = (await must('GET', 'connectionreferences?$select=connectionreferenceid,connectionreferencelogicalname,connectorid&$top=5000')).j.value;
+    const refs = {};
+    for (const connector of ['shared_commondataserviceforapps', 'shared_approvals']) {
+      const hit = allRefs.filter((r) => String(r.connectorid).endsWith('/' + connector) && members.has(String(r.connectionreferenceid).toLowerCase()));
+      check(`the solution holds exactly one connection reference for ${connector}`, hit.length === 1, `${hit.length} found`);
+      if (hit.length === 1) refs[connector] = { api: { name: connector }, connection: { connectionReferenceLogicalName: hit[0].connectionreferencelogicalname }, runtimeSource: 'embedded' };
+    }
+    if (bad) throw new Stop('The connection references of the solution are not as expected. Nothing was created.');
     const cd = buildClientdata(refs);
     const chk = checkClientdata(cd, { v1Trigger: v1TriggerFromSrc() });
     if (chk.results.some((r) => !r.pass)) throw new Stop('The structural check failed. Nothing was created. Run --mode=check.');
@@ -571,7 +592,7 @@ const check = (n, ok, d = '') => { console.log(`${ok ? 'PASS' : 'FAIL'}  ${n}${d
     check('the structural check passes on the definition as stored by Dataverse', badBack.length === 0, badBack.map((r) => r.name).join('; ').slice(0, 300));
     check('the stored definition has the same action names as the one sent', JSON.stringify(walk(back.properties.definition.actions).map((x) => x.name)) === JSON.stringify(chk.list.map((x) => x.name)));
     const v1b = await rowOf(V1_NAME);
-    check('v1 is unchanged and still OFF (same modifiedon, statecode 0)', v1b.length === 1 && v1b[0].modifiedon === v1a[0].modifiedon && v1b[0].statecode === 0, `statecode ${v1b[0]?.statecode}`);
+    if (v1a.length) check('v1 is unchanged and still OFF (same modifiedon, statecode 0)', v1b.length === 1 && v1b[0].modifiedon === v1a[0].modifiedon && v1b[0].statecode === 0, `statecode ${v1b[0]?.statecode}`);
     console.log(`\nSUMMARY: ${bad} failed check(s). The flow was NOT turned on and no run was started.`);
     process.exit(bad ? 1 : 0);
   } catch (e) {

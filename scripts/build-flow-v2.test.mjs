@@ -173,3 +173,41 @@ test('the loop must stay sequential because it sets variables', () => {
   const cd = fresh(); node(cd, 'Apply_to_each_step').runtimeConfiguration.concurrency.repetitions = 5;
   assert.ok(failing(cd).some((n) => /Set variable inside a loop only in a sequential loop/.test(n)));
 });
+
+// ---- v1 is retired: the expected trigger is a documented constant, no file of v1 is needed
+import { EXPECTED_TRIGGER } from './build-flow-v2.mjs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+test('the default check passes without any v1 file or option (the constant is used)', () => {
+  const r = checkClientdata(fresh());
+  assert.deepEqual(r.results.filter((x) => !x.pass).map((x) => x.name), []);
+  assert.ok(r.results.some((x) => /equal the trigger of v1/.test(x.name) && x.pass));
+});
+
+test('v2 builds the trigger that EXPECTED_TRIGGER documents', () => {
+  const t = Object.values(buildClientdata().properties.definition.triggers)[0];
+  assert.deepEqual(t.inputs.parameters, EXPECTED_TRIGGER.inputs.parameters);
+  assert.deepEqual(t.inputs.host, EXPECTED_TRIGGER.inputs.host);
+});
+
+test('EXPECTED_TRIGGER holds no id, host or address', () => {
+  const text = JSON.stringify(EXPECTED_TRIGGER);
+  assert.ok(!/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(text));
+  assert.ok(!/dynamics\.com|@/.test(text));
+});
+
+test('a changed trigger is still reported when the constant is the reference', () => {
+  const cd = fresh(); Object.values(cd.properties.definition.triggers)[0].inputs.parameters['subscriptionRequest/scope'] = 1;
+  assert.ok(checkClientdata(cd).results.some((x) => !x.pass && /equal the trigger of v1/.test(x.name)));
+});
+
+test('EXPECTED_TRIGGER equals the trigger in the v1 source file for as long as that file exists', (t) => {
+  const dir = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'Workflows');
+  const f = existsSync(dir) ? readdirSync(dir).find((x) => /ContractApprovalv1.*\.json$/.test(x)) : null;
+  if (!f) return t.skip('the v1 file is gone (retired): the constant is now the only record');
+  const v1 = Object.values(JSON.parse(readFileSync(join(dir, f), 'utf8')).properties.definition.triggers)[0];
+  assert.deepEqual(v1.inputs.parameters, EXPECTED_TRIGGER.inputs.parameters);
+  assert.deepEqual(v1.inputs.host, EXPECTED_TRIGGER.inputs.host);
+});

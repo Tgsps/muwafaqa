@@ -28,7 +28,7 @@
  * The token stays in memory and is never printed. No id, address or token is printed or stored.
  */
 import { execSync } from 'node:child_process';
-import { approvalFlowState, deleteContracts } from './lib/contract-cleanup.mjs';
+import { approvalFlowState, describeFlowState, deleteContracts } from './lib/contract-cleanup.mjs';
 import { snapshotCounters, readCounters, restoreCounters, requireStableConnection } from './lib/counter-snapshot.mjs';
 import { resilientFetch, enterCleanupPhase, recheckAfterWait } from './lib/resilient-fetch.mjs';
 import { expectContractsOrExit, describeExpectContracts } from './lib/expect-contracts.mjs';
@@ -182,7 +182,7 @@ async function cleanupOnly() {
 // ---------------------------------------------------------------- the tests
 async function run() {
   const flow = await approvalFlowState(io);
-  console.log(`INFO  approval flow: ${flow.known ? (flow.on ? 'ON' : 'OFF') : 'state not readable'} (Draft creates do not start it)`);
+  console.log(`INFO  approval flow: ${describeFlowState(flow)} (Draft creates do not start it)`);
 
   const pre = await checkClean();
   if (pre.a || pre.b) throw new Stop('TEST-TMP rows already exist. Clean them first. Nothing was created.');

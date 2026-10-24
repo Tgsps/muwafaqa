@@ -64,7 +64,10 @@ export function judgeRun(run, expect) {
 /** Whether an assignment row read back is Active (statecode 0). */
 export const assignmentActive = (row) => !!row && row.statecode === 0;
 
-/** Counts only: how many of the flow rows are ON, and whether the state is the one the session needs (v1 OFF, v2 ON). */
+/**
+ * Counts only: whether the state is the one the session needs: v2 ON, and v1 OFF **if it exists** (v1 is being retired; a missing v1 is accepted, never two flows ON).
+ * v1 / v2: the workflow row or undefined.
+ */
 export function sessionFlowState(v1, v2) {
-  return { ok: !!v1 && !!v2 && v1.statecode === 0 && v2.statecode === 1, v1On: v1?.statecode === 1, v2On: v2?.statecode === 1 };
+  return { ok: !!v2 && v2.statecode === 1 && (!v1 || v1.statecode === 0), v1On: v1?.statecode === 1, v2On: v2?.statecode === 1, v1Present: !!v1 };
 }

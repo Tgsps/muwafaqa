@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Behavioral test of the four project security roles (ADR-008) with a Dataverse APPLICATION USER (service principal) that the owner creates
- * in the environment. NOT RUN YET. FICTIONAL rows only, prefix TEST-TMP-SEC. Both approval flows must be OFF the whole time (read; the script stops if
+ * in the environment. NOT RUN YET. FICTIONAL rows only, prefix TEST-TMP-SEC. Every approval flow must be OFF the whole time (read; the script stops if
  * one is ON and never turns one on or off).
  *
  * Authentication of the application user: OAuth 2.0 client credentials. The tenant id, client id and secret come ONLY from the environment variables
@@ -53,7 +53,7 @@ console.log(describeExpectContracts(EXPECT));
 const q = encodeURIComponent;
 
 if (MODE === 'plan') {
-  console.log(`Behavioral test of the project roles (offline plan; nothing is read or written). Prefix ${PREFIX}. Both flows OFF.\n`);
+  console.log(`Behavioral test of the project roles (offline plan; nothing is read or written). Prefix ${PREFIX}. Every approval flow OFF.\n`);
   console.log(`Environment variables (names only; values are never printed or stored): ${ENV_NAMES.join(', ')}`);
   console.log('Sequence: read state -> token of the application user -> admin fixtures (counterparty, a Draft owned by the admin, a submitted contract of USD 25,000 owned by the admin)');
   console.log('          -> for each role in order: assign ONE role, poll until it is effective (max 5 min), run its cases, ALWAYS release in a finally block (every project role the user holds), poll until the read is refused again (max 5 min)');
@@ -153,7 +153,7 @@ async function checkClean() {
   return { a, b, mx, total, steps, m, asg };
 }
 async function baseline() {
-  const f = await flowsOff(); out('state', f.ok ? 'PASS' : 'FAIL', `both approval flows are OFF (${f.line})`);
+  const f = await flowsOff(); out('state', f.ok ? 'PASS' : 'FAIL', `every approval flow is OFF (${f.line})`);
   const ids = await roleIds();
   for (const n of ROLE_ORDER) { const m = await membersOf(ids[n]); const v = membersVerdict(n, m.userRows, m.teams, CLIENT); out('state', v.ok ? 'PASS' : 'FAIL', `${n}: no member except, for the Requester, the application user`, `${m.users} user(s) (application user ${v.appUsers}, others ${v.others}), ${m.teams} team(s)`); }
   await findUser(); out('state', 'PASS', 'the application user exists and is enabled');

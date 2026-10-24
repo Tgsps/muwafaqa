@@ -29,7 +29,7 @@
  */
 import { parseArgs, openSession, noGuid, Stop } from './lib/dv-session.mjs';
 import { snapshotCounters, ctrIo, trackCreate, restoreAfterRun, restoreFromArgs, printHandoff, cleanupHint, requireStableConnection } from './lib/counter-snapshot.mjs';
-import { approvalFlowState, deleteContracts } from './lib/contract-cleanup.mjs';
+import { approvalFlowState, describeFlowState, deleteContracts } from './lib/contract-cleanup.mjs';
 import { enterCleanupPhase } from './lib/resilient-fetch.mjs';
 import { expectContractsOrExit, describeExpectContracts, contractsVerdict } from './lib/expect-contracts.mjs';
 
@@ -132,7 +132,7 @@ async function checkClean() {
 // ---------------------------------------------------------------- the tests
 async function run() {
   const flow = await approvalFlowState(S.io);
-  if (!flow.known || flow.on) throw new Stop(`The approval flow is ${flow.known ? 'ON' : 'not readable'}. It must be confirmed OFF. Nothing was created.`);
+  if (!flow.known || flow.on) throw new Stop(`The approval flow state is ${describeFlowState(flow)}. It must be confirmed OFF. Nothing was created.`);
   console.log('INFO  approval flow is OFF (read only check)');
   const pre = await checkClean();
   if (pre.a || pre.b || pre.steps || pre.total !== EXPECT.value || pre.m !== 110 || pre.asg !== 5) throw new Stop(`The starting state is not clean (see the line above; ${contractsVerdict(EXPECT, pre.total).text}). Nothing was created.`);

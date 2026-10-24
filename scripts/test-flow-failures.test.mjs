@@ -70,5 +70,10 @@ test('assignmentActive and sessionFlowState', () => {
   assert.equal(sessionFlowState({ statecode: 0 }, { statecode: 1 }).ok, true);
   assert.equal(sessionFlowState({ statecode: 1 }, { statecode: 1 }).ok, false);
   assert.equal(sessionFlowState({ statecode: 0 }, { statecode: 0 }).ok, false);
-  assert.equal(sessionFlowState(undefined, { statecode: 1 }).ok, false);
+  assert.equal(sessionFlowState(undefined, { statecode: 1 }).ok, true);   // v1 retired: v2 alone ON is the session state
+  assert.equal(sessionFlowState(undefined, { statecode: 1 }).v1Present, false);
+  assert.equal(sessionFlowState(undefined, { statecode: 0 }).ok, false);
+  assert.equal(sessionFlowState({ statecode: 0 }, undefined).ok, false);
+  assert.equal(sessionFlowState(undefined, undefined).ok, false);
+  assert.equal(sessionFlowState({ statecode: 1 }, { statecode: 1 }).v1On, true);
 });

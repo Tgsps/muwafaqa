@@ -24,7 +24,7 @@
  */
 import { parseArgs, openSession, noGuid, Stop } from './lib/dv-session.mjs';
 import { snapshotCounters, restoreCounters, requireStableConnection } from './lib/counter-snapshot.mjs';
-import { approvalFlowState, deleteContracts } from './lib/contract-cleanup.mjs';
+import { approvalFlowState, describeFlowState, deleteContracts } from './lib/contract-cleanup.mjs';
 import { enterCleanupPhase } from './lib/resilient-fetch.mjs';
 import { expectContractsOrExit, describeExpectContracts } from './lib/expect-contracts.mjs';
 import { compareProjectRolesOnTables } from './lib/security-roles.mjs';
@@ -159,7 +159,7 @@ const check = (id, name, ok, detail) => out(id, ok ? 'PASS' : 'FAIL', name, deta
 
 async function cascadeTest({ call, must, io, msgOf }) {
   const flow = await approvalFlowState(io);
-  if (!flow.known || flow.on) throw new Stop('The approval flow is not confirmed OFF. Nothing was created.');
+  if (!flow.known || flow.on) throw new Stop(`The approval flow is not confirmed OFF (${describeFlowState(flow)}). Nothing was created.`);
   const pre = (await must('GET', `mwf_contracts?$select=mwf_contractid&$count=true&$top=1`)).j['@odata.count'];
   if (pre !== EXPECT_CONTRACTS.value) throw new Stop(`Expected ${EXPECT_CONTRACTS.value} contracts before the test (${EXPECT_CONTRACTS.source}), found ${pre}. Nothing was created.`);
   const snap = await snapshotCounters(io);

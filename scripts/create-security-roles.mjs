@@ -3,7 +3,7 @@
  * Creates and verifies the four project security roles (ADR-008): Muwafaqa Requester / Approver / Finance / Admin. The design is in
  * scripts/lib/security-roles.mjs (pure, unit tested). This script assigns NO role to any user, touches NO flow and NO plug-in.
  *
- *   --mode=check    read only: both approval flows OFF, the ownership of the six tables, every privilege of the design found BY NAME in the `privileges`
+ *   --mode=check    read only: every approval flow OFF (v2, and v1 while it exists), the ownership of the six tables, every privilege of the design found BY NAME in the `privileges`
  *                   table (never typed in) and allowed at the planned depth, the design rules, the existing roles, the root business unit, the solution
  *   --mode=create   check first, then for each role that does not exist: POST roles (into the solution) and AddPrivilegesRole. An existing role is left
  *                   alone if it already equals the design; a role that differs STOPS the run (nothing is replaced). Needs --confirm-mutates-environment
@@ -97,7 +97,7 @@ async function storedPrivileges(roleId) {
 // ---------------------------------------------------------------------------------------------------------------- check
 async function modeCheck() {
   const f = await flowsOff();
-  check('flows', `both approval flows are OFF (${f.line})`, f.ok);
+  check('flows', `every approval flow is OFF (${f.line})`, f.ok);
   if (!f.ok) throw new Stop('An approval flow is ON or not readable. Nothing was changed.');
   const v = validateDesign();
   check('design', 'the design rules R1 to R8 hold (no Assign / Share, no counter privilege, organization-owned tables only Global, User level only for the Requester on the contract, audit read only for the Admin)', v.length === 0, v.join('; ') || `${ROLES.length} roles`);
@@ -162,7 +162,7 @@ async function modeCreate() {
 // ---------------------------------------------------------------------------------------------------------------- verify
 async function modeVerify() {
   const f = await flowsOff();
-  check('flows', `both approval flows are OFF (${f.line})`, f.ok);
+  check('flows', `every approval flow is OFF (${f.line})`, f.ok);
   const sol = (await get(`solutions?$select=uniquename&$filter=uniquename eq '${SOLUTION}'`)).value;
   const comp = sol.length === 1 ? new Set((await get(`solutioncomponents?$select=objectid&$filter=${q(`_solutionid_value eq ${sol[0].solutionid} and componenttype eq 20`)}`)).value.map((x) => String(x.objectid).toLowerCase())) : new Set();
   const existing = await rolesByName();
@@ -219,7 +219,7 @@ async function baselineRows() {
   return rows;
 }
 async function preconditions(r) {
-  const f = await flowsOff(); check('flows', `both approval flows are OFF (${f.line})`, f.ok);
+  const f = await flowsOff(); check('flows', `every approval flow is OFF (${f.line})`, f.ok);
   if (!f.ok) throw new Stop('An approval flow is ON or not readable. Nothing was changed.');
   const m = await membersOf(r.id); const mv = membersVerdict(r.name, m.userRows, m.teams, process.env.MWF_TEST_CLIENT_ID);
   check('role', `${r.name}: no member except, for the Requester, the application user`, mv.ok, `${m.users} user(s), ${m.teams} team(s)`);
@@ -273,7 +273,7 @@ async function modeRestoreBaseline() {
 /** One AddPrivilegesRole call for the designed EXTRA privileges (audit read) that a role lacks. Never removes anything; refuses if the role differs from its design in anything else. */
 async function modeAddMissing() {
   const r = await oneRole();
-  const f = await flowsOff(); check('flows', `both approval flows are OFF (${f.line})`, f.ok);
+  const f = await flowsOff(); check('flows', `every approval flow is OFF (${f.line})`, f.ok);
   if (!f.ok) throw new Stop('An approval flow is ON or not readable. Nothing was changed.');
   const stored = await storedPrivileges(r.id);
   const diff = compareRolePrivileges(desiredPrivileges(r.role).filter((d) => !d.extraName), stored.filter((s) => !(r.role.extra || []).some((e) => e.name.toLowerCase() === String(s.name).toLowerCase())), PLATFORM_BASELINE);

@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 /**
+ * *** v1 scenario, retired. *** Written for the flow "Muwafaqa - Contract Approval v1" (two fixed stages), which the owner decided to retire. Kept as history, not deleted.
+ * Against v2 it is meaningless: USD 1000 is a ONE-step chain in v2, so "stage 2" does not exist. Use scripts/test-flow-v2.mjs.
+ *
  * Test of the two checkpoints of the approval flow "Muwafaqa - Contract Approval v1" (the flow ends with Terminate,
  * status Cancelled, when the contract is no longer Pending Approval after a stage). FICTIONAL TEST-TMP-CHK rows only.
  * The approval flow must be ON. This script never turns the flow on or off.
@@ -29,7 +32,7 @@
  * The token stays in memory and is never printed. No id, address or token is printed or stored.
  */
 import { execSync } from 'node:child_process';
-import { deleteContract, findGuardDeleteStepId, approvalFlowState } from './lib/contract-cleanup.mjs';
+import { deleteContract, findGuardDeleteStepId, approvalFlowState, describeFlowState } from './lib/contract-cleanup.mjs';
 import { ctrIo, trackCreate, snapshotCounters, restoreAfterRun, restoreFromArgs, printHandoff, requireStableConnection } from './lib/counter-snapshot.mjs';
 import { resilientFetch, enterCleanupPhase, recheckAfterWait } from './lib/resilient-fetch.mjs';
 import { lastApprovalByContract, attributeRuns } from './lib/run-attribution.mjs';
@@ -118,7 +121,7 @@ const byNumber = (list, n) => list.find((r) => r.mwf_name.startsWith(`${PREFIX}$
 
 async function requireFlowOn() {
   const f = await approvalFlowState(io);
-  if (!f.known) throw new Stop(`The flow state could not be read (${f.count} matching flow rows). Nothing was changed.`);
+  if (!f.known) throw new Stop(`The flow state could not be read (${describeFlowState(f)}). Nothing was changed.`);
   if (!f.on) throw new Stop('The approval flow is OFF. This test needs it ON. Nothing was changed.');
   console.log('INFO  approval flow is ON (read only check)');
 }
@@ -201,7 +204,7 @@ async function withdraw3() {
 
 async function read() {
   const f = await approvalFlowState(io);
-  console.log(`flow state: ${f.known ? (f.on ? 'ON' : 'OFF') : 'could not be read'}`);
+  console.log(`flow state: ${describeFlowState(f)}`);
   const list = await rows();
   if (!list.length) throw new Stop(`No ${PREFIX} rows found.`);
   console.log('\n=== rows');

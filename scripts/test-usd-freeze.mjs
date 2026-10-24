@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 /**
+ * NOTE: the mode --mode=flow-case is a **v1 scenario, retired** (it was run for "Muwafaqa - Contract Approval v1", which the owner decided to retire; kept as history, not deleted).
+ * It was never run against v2: a result is not a v2 result. The other modes are not affected.
+ *
  * Integration tests for the plug-in FreezeUsdValueOnSubmission (ADR-003), through the Dataverse Web API.
  * FICTIONAL TEST-TMP-USD-* rows only. All rows are deleted at the end and the cleanup is verified.
  *
@@ -10,7 +13,7 @@
  *   --mode=guard-smoke   smoke test of the Contract State Guard (ADR-004), no Pending and no In Force row is created:
  *                        create a Draft, PATCH it to In Force (must fail with the guard message), PATCH the Subject,
  *                        PATCH Value, DELETE it. Cleans up and runs check-clean.
- *   --mode=flow-case     case 9: creates ONE row (Draft, USD 1000) and moves it to Pending Approval, then reads it back.
+ *   --mode=flow-case     case 9: creates ONE row (Draft, USD 1000) and moves it to Pending Approval, then reads it back. [v1 scenario, retired]
  *                        The row (and its counterparty) is KEPT so the approval flow run can be checked by hand.
  *   --mode=cleanup       deletes every TEST-TMP-USD row (contracts, then the counterparty; rows of other scripts are not touched) and verifies it.
  *   --mode=check-clean   read only. No TEST-TMP-USD rows remain.

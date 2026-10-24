@@ -27,7 +27,7 @@
  * The token stays in memory and is never printed. No id, address, email or token is printed or stored.
  */
 import { execSync } from 'node:child_process';
-import { deleteContracts, approvalFlowState } from './lib/contract-cleanup.mjs';
+import { deleteContracts, approvalFlowState, describeFlowState } from './lib/contract-cleanup.mjs';
 import { ctrIo, trackCreate, snapshotCounters, restoreAfterRun, restoreFromArgs, printHandoff, requireStableConnection, cleanupHint } from './lib/counter-snapshot.mjs';
 import { resilientFetch, enterCleanupPhase, recheckAfterWait } from './lib/resilient-fetch.mjs';
 import { subjectOfTitle } from './lib/run-attribution.mjs';
@@ -112,7 +112,7 @@ const stateLine = (r) => `status ${NAME[r.statuscode] || r.statuscode} | stateco
 
 async function requireFlowOn() {
   const f = await approvalFlowState(io);
-  if (!f.known) throw new Stop(`The flow state could not be read (${f.count} matching flow rows). Nothing was changed.`);
+  if (!f.known) throw new Stop(`The flow state could not be read (${describeFlowState(f)}). Nothing was changed.`);
   if (!f.on) throw new Stop('The approval flow is OFF. This test needs it ON (it is about runs). Nothing was changed. This script never turns the flow on or off.');
   console.log('INFO  approval flow is ON (read only check)');
 }
@@ -184,7 +184,7 @@ async function setup() {
 
 async function read() {
   const f = await approvalFlowState(io);
-  console.log(`flow state: ${f.known ? (f.on ? 'ON' : 'OFF') : 'could not be read'}`);
+  console.log(`flow state: ${describeFlowState(f)}`);
   const rows = await testRows();
   if (rows.length !== 1) throw new Stop(`Expected 1 test contract, found ${rows.length}.`);
   const r = rows[0];

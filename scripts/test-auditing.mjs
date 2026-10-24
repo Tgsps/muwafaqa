@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Behavioral test of Dataverse auditing (ADR-009) with the ADMIN account only (`--auth=az`). NOT RUN YET. FICTIONAL rows only, prefix TEST-TMP-AUD.
- * Both approval flows must be OFF. The audit configuration must already be applied (scripts/configure-auditing.mjs): the script checks it and stops otherwise.
+ * Every approval flow (v2, and v1 while it exists) must be OFF. The audit configuration must already be applied (scripts/configure-auditing.mjs): the script checks it and stops otherwise.
  *
  * What it does (every write is preceded by 3 consecutive successful reads and is never retried):
  *   counterparty : create, edit the name                                  (later: delete)
@@ -44,7 +44,7 @@ console.log(describeExpectContracts(EXPECT));
 const q = encodeURIComponent;
 
 if (MODE === 'plan') {
-  console.log(`Audit test (offline plan). Prefix ${PREFIX}; admin account only; both flows OFF; the audit configuration must be applied first.\n`);
+  console.log(`Audit test (offline plan). Prefix ${PREFIX}; admin account only; every approval flow OFF; the audit configuration must be applied first.\n`);
   console.log('Operations (each: 3 reads first, no retry):\n  1 counterparty create, 2 edit its name\n  3 contract create (Draft), 4 edit its name, 5 edit Value to 25,000, 6 submit (plug-ins: round, frozen USD value, status, 2 steps), 7 withdraw to Draft\n  8 temporary matrix row TEST-TMP-AUD band: create, 9 edit its rulename\n  10 assignment (Owner row): name changed, 11 restored (a change of mwf_user is NOT tested)\n  then WAIT for the audit rows (poll every 10 s; at most 10 minutes; until quiet for 60 s), read the history (audits table + RetrieveRecordChangeHistory + RetrieveAuditDetails), then\n  12 contract delete (Draft; its steps go by the cascade), 13 counterparty delete, 14 temporary matrix row delete, then wait again for the delete rows.\n');
   console.log('Checks: who (userid / callinguserid class), what (old and new values), operation, plug-in changes (which audit row, which user), steps created and deleted, the real delay of every row, the audit rows written by the rest of the environment.');
   console.log('Not tested: read audit, user access audit, non-admin or application-user changes, impersonation, bulk messages, flow changes, retention deletion, DeleteRecordChangeHistory, log storage, role-change audit, export.');
@@ -132,7 +132,7 @@ async function findChange(id, col, oldV, newV) {
 // ---------------------------------------------------------------------------------------------------------------- the run
 const T = { Maintenance: 867640000 }; const DIR = { Expense: 867640001 };
 async function run() {
-  const f = await flowsOff(); check('flows', `both approval flows are OFF (${f.line})`, f.ok); if (!f.ok) throw new Stop('A flow is ON. Nothing was created.');
+  const f = await flowsOff(); check('flows', `every approval flow is OFF (${f.line})`, f.ok); if (!f.ok) throw new Stop('A flow is ON. Nothing was created.');
   if (!(await auditConfigApplied()) && !DRY) throw new Stop('Apply the audit configuration first (scripts/configure-auditing.mjs). Nothing was created.');
   const pre = await checkClean();
   if (pre.a || pre.b || pre.mx || pre.as || pre.steps || pre.total !== EXPECT.value || pre.m !== 110 || pre.asg !== 5) throw new Stop(`The starting state is not clean (see the line above; ${contractsVerdict(EXPECT, pre.total).text}). Nothing was created.`);

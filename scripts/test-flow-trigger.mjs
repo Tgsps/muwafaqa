@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 /**
+ * *** v1 scenario, retired. *** Written and run against "Muwafaqa - Contract Approval v1", which the owner decided to retire. Kept as history, not deleted.
+ * v2 has the same trigger (checked by scripts/build-flow-v2.mjs --mode=check), but this script was never run against v2: a result is not a v2 result.
+ *
  * How many approval flow runs does each action start, with the trigger
  *   Select columns = mwf_valueusdfrozen, Filter rows = statuscode eq 867640000 ?
  * FICTIONAL TEST-TMP-TRIG rows only. The approval flow must be ON (the test is about its trigger).
@@ -22,7 +25,7 @@
  * The token stays in memory and is never printed. No id, address or token is printed or stored.
  */
 import { execSync } from 'node:child_process';
-import { deleteContracts, approvalFlowState } from './lib/contract-cleanup.mjs';
+import { deleteContracts, approvalFlowState, describeFlowState } from './lib/contract-cleanup.mjs';
 import { ctrIo, trackCreate, snapshotCounters, restoreAfterRun, restoreFromArgs, printHandoff, requireStableConnection, cleanupHint } from './lib/counter-snapshot.mjs';
 import { resilientFetch, enterCleanupPhase, recheckAfterWait } from './lib/resilient-fetch.mjs';
 import { expectContractsOrExit, describeExpectContracts } from './lib/expect-contracts.mjs';
@@ -98,7 +101,7 @@ const io = {
 const FLOW = { row: null, ids: [] };
 async function readFlow() {
   const st = await approvalFlowState(io);
-  if (!st.known) throw new Stop(`The flow state could not be read (${st.count} matching flow rows). Nothing was changed.`);
+  if (!st.known) throw new Stop(`The flow state could not be read (${describeFlowState(st)}). Nothing was changed.`);
   if (!st.on) throw new Stop('The approval flow is OFF. This test is about its trigger, so it must be ON. Nothing was changed.');
   const r = await must('GET', `workflows?$filter=${q(`category eq 5 and contains(name,'Contract Approval')`)}&$select=name,statecode,modifiedon,clientdata,workflowid,workflowidunique`);
   FLOW.row = r.j.value[0];

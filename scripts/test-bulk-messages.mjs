@@ -2,7 +2,7 @@
 /**
  * Server tests of the bulk messages CreateMultiple / UpdateMultiple on mwf_contract against the Contract State Guard (ADR-004, assembly
  * 1.0.7.0), the contract number generator (ADR-006) and the approval chain builder (ADR-007). FICTIONAL rows only, named TEST-TMP-BULK*.
- * Both approval flows (v1 and v2) must be OFF: the script reads their state and stops if any is ON. It never turns a flow on or off.
+ * Every approval flow (v2, and v1 while it exists) must be OFF: the script reads their state and stops if any is ON. It never turns a flow on or off.
  *
  * Nothing is assumed: every case records what happened (PASS / FAIL / OBS). A FAIL (a result that differs from the design, for example a
  * guard bypass in a batch) stops the run at that case, cleans up and prints the details. No plug-in is changed or registered.
@@ -52,7 +52,7 @@ const CASES = [
   ['C8', 'UpdateMultiple: withdraw to Draft, then resubmit in bulk'],
 ];
 if (MODE === 'plan') {
-  console.log(`plan (offline, nothing is read or written). Prefix ${PREFIX}. Both flows must be OFF.`);
+  console.log(`plan (offline, nothing is read or written). Prefix ${PREFIX}. Every approval flow must be OFF.`);
   for (const [id, t] of CASES) console.log(`  ${id.padEnd(4)} ${t}`);
   process.exit(0);
 }

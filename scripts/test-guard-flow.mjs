@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 /**
+ * *** v1 scenario, retired. *** Written for the flow "Muwafaqa - Contract Approval v1" (two stages answered by hand), which the owner decided to retire. Kept as history, not deleted.
+ * Against v2 its stage wording no longer matches (a ONE-step chain for USD 1000) and nothing here was tested against v2: a result is not a v2 result. Use scripts/test-flow-v2.mjs.
+ *
  * End-to-end test of the Contract State Guard with the approval flow ON (ADR-004, phase C).
  * FICTIONAL TEST-TMP-GFLOW rows only (a prefix of its own, not a prefix of the other scripts' rows).
  *

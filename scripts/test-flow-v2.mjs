@@ -114,14 +114,14 @@ async function flows() {
 }
 async function requireFlows() {
   const f = await flows();
-  if (f.count !== 2) throw new Stop(`Expected the two flow rows (v1 and v2), found ${f.count}. Nothing was changed.`);
-  const v1Off = f.v1.statecode === 0; const v2On = f.v2.statecode === 1;
+  if (!f.v2) throw new Stop(`Expected the v2 flow row (v1 may or may not exist), found ${f.count} row(s) and no v2. Nothing was changed.`);
+  const v1Off = !f.v1 || f.v1.statecode === 0; const v2On = f.v2.statecode === 1;
   if (!v1Off || !v2On) {
-    const msg = `v1 is ${v1Off ? 'OFF' : 'ON'} and v2 is ${v2On ? 'ON' : 'OFF'}. The session needs v1 OFF and v2 ON (the owner turns them; never both ON).`;
+    const msg = `${f.v1 ? `v1 is ${v1Off ? 'OFF' : 'ON'}` : 'v1 does not exist'} and v2 is ${v2On ? 'ON' : 'OFF'}. The session needs v2 ON and v1 OFF if it exists (the owner turns them; never both ON).`;
     if (DRY) { console.log(`DRY-RUN  note: ${msg} A real run would stop here.`); return f; }
     throw new Stop(`${msg} Nothing was changed.`);
   }
-  console.log('INFO  v1 is OFF and v2 is ON (read only check)');
+  console.log(`INFO  ${f.v1 ? 'v1 is OFF and v2 is ON' : 'v1 does not exist and v2 is ON'} (read only check)`);
   return f;
 }
 async function matrixRows() {

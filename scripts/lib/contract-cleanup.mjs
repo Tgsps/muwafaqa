@@ -71,27 +71,38 @@ export async function deleteContracts(io, ids) {
 }
 
 /**
- * State of the approval flow, read only. The flow row is found by a part of its name.
- * @returns {{known:boolean, on?:boolean, count:number, state?:number}}   workflow statecode: 0 Draft (off), 1 Activated (on), 2 Suspended
+ * The state of the approval flow rows (category 5, name contains "Contract Approval"), read only.
+ * ONE row or SEVERAL rows (v2 alone, or v1 and v2 while v1 still exists) are both read truthfully:
+ *   known true   at least one row was read. `on` is true when ANY row is ON (the safe reading for "may a run start?"), `onCount` says how many, `flows` lists each row.
+ *   known false  the state cannot be trusted, and `reason` says why: the read failed, or no flow row exists (a script must not assume "OFF" from silence).
+ * @returns {{known:boolean, on:boolean, onCount:number, count:number, state:number, flows:{label:string,on:boolean}[], reason:string, message?:string}}
  */
 export async function approvalFlowState(io) {
   const r = await io.get(`workflows?$filter=${encodeURIComponent(`category eq 5 and contains(name,'${FLOW_NAME_PART}')`)}&$select=name,statecode`);
-  if (!r.ok) return { known: false, count: 0, message: r.message };
-  const v = r.json.value;
-  if (v.length !== 1) return { known: false, count: v.length };
-  return { known: true, on: v[0].statecode === 1, count: 1, state: v[0].statecode };
+  if (!r.ok) return { known: false, on: false, onCount: 0, count: 0, state: -1, flows: [], reason: `the flow rows could not be read (${r.message ?? 'no message'})`, message: r.message };
+  const rows = Array.isArray(r.json?.value) ? r.json.value : [];
+  if (rows.length === 0) return { known: false, on: false, onCount: 0, count: 0, state: -1, flows: [], reason: 'no approval flow row was found' };
+  const flows = rows.map((x) => ({ label: /\bv\d+\s*$/.exec(String(x.name))?.[0] ?? String(x.name), on: x.statecode === 1 }));
+  const onCount = flows.filter((f) => f.on).length;
+  return { known: true, on: onCount > 0, onCount, count: rows.length, state: onCount > 0 ? 1 : 0, flows, reason: '' };
+}
+
+/** "2 flow rows: v1 OFF, v2 OFF", "1 flow row: v2 ON" or "not known: <reason>". */
+export function describeFlowState(f) {
+  if (!f?.known) return `not known: ${f?.reason || 'no reason given'}`;
+  return `${f.count} flow row${f.count === 1 ? '' : 's'}: ${f.flows.map((x) => `${x.label} ${x.on ? 'ON' : 'OFF'}`).join(', ')}`;
 }
 
 /**
- * Stops (throws) unless the approval flow is OFF. A script that moves a contract to Pending Approval would start a run
- * and an approval request for each row. If the state cannot be read, pass --flow-off-confirmed after checking by hand.
+ * Stops (throws) unless every approval flow row is OFF. A script that moves a contract to Pending Approval would start a run
+ * and an approval request for each row. If the state is not known (see approvalFlowState), pass --flow-off-confirmed after checking by hand.
  */
 export async function requireFlowOff(io, { confirmedByUser = false } = {}) {
   const f = await approvalFlowState(io);
-  if (f.known && f.on) throw new Error('The approval flow is ON. Turn it OFF first: this script moves contracts to Pending Approval and every move would start a run. Nothing was changed.');
+  if (f.known && f.on) throw new Error(`An approval flow is ON (${describeFlowState(f)}). Turn it OFF first: this script moves contracts to Pending Approval and every move would start a run. Nothing was changed.`);
   if (!f.known) {
-    if (confirmedByUser) { console.log('INFO  the approval flow state could not be read; --flow-off-confirmed was given, continuing'); return; }
-    throw new Error(`The state of the approval flow could not be read (${f.count} matching flow rows). Check by hand that it is OFF and pass --flow-off-confirmed. Nothing was changed.`);
+    if (confirmedByUser) { console.log(`INFO  the approval flow state is ${describeFlowState(f)}; --flow-off-confirmed was given, continuing`); return; }
+    throw new Error(`The state of the approval flow is ${describeFlowState(f)}. Check by hand that it is OFF and pass --flow-off-confirmed. Nothing was changed.`);
   }
-  console.log('INFO  approval flow is OFF (read only check)');
+  console.log(`INFO  approval flow is OFF (read only check; ${describeFlowState(f)})`);
 }

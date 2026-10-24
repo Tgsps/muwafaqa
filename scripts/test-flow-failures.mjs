@@ -77,14 +77,14 @@ async function flows() {
 }
 async function requireFlows() {
   const f = await flows();
-  if (f.count !== 2) throw new Stop(`Expected the two flow rows (v1 and v2), found ${f.count}. Nothing was changed.`);
+  if (!f.v2) throw new Stop(`Expected the v2 flow row (v1 may or may not exist), found ${f.count} row(s) and no v2. Nothing was changed.`);
   const s = sessionFlowState(f.v1, f.v2);
   if (!s.ok) {
-    const msg = `v1 is ${s.v1On ? 'ON' : 'OFF'} and v2 is ${s.v2On ? 'ON' : 'OFF'}. A case needs v1 OFF and v2 ON (the owner turns them; never both ON).`;
+    const msg = `${s.v1Present ? `v1 is ${s.v1On ? 'ON' : 'OFF'}` : 'v1 does not exist'} and v2 is ${s.v2On ? 'ON' : 'OFF'}. A case needs v2 ON and v1 OFF if it exists (the owner turns them; never both ON).`;
     if (DRY) { console.log(`DRY-RUN  note: ${msg} A real run would stop here.`); return f; }
     throw new Stop(`${msg} Nothing was changed.`);
   }
-  console.log('INFO  v1 is OFF and v2 is ON (read only check)');
+  console.log(`INFO  ${s.v1Present ? 'v1 is OFF and v2 is ON' : 'v1 does not exist and v2 is ON'} (read only check)`);
   return f;
 }
 async function builderStep() {
