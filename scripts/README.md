@@ -125,17 +125,21 @@ The regression scripts check that the environment holds an exact number of contr
 - **Message only (the count was never checked):** `test-approval-round`, `test-flow-approvalround`, `test-flow-checkpoints`, `test-flow-trigger`, `test-guard-flow`. Their "expected" text now shows the setting.
 - **Not changed:** `verification-api-tests.mjs` reads the seeded `TEST-CT-*` rows as input and does not count them; in an environment without those rows it reports something else. Tested in unit tests (`lib/expect-contracts.test.mjs`, 12 tests) and in the read-only modes on the current environment; **not tested in an environment without contracts**.
 
+### Flow state and the retired flow v1
+
+`approvalFlowState` / `requireFlowOff` / `describeFlowState` (`lib/contract-cleanup.mjs`) read one flow row or several: `on` is true when any row is ON, `known` is false only when the read failed or no row exists (with a `reason`). Flow v1 was retired on 2026-10-24 (ADR-007); four scenarios written for it stay as history with a header banner "v1 scenario, retired": `test-flow-checkpoints.mjs`, `test-guard-flow.mjs`, `test-flow-trigger.mjs` and the `flow-case` mode of `test-usd-freeze.mjs`. `test-flow-approvalround.mjs` reads both title forms and stays usable with v2.
+
 ### Flow v2 builder (ADR-007, batch 3)
 
 | Script | What it does |
 |---|---|
-| `build-flow-v2.mjs` | The definition of "Muwafaqa - Contract Approval v2" as code. `--mode=build` prints the action table (and writes the clientdata JSON to `--out=<path outside the repository>`); `--mode=check` runs the structural checks offline (no network) and exits 1 on a failure; `--mode=create` (needs `--env`, `--confirm-mutates-environment`) sends **one** POST that creates the flow row **OFF** in the solution, never retried, then reads it back and confirms v1 is unchanged; `--mode=verify` (read only) checks that v1 and v2 are OFF. It never turns a flow on or off and never starts a run. The record link keeps the placeholder `<ORG_HOST>`, replaced in memory by the host of `--env` |
+| `build-flow-v2.mjs` | The definition of "Muwafaqa - Contract Approval v2" as code. `--mode=build` prints the action table (and writes the clientdata JSON to `--out=<path outside the repository>`); `--mode=check` runs the structural checks offline (no network) and exits 1 on a failure; `--mode=create` (needs `--env`, `--confirm-mutates-environment`) sends **one** POST that creates the flow row **OFF** in the solution, never retried, then reads it back (and confirms v1 is unchanged if a v1 row exists); the connection references come from the solution (exactly one per connector); `--mode=verify` (read only) checks that v2 is OFF and in the solution (and that v1 is OFF if it exists). v1 is retired: the expected trigger is the documented constant `EXPECTED_TRIGGER`, no v1 file is read. It never turns a flow on or off and never starts a run. The record link keeps the placeholder `<ORG_HOST>`, replaced in memory by the host of `--env` |
 | `build-flow-v2.test.mjs` | 18 unit tests (`node --test scripts/build-flow-v2.test.mjs`): the definition passes and every check fails when the matching defect is introduced |
 
 ### Flow v2 session script (ADR-007; written, not run against a live flow)
 
 | Script | What it does |
 |---|---|
-| `test-flow-v2.mjs` | The cases A to D of the v2 session plan (`docs/flow-on-session-plan.md`), prefixes `TEST-TMP-V2A..D`. Modes `plan`, `baseline` (read only), `setup`, `request`, `await`, `steps`, `withdraw-resubmit`, `verdict`, `cleanup`. `--dry-run` prints the writes and sends none. The owner alone turns v2 on (v1 stays OFF). `request` prints the literal instruction for the owner; `await` waits (up to 15 minutes) until that request is really answered and reports nothing before; `verdict` refuses while a required answer is missing. It never answers or deletes an approval request |
+| `test-flow-v2.mjs` | The cases A to D of the v2 session plan (`docs/flow-on-session-plan.md`), prefixes `TEST-TMP-V2A..D`. Modes `plan`, `baseline` (read only), `setup`, `request`, `await`, `steps`, `withdraw-resubmit`, `verdict`, `cleanup`. `--dry-run` prints the writes and sends none. The owner alone turns v2 on (v1 is retired: a missing v1 is accepted, an existing v1 must be OFF). `request` prints the literal instruction for the owner; `await` waits (up to 15 minutes) until that request is really answered and reports nothing before; `verdict` refuses while a required answer is missing. It never answers or deletes an approval request |
 | `test-flow-v2.test.mjs` | 7 unit tests: prefixes, the plan against the matrix structure, titles, the owner is never asked to answer an Inform request |
 

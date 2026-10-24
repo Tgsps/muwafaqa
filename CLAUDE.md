@@ -29,8 +29,8 @@ Forbidden in any file or test data:
 
 If a task approaches violating this, warn the owner before proceeding.
 
-Approver email addresses (they appear inside the exported flow in `src/Workflows/`):
-- **After every `pac solution sync`, run `node scripts/scrub-emails.mjs` before `git add`.** It replaces email addresses under `src/Workflows/` with `<APPROVER_TEST_ACCOUNT>` and the environment host of the record link (`itemLink`) with `<ORG_HOST>`, and prints counts only, never the values. A scrubbed flow is not importable until the approver account is filled in again.
+Exported flow files (`src/Workflows/`): they carry the environment host in the record links and could carry an approver email:
+- **After every `pac solution sync`, run `node scripts/scrub-emails.mjs` before `git add`.** It replaces email addresses under `src/Workflows/` with `<APPROVER_TEST_ACCOUNT>` and the environment host of the record link (`itemLink`) with `<ORG_HOST>`, and prints counts only, never the values. A scrubbed flow is not importable until its host is filled in again (since flow v1 was retired on 2026-10-24 the only flow, v2, has no approver account; the scrubber keeps the placeholder `<APPROVER_TEST_ACCOUNT>` for any future flow).
 - A local pre-commit hook (`.git/hooks/pre-commit`) rejects any commit whose staged diff adds an email-like string. **`.git/hooks` is not versioned**, so the hook must be recreated on a fresh clone.
 
 ## Division of labor

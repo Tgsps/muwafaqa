@@ -1,6 +1,6 @@
 # Flow Specification — Contract Approval v2
 
-Decision and context: [ADR-007](decisions/ADR-007-approval-chain.md) (batch 3 of 4). v1 is described in [flow-approval-v1.md](flow-approval-v1.md) and **is not changed**.
+Decision and context: [ADR-007](decisions/ADR-007-approval-chain.md) (batch 3 of 4). v1 is described in [flow-approval-v1.md](flow-approval-v1.md). **v1 was retired on 2026-10-24** (deleted from the environment and from `src/`, kept in git history; see [ADR-007](decisions/ADR-007-approval-chain.md), "Flow v1 retired"). The comparisons with v1 below are history.
 
 Every claim is marked **(script)** when a script checked it, **(unit)** for a unit test, **(from Learn)**, or **(not tested)**.
 
@@ -115,7 +115,7 @@ trigger: contract modified (frozen USD value written) and status = Pending Appro
 | No chain | not possible | **Failed** (fail closed) |
 | Trigger | as in section 1 of v1 | **identical** |
 
-**Only one of v1 and v2 may be ON.** With both on, a submission starts two runs. v2 is created OFF; v1 is OFF now; the owner decides which to turn on.
+**Retired:** v1 no longer exists (2026-10-24), so v2 is the only approval flow. While both existed only one could be ON, because with both ON a submission starts two runs. This table stays as the record of what changed.
 
 ## 5. Errors and what the contract does
 
@@ -157,7 +157,7 @@ A contract that stays Pending Approval after a Failed run has to be withdrawn to
 | Loop concurrency 1; the loop reads the steps query | PASS |
 | Every Terminate Failed has code and message; two Terminate Cancelled, both outside the loop | PASS |
 | No email, id or token; `<ORG_HOST>` is the only host | PASS |
-| Trigger equals the v1 trigger in `src/Workflows` | PASS |
+| Trigger equals the v1 trigger | PASS (read from the v1 source in `src/Workflows` then; since v1's retirement the documented constant `EXPECTED_TRIGGER` in `scripts/build-flow-v2.mjs`, itself unit-tested against that source while it existed) |
 
 **Not possible outside the designer (not tested):**
 - **The platform's own validation at Turn on.** It refused the first design (section 0b) although the Flow checker showed 0 errors and 0 warnings. The checks above encode the rules I know from Learn (Terminate, variables, nesting, Switch); other rules I do not know cannot be checked, so **Turn on of the new design is the decisive test** and may find more.

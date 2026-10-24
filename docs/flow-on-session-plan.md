@@ -1,6 +1,6 @@
 # Plan for the flow-ON test session
 
-> This file holds the plan of the **v1** session (executed on 2026-10-19) and, at the end, the **session plan for v2** (prepared 2026-10-22, not executed). The five v1 scripts are v1 scenarios: see the note at the end about which of them can be used with v2.
+> This file holds the plan of the **v1** session (executed on 2026-10-19) and, at the end, the **session plan for v2** (prepared 2026-10-22, not executed). The five v1 scripts are v1 scenarios (v1 was retired on 2026-10-24; the scripts stay as history, four of them with a banner): see the note at the end about which of them can be used with v2.
 
 Status: **executed on 2026-10-19; results at the end of this file.** It covers the five scripts that need the approval flow ON. The flow is turned on and off **by the owner**; no script and no assistant turns it on or off.
 
@@ -189,6 +189,8 @@ About 5 minutes of owner action for A, 8 for B, 15 for C, 15 for D, plus the gat
 | `test-flow-approvalround` | usable: the contract (USD 1000) has a one-step chain; "stage 1" means "step 1 of 1"; approvals are matched by Subject for both title forms (changed 2026-10-22) |
 | `test-flow-checkpoints` | **not as it is**: its scenarios need two stages; the attribution of runs reads both title forms (changed 2026-10-22) |
 | `test-flow-trigger`, `test-guard-flow`, `test-usd-freeze --mode=flow-case` | v1 scenarios with stage 1 and stage 2 wording; the trigger test (counts of runs per action) is independent of the stages and could be reused, not checked |
+
+Since 2026-10-24 v1 does not exist. A v2 session needs v2 ON and nothing else: the line "v1 OFF" read before each case now reads "v1 does not exist" (`test-flow-v2` and `test-flow-failures` accept a missing v1 and still refuse a v1 that is ON). `test-flow-checkpoints`, `test-guard-flow`, `test-flow-trigger` and the `flow-case` mode of `test-usd-freeze` carry the banner "v1 scenario, retired"; `test-flow-approvalround` reads both title forms and stays usable.
 
 ## Session results for v2, 2026-10-22 (flow ON, executed by the owner and the assistant)
 

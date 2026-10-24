@@ -22,4 +22,4 @@ The checks used on staged files (email-like values outside OData annotations, to
 
 ## 4. Placeholders in the exported flow
 
-The flow in `src/` has two placeholders, `<APPROVER_TEST_ACCOUNT>` and `<ORG_HOST>`. A reader who imports it must fill both in. This is intended and is explained in `docs/plugin-registration-log.md`.
+The flow in `src/` (v2; flow v1 and its approver placeholder were retired on 2026-10-24) has one placeholder, `<ORG_HOST>`. A reader who imports it must fill it in. This is intended and is explained in `docs/plugin-registration-log.md` and `docs/rebuild-runbook.md`.

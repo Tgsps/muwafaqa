@@ -1,5 +1,7 @@
 # Flow Specification — Contract Approval v1
 
+> **Retired on 2026-10-24.** The flow was deleted from the environment and from `src/` at the owner's decision (ADR-007, "Flow v1 retired"). This document is kept as history and is not maintained; the approval flow is now [flow-approval-v2.md](flow-approval-v2.md).
+
 A Power Automate cloud flow, built manually by clicking. Two sequential approval stages, fixed approvers.
 
 - **Flow name:** `Muwafaqa - Contract Approval v1`
