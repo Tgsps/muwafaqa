@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ACTIONS, TABLES, ROLES, ROLE_NAMES, FORBIDDEN_BYPASS, privKey, flattenRole, validateDesign, resolvePrivilege, depthAllowed, depthOfMask, compareRolePrivileges, negativeFindings, desiredPrivileges, describeRole, parsePrivilegeName, PLATFORM_BASELINE, membersVerdict, baselineState, checkBaselineExpectation, removePrivilegeBody, restoreBaselineBody, roleFromArg } from './security-roles.mjs';
+import { ACTIONS, TABLES, ROLES, ROLE_NAMES, FORBIDDEN_BYPASS, privKey, flattenRole, validateDesign, resolvePrivilege, depthAllowed, depthOfMask, compareRolePrivileges, negativeFindings, desiredPrivileges, describeRole, parsePrivilegeName, PLATFORM_BASELINE, membersVerdict, AUDIT_READ, resolveDesired, describeExtras, missingDesigned, addPrivilegesBody, baselineState, checkBaselineExpectation, removePrivilegeBody, restoreBaselineBody, roleFromArg } from './security-roles.mjs';
 
 const clone = (x) => JSON.parse(JSON.stringify(x));
 
@@ -128,7 +128,7 @@ test('parsePrivilegeName reads the action and the table, AppendTo before Append,
 
 test('desiredPrivileges and describeRole cover every grant', () => {
   for (const r of ROLES) {
-    assert.equal(desiredPrivileges(r).length, flattenRole(r).length);
+    assert.equal(desiredPrivileges(r).length, flattenRole(r).length + (r.extra || []).length);
     assert.equal(describeRole(r).length, Object.keys(TABLES).length);
   }
   assert.ok(describeRole(ROLES[0])[0].startsWith('Contract: Create User, Read User'));
@@ -177,4 +177,48 @@ test('roleFromArg accepts the short and the full name, case-insensitively, and r
   assert.equal(roleFromArg('Requester'), 'Muwafaqa Requester');
   assert.equal(roleFromArg('muwafaqa admin'), 'Muwafaqa Admin');
   assert.throws(() => roleFromArg('Manager')); assert.throws(() => roleFromArg(''));
+});
+
+test('the Admin role alone holds the two audit read privileges (22 privileges), at Global; the others are unchanged (8 / 3 / 9)', () => {
+  const counts = Object.fromEntries(ROLES.map((r) => [r.name, desiredPrivileges(r).length]));
+  assert.deepEqual(counts, { 'Muwafaqa Requester': 8, 'Muwafaqa Approver': 3, 'Muwafaqa Finance': 9, 'Muwafaqa Admin': 22 });
+  assert.deepEqual(AUDIT_READ.map((a) => [a.name, a.depth]), [['prvReadAuditSummary', 'Global'], ['prvReadRecordAuditHistory', 'Global']]);
+  for (const r of ROLES) assert.equal((r.extra || []).length, r.name === 'Muwafaqa Admin' ? 2 : 0, r.name);
+  assert.deepEqual(describeExtras(ROLES.find((r) => r.name === 'Muwafaqa Admin')), ['prvReadAuditSummary: Organization', 'prvReadRecordAuditHistory: Organization']);
+  assert.deepEqual(validateDesign(), []);
+});
+
+test('validateDesign R8: an extra privilege for another role, an unknown extra, or another depth is a violation; the design with the extras has none', () => {
+  const clone = () => JSON.parse(JSON.stringify(ROLES));
+  const a = clone(); a[0].extra = [{ name: 'prvReadAuditSummary', depth: 'Global' }];
+  assert.ok(validateDesign(a).some((v) => v.startsWith('R8')));
+  const b = clone(); b[3].extra = [{ name: 'prvDeleteRecordChangeHistory', depth: 'Global' }];
+  assert.ok(validateDesign(b).some((v) => v.startsWith('R8')));
+  const c = clone(); c[3].extra = [{ name: 'prvReadAuditSummary', depth: 'Basic' }];
+  assert.ok(validateDesign(c).some((v) => v.startsWith('R8')));
+  const d = clone(); d[3].extra = [{ name: 'prvBypassCustomBusinessLogic', depth: 'Global' }];
+  assert.ok(validateDesign(d).some((v) => v.startsWith('R8')));
+});
+
+test('resolveDesired finds an extra privilege by its exact name and a table privilege by table and action', () => {
+  const rows = [{ name: 'prvReadAuditSummary' }, { name: 'prvReadmwf_Contract' }];
+  const admin = ROLES.find((r) => r.name === 'Muwafaqa Admin');
+  const extra = desiredPrivileges(admin).find((d) => d.extraName === 'prvReadAuditSummary');
+  assert.equal(resolveDesired(rows, extra).ok, true);
+  assert.equal(resolveDesired(rows, { extraName: 'prvReadRecordAuditHistory' }).ok, false);
+  assert.equal(resolveDesired(rows, { action: 'Read', table: 'contract' }).ok, true);
+});
+
+test('missingDesigned finds the audit read privileges an existing Admin role lacks, and a wrong depth', () => {
+  const admin = ROLES.find((r) => r.name === 'Muwafaqa Admin');
+  const designedWithoutExtra = desiredPrivileges(admin).filter((d) => !d.extraName).map((d) => ({ name: d.key, depth: d.depth }));
+  const m = missingDesigned(admin, designedWithoutExtra);
+  assert.deepEqual(m.missing.map((d) => d.extraName), ['prvReadAuditSummary', 'prvReadRecordAuditHistory']); assert.deepEqual(m.wrongDepth, []);
+  const full = [...designedWithoutExtra, { name: 'prvreadauditsummary', depth: 'Global' }, { name: 'prvReadRecordAuditHistory', depth: 'Basic' }];
+  const m2 = missingDesigned(admin, full);
+  assert.deepEqual(m2.missing, []); assert.deepEqual(m2.wrongDepth.map((d) => d.extraName), ['prvReadRecordAuditHistory']);
+});
+
+test('addPrivilegesBody uses the depth numbers (Global = 3, Basic = 0)', () => {
+  assert.deepEqual(addPrivilegesBody([{ privilegeid: 'a', depth: 'Global' }, { privilegeid: 'b', depth: 'Basic' }]), { Privileges: [{ PrivilegeId: 'a', Depth: '3' }, { PrivilegeId: 'b', Depth: '0' }] });
 });

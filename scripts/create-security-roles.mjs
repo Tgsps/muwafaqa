@@ -13,6 +13,7 @@
  *   --mode=remove-baseline --role=<Requester|Approver|Finance|Admin>   controlled experiment (ADR-008): one RemovePrivilegeRole call per baseline privilege that is there (up to 9), idempotent, --dry-run reads and prints.
  *                   A 4xx stops at once, no other form is tried, nothing is retried. Needs --confirm-mutates-environment.
  *   --mode=restore-baseline --role=...   one AddPrivilegesRole call that puts the missing baseline privileges back at Global (idempotent)
+ *   --mode=add-missing --role=Admin   one AddPrivilegesRole call for the designed audit-read privileges the role lacks (never removes anything; refuses if the role differs in anything else)
  *   verify takes --expect-baseline=none|all|any (default none: any of the nine that appears again fails): how many of the nine must be there
  *   --mode=cleanup  deletes ONLY the four roles named in the design, and only if no user and no team is a member of it. Needs --confirm-mutates-environment
  *
@@ -24,17 +25,17 @@
 import { parseArgs, openSession, noGuid, Stop } from './lib/dv-session.mjs';
 import { requireStableConnection } from './lib/counter-snapshot.mjs';
 import { allFlowsOff } from './lib/bulk-messages.mjs';
-import { membersVerdict, baselineState, checkBaselineExpectation, removePrivilegeBody, restoreBaselineBody, roleFromArg, TABLES, ROLES, ROLE_NAMES, DEPTH_VALUE, DEPTH_LABEL, FORBIDDEN_BYPASS, ACTIONS, validateDesign, resolvePrivilege, depthAllowed, depthOfMask, compareRolePrivileges, negativeFindings, desiredPrivileges, describeRole, parsePrivilegeName, PLATFORM_BASELINE } from './lib/security-roles.mjs';
+import { resolveDesired, describeExtras, missingDesigned, addPrivilegesBody, AUDIT_READ, membersVerdict, baselineState, checkBaselineExpectation, removePrivilegeBody, restoreBaselineBody, roleFromArg, TABLES, ROLES, ROLE_NAMES, DEPTH_VALUE, DEPTH_LABEL, FORBIDDEN_BYPASS, ACTIONS, validateDesign, resolvePrivilege, depthAllowed, depthOfMask, compareRolePrivileges, negativeFindings, desiredPrivileges, describeRole, parsePrivilegeName, PLATFORM_BASELINE } from './lib/security-roles.mjs';
 
 const { argOf, env: ENV, auth: AUTH, has } = parseArgs();
 const MODE = argOf('mode');
 const DRY = has('--dry-run');
 const SOLUTION = 'Muwafaqa';
 const q = encodeURIComponent;
-if (!['check', 'create', 'verify', 'cleanup', 'remove-baseline', 'restore-baseline'].includes(MODE)) { console.error('Missing or invalid --mode=check|create|verify|cleanup|remove-baseline|restore-baseline. Nothing was run.'); process.exit(2); }
+if (!['check', 'create', 'verify', 'cleanup', 'remove-baseline', 'restore-baseline', 'add-missing'].includes(MODE)) { console.error('Missing or invalid --mode=check|create|verify|cleanup|remove-baseline|restore-baseline|add-missing. Nothing was run.'); process.exit(2); }
 const EXPECT = argOf('expect-baseline') || 'none';
 try { checkBaselineExpectation(EXPECT, 0); } catch (e) { console.error(`${e.message}. Nothing was run.`); process.exit(2); }
-if (['create', 'cleanup', 'remove-baseline', 'restore-baseline'].includes(MODE) && !DRY && !has('--confirm-mutates-environment')) {
+if (['create', 'cleanup', 'remove-baseline', 'restore-baseline', 'add-missing'].includes(MODE) && !DRY && !has('--confirm-mutates-environment')) {
   console.error(`WARNING: --mode=${MODE} writes security roles to the environment. Add --confirm-mutates-environment to run it on purpose, or --dry-run to see what it would send. Nothing was run.`);
   process.exit(2);
 }
@@ -71,6 +72,7 @@ async function tableMeta() {
 async function privilegeRows() {
   const rows = [];
   for (const t of Object.values(TABLES)) rows.push(...(await get(`privileges?$select=name,canbebasic,canbelocal,canbedeep,canbeglobal&$filter=${q(`contains(name,'${t.logical}')`)}`)).value);
+  for (const e of AUDIT_READ) rows.push(...(await get(`privileges?$select=name,canbebasic,canbelocal,canbedeep,canbeglobal&$filter=${q(`name eq '${e.name}'`)}`)).value);
   return rows;
 }
 async function rolesByName() {
@@ -98,7 +100,7 @@ async function modeCheck() {
   check('flows', `both approval flows are OFF (${f.line})`, f.ok);
   if (!f.ok) throw new Stop('An approval flow is ON or not readable. Nothing was changed.');
   const v = validateDesign();
-  check('design', 'the design rules R1 to R7 hold (no Assign / Share, no counter privilege, organization-owned tables only Global, User level only for the Requester on the contract)', v.length === 0, v.join('; ') || `${ROLES.length} roles`);
+  check('design', 'the design rules R1 to R8 hold (no Assign / Share, no counter privilege, organization-owned tables only Global, User level only for the Requester on the contract, audit read only for the Admin)', v.length === 0, v.join('; ') || `${ROLES.length} roles`);
   const meta = await tableMeta();
   for (const [key, t] of Object.entries(TABLES)) check('table', `${t.logical}: ${meta[key].ownership}`, meta[key].ownership === t.ownership, `expected ${t.ownership}`);
   const rows = await privilegeRows();
@@ -106,8 +108,8 @@ async function modeCheck() {
   let bad = 0;
   for (const role of ROLES) {
     for (const d of desiredPrivileges(role)) {
-      const logical = TABLES[d.table].logical;
-      const r = resolvePrivilege(rows, d.action, logical);
+      const logical = d.extraName || TABLES[d.table].logical;
+      const r = resolveDesired(rows, d);
       if (!r.ok) { bad++; out('priv', 'FAIL', `${role.name}: ${d.action} on ${logical} not resolved`, r.error); continue; }
       if (!depthAllowed(r.row, d.depth)) { bad++; out('priv', 'FAIL', `${role.name}: ${d.action} on ${logical} is not allowed at ${d.depth}`, `flags B ${r.row.canbebasic} L ${r.row.canbelocal} D ${r.row.canbedeep} G ${r.row.canbeglobal}`); }
     }
@@ -133,7 +135,7 @@ async function modeCreate() {
   const bu = (await get('businessunits?$select=name&$filter=parentbusinessunitid eq null')).value[0].businessunitid;
   const existing = await rolesByName();
   for (const role of ROLES) {
-    const privs = desiredPrivileges(role).map((d) => ({ ...d, row: resolvePrivilege(rows, d.action, TABLES[d.table].logical).row }));
+    const privs = desiredPrivileges(role).map((d) => ({ ...d, row: resolveDesired(rows, d).row }));
     if (existing[role.name].length > 1) throw new Stop(`${existing[role.name].length} roles named "${role.name}" exist. Nothing was written for it.`);
     if (existing[role.name].length === 1) {
       const id = existing[role.name][0].roleid;
@@ -188,7 +190,9 @@ async function modeVerify() {
       const acts = byTable[t.logical];
       console.log(`         ${t.title.padEnd(24)} ${acts ? ACTIONS.filter((a) => acts[a]).map((a) => `${a}:${DEPTH_LABEL[acts[a]] ?? '?'}`).join(', ') : 'none'}`);
     }
-    const other = stored.filter((x) => !parsePrivilegeName(x.name));
+    const designedExtra = (role.extra || []).map((e) => e.name.toLowerCase());
+    if (designedExtra.length) console.log(`         Audit read (designed): ${stored.filter((x) => designedExtra.includes(String(x.name).toLowerCase())).map((x) => `${x.name}:${DEPTH_LABEL[x.depth] ?? '?'}`).join(', ') || 'none stored yet'}`);
+    const other = stored.filter((x) => !parsePrivilegeName(x.name) && !designedExtra.includes(String(x.name).toLowerCase()));
     if (other.length) console.log(`         platform baseline (tolerated by name, Global only): ${other.map((x) => `${x.name}:${DEPTH_LABEL[x.depth] ?? '?'}`).join(', ')}`);
   }
   const hits = negativeFindings(actualByRole);
@@ -265,6 +269,29 @@ async function modeRestoreBaseline() {
   return !results.some((x) => x.status === 'FAIL');
 }
 
+// ---------------------------------------------------------------------------------------------------------------- add-missing (audit read privileges of the Admin role, ADR-009)
+/** One AddPrivilegesRole call for the designed EXTRA privileges (audit read) that a role lacks. Never removes anything; refuses if the role differs from its design in anything else. */
+async function modeAddMissing() {
+  const r = await oneRole();
+  const f = await flowsOff(); check('flows', `both approval flows are OFF (${f.line})`, f.ok);
+  if (!f.ok) throw new Stop('An approval flow is ON or not readable. Nothing was changed.');
+  const stored = await storedPrivileges(r.id);
+  const diff = compareRolePrivileges(desiredPrivileges(r.role).filter((d) => !d.extraName), stored.filter((s) => !(r.role.extra || []).some((e) => e.name.toLowerCase() === String(s.name).toLowerCase())), PLATFORM_BASELINE);
+  if (!diff.same) throw new Stop(`${r.name} differs from its design in more than the audit read privileges (missing ${diff.missing.length}, extra ${diff.extra.length}, wrong depth ${diff.wrongDepth.length}). Nothing was changed.`);
+  const m = missingDesigned(r.role, stored);
+  if (m.wrongDepth.length) throw new Stop(`${m.wrongDepth.length} designed privilege(s) are stored at another depth. Nothing was changed.`);
+  const rows = await privilegeRows();
+  const todo = m.missing.map((d) => { const x = resolveDesired(rows, d); if (!x.ok) throw new Stop(x.error); return { name: x.row.name, privilegeid: x.row.privilegeid, depth: d.depth }; });
+  console.log(`INFO  ${r.name}: ${todo.length} designed privilege(s) missing${todo.length ? ': ' + todo.map((x) => x.name + '=' + x.depth).join(', ') : ''}`);
+  if (!todo.length) return true;
+  const w = await write('POST', `roles(${r.id})/Microsoft.Dynamics.CRM.AddPrivilegesRole`, addPrivilegesBody(todo), undefined, `[add ${todo.length} privilege(s)]`);
+  if (DRY) { console.log('\nDRY-RUN: nothing was sent.'); return true; }
+  if (!w.ok) throw new Stop(`AddPrivilegesRole answered HTTP ${w.status} ${S.msgOf(w)}. Not retried; read the state with --mode=verify.`);
+  const after = await storedPrivileges(r.id);
+  check('role', `${r.name}: after the call the designed privileges are all there`, missingDesigned(r.role, after).missing.length === 0, `${after.length} stored`);
+  return !results.some((x) => x.status === 'FAIL');
+}
+
 // ---------------------------------------------------------------------------------------------------------------- cleanup
 async function modeCleanup() {
   const existing = await rolesByName();
@@ -285,7 +312,7 @@ async function modeCleanup() {
   try {
     S = await openSession({ env: ENV, auth: AUTH });
     await requireStableConnection(S.call);
-    const ok = MODE === 'check' ? await modeCheck() : MODE === 'create' ? await modeCreate() : MODE === 'verify' ? await modeVerify() : MODE === 'remove-baseline' ? await modeRemoveBaseline() : MODE === 'restore-baseline' ? await modeRestoreBaseline() : await modeCleanup();
+    const ok = MODE === 'check' ? await modeCheck() : MODE === 'create' ? await modeCreate() : MODE === 'verify' ? await modeVerify() : MODE === 'remove-baseline' ? await modeRemoveBaseline() : MODE === 'restore-baseline' ? await modeRestoreBaseline() : MODE === 'add-missing' ? await modeAddMissing() : await modeCleanup();
     process.exit(ok ? 0 : 1);
   } catch (e) {
     console.error(`\nSTOPPED: ${noGuid(e.message)}`);

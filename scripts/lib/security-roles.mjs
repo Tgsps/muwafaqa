@@ -37,6 +37,15 @@ const b = (actions) => Object.fromEntries(actions.map((a) => [a, 'Basic']));
  * The four roles. `grants[table][action] = depth`; an action that is not listed is None. No role lists Assign, Share, any privilege on the counter table
  * or a bypass privilege (rules checked by validateDesign and again on the real roles by verify).
  */
+/**
+ * The two privileges that let the Admin role READ the audit history (ADR-009). Names and depth read from the environment metadata on 2026-10-24: both exist and
+ * can be given at Global only. They are not table privileges, so they are listed apart from `grants`. No other role gets them.
+ */
+export const AUDIT_READ = [
+  { name: 'prvReadAuditSummary', depth: 'Global' },
+  { name: 'prvReadRecordAuditHistory', depth: 'Global' },
+];
+
 export const ROLES = [
   {
     name: 'Muwafaqa Requester',
@@ -57,6 +66,7 @@ export const ROLES = [
     name: 'Muwafaqa Admin',
     description: 'Maintains the approval matrix, the approver assignments and the counterparties; reads contracts and approval steps (Organization level). Cannot assign or share records and has no bypass privilege.',
     grants: { contract: { Read: 'Global' }, counterparty: g(ALL), step: { Read: 'Global' }, matrix: g(ALL), assignment: g(ALL) },
+    extra: AUDIT_READ,
   },
 ];
 
@@ -94,6 +104,13 @@ export function validateDesign(roles = ROLES, tables = TABLES) {
       if (depth === 'Local' || depth === 'Deep') v.push(`R5 Local and Deep are not used (${where})`);
       if (table === 'contract' && depth === 'Basic' && r.name !== 'Muwafaqa Requester') v.push(`R4 only the Requester has User level on the contract (${where})`);
       if (table === 'contract' && r.name !== 'Muwafaqa Requester' && !(action === 'Read' && depth === 'Global')) v.push(`R4 outside the Requester only Read at Organization on the contract (${where})`);
+    }
+  }
+  // R8 only the Admin role may hold extra (audit read) privileges, only the two named ones, only at Global
+  for (const r of roles) {
+    for (const e of r.extra || []) {
+      if (r.name !== 'Muwafaqa Admin') v.push(`R8 only the Admin role may hold extra privileges (${r.name}: ${e.name})`);
+      if (!AUDIT_READ.some((a) => a.name === e.name && a.depth === e.depth)) v.push(`R8 extra privilege not allowed: ${r.name}: ${e.name} at ${e.depth}`);
     }
   }
   return v;
@@ -190,8 +207,32 @@ export function parsePrivilegeName(name, tables = TABLES) {
 
 /** The desired privileges of a role as [{ key, depth, action, table }] */
 export function desiredPrivileges(role, tables = TABLES) {
-  return flattenRole(role).map((x) => ({ key: privKey(x.action, tables[x.table].logical), depth: x.depth, action: x.action, table: x.table }));
+  const fromTables = flattenRole(role).map((x) => ({ key: privKey(x.action, tables[x.table].logical), depth: x.depth, action: x.action, table: x.table }));
+  const fromExtra = (role.extra || []).map((e) => ({ key: e.name.toLowerCase(), depth: e.depth, action: 'Read', table: '(audit)', extraName: e.name }));
+  return [...fromTables, ...fromExtra];
 }
+
+/** The privilege row of one desired grant: by table and action, or, for an extra privilege (audit read), by its exact name. */
+export function resolveDesired(rows, d) {
+  if (d.extraName) {
+    const hits = (rows || []).filter((r) => String(r.name).toLowerCase() === d.extraName.toLowerCase());
+    return hits.length === 1 ? { ok: true, row: hits[0] } : { ok: false, error: `${hits.length} privilege row(s) named ${d.extraName}` };
+  }
+  return resolvePrivilege(rows, d.action, TABLES[d.table].logical);
+}
+
+/** The extra (audit read) privileges of a role as text, for the plan. */
+export const describeExtras = (role) => (role.extra || []).map((e) => `${e.name}: ${DEPTH_LABEL[e.depth]}`);
+
+/** What a role lacks of its design: { missing: [desired], wrongDepth: [desired] }. stored: [{ name, depth }] */
+export function missingDesigned(role, stored) {
+  const have = new Map((stored || []).map((s) => [String(s.name).toLowerCase(), s.depth]));
+  const want = desiredPrivileges(role);
+  return { missing: want.filter((d) => !have.has(d.key)), wrongDepth: want.filter((d) => have.has(d.key) && have.get(d.key) !== d.depth) };
+}
+
+/** The body of AddPrivilegesRole for a list of { privilegeid, depth }. */
+export const addPrivilegesBody = (list) => ({ Privileges: list.map((x) => ({ PrivilegeId: x.privilegeid, Depth: String(DEPTH_VALUE[x.depth]) })) });
 
 /** A readable matrix, one line per table: "Contract: Create U, Read U ..." (U = User, O = Organization). Used by the plan and the ADR. */
 export function describeRole(role, tables = TABLES) {

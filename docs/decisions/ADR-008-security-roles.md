@@ -1,7 +1,7 @@
 # ADR-008: Security roles of the project
 
 - **Status:** **Accepted; the non-interactive path is tested, with the nine platform-baseline privileges removed.** The design was accepted on 2026-10-22 and the four roles exist and pass `--mode=verify` ("Result of the creation"). The behavioral test with a non-interactive application user was run on 2026-10-24: a first run (76 PASS, 0 FAIL, 4 OBS), then rounds 1 to 3 with the improved test (79 PASS with the nine present; after their removal Requester 40, Approver 22, Finance 25, Admin 28 PASS, 0 FAIL) ("Rounds 1 to 3"). **Not tested:** an interactive user in a model-driven app, the re-addition of the nine when a new role is created or a solution is imported, Share / Assign, secured columns, several roles at once, a business unit other than the root, and the re-reading after 30 minutes and on the next day.
-- **Date:** 2026-10-22
+- **Date:** 2026-10-22 (updated 2026-10-24: the Admin role gets the two audit-read privileges, ADR-009)
 - **Related:** [ADR-004](ADR-004-contract-state-guard.md) (guard), [ADR-006](ADR-006-contract-number-generator.md) (counter), [ADR-007](ADR-007-approval-chain.md) (chain, flow v2), `scripts/create-security-roles.mjs`, `scripts/lib/security-roles.mjs`.
 
 ## Context
@@ -26,6 +26,7 @@ Four roles, created in the root business unit and in the solution, with the priv
 | Approval Matrix (org-owned) | - | - | R: O | C R W D A AT: O |
 | Approver Assignment (org-owned) | - | - | R: O | C R W D A AT: O |
 | Contract Number Counter (org-owned) | - | - | - | - |
+| Audit history (platform privileges `prvReadAuditSummary`, `prvReadRecordAuditHistory`) | - | - | - | R: **O** (proposed by [ADR-009](ADR-009-auditing.md), design updated 2026-10-24, **not applied in the environment yet**) |
 
 Rules (all enforced in the code and checked again on the real roles by `--mode=verify`):
 
@@ -75,6 +76,10 @@ Why the Approver and Finance roles only read the Contract: approvers decide in t
 | Every one of the 40 grants of the design resolves to one privilege row and is allowed at its depth | script, `--mode=check` |
 
 **Not verified (marked here so that nothing is assumed):** the numbers of Basic / Local / Deep in `Depth` (the SDK enum gives 0, 1, 2; only Global = 3 was read in Learn; this work uses only Basic = 0 and Global = 3); the values of `privilegedepthmask` (1, 2, 4, 8 is the expected mapping; `--mode=verify` fails on any other value instead of assuming); that the header `MSCRM.SolutionUniqueName` puts a role into the solution (it is used for the plug-in steps in this project; `--mode=verify` checks the solution membership of each role, component type 20); that omitting `BusinessUnitId` in `AddPrivilegesRole` is accepted (the Learn example omits it); `ReplacePrivilegesRole` (not used: a role that differs from the design stops the script). Since the creation: the privilege cache showed a new grant for the application user within 0 to 11 s and a removal within 0 to 6 s in this test (script; not a guarantee).
+
+## Update 2026-10-24: audit read for the Admin role (ADR-009)
+
+Owner decision for [ADR-009](ADR-009-auditing.md): **only the Admin role** gets `prvReadAuditSummary` and `prvReadRecordAuditHistory`; no other role, and nobody gets `prvDeleteRecordChangeHistory`, `prvDeleteAudit` or the partition privileges. Both privileges exist and can be given only at Organization level (script, `privileges` flags). **The design now has 8 / 3 / 9 / 22 privileges** (Requester / Approver / Finance / Admin). It is implemented in `scripts/lib/security-roles.mjs` (`AUDIT_READ`, rule R8: only the Admin role, only those two names, only Organization depth) and checked by `--mode=check` and `--mode=verify`. **The environment still has 20 privileges for the Admin role**, so `--mode=verify` fails for it (missing 2) until `--mode=add-missing --role=Admin` is run (one `AddPrivilegesRole` call; it never removes anything and refuses if the role differs from its design in anything else; dry-run done, not applied). After that `src/Roles/Muwafaqa Admin.xml` needs a `pac solution sync`. Not tested: that these two privileges are enough to open "Audit History" in a model-driven app (the scripts use the Web API).
 
 ## Result of the creation (2026-10-22)
 
