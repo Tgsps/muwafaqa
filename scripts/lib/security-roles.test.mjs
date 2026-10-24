@@ -162,7 +162,9 @@ test('checkBaselineExpectation: none, all, any, and an invalid value', () => {
   assert.equal(checkBaselineExpectation('none', 0).ok, true); assert.equal(checkBaselineExpectation('none', 1).ok, false);
   assert.equal(checkBaselineExpectation('all', 9).ok, true); assert.equal(checkBaselineExpectation('all', 8).ok, false);
   for (const n of [0, 5, 9]) assert.equal(checkBaselineExpectation('any', n).ok, true);
-  assert.equal(checkBaselineExpectation(undefined, 3).ok, true);   // the default is any
+  assert.equal(checkBaselineExpectation(undefined, 0).ok, true);   // the default is none: no baseline privilege present
+  assert.equal(checkBaselineExpectation(undefined, 3).ok, false);  // ... and a re-addition is detected
+  assert.equal(checkBaselineExpectation('', 1).ok, false);
   assert.throws(() => checkBaselineExpectation('some', 3));
 });
 

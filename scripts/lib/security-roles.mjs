@@ -220,9 +220,9 @@ export function baselineState(stored) {
   return { present, wrongDepth, missing };
 }
 
-/** --expect-baseline=none|all|any for verify: the number of baseline privileges that must be there (0, all nine, or any number). */
+/** --expect-baseline=none|all|any for verify (default none): the number of baseline privileges that must be there (0, all nine, or any number). */
 export function checkBaselineExpectation(expect, presentCount, total = PLATFORM_BASELINE.length) {
-  const e = expect || 'any';
+  const e = expect || 'none';   // the default of verify: none of the nine may be there (a re-addition is detected)
   if (!['none', 'all', 'any'].includes(e)) throw new Error(`invalid --expect-baseline=${e} (none|all|any)`);
   if (e === 'none') return { ok: presentCount === 0, expected: 'none of the nine' };
   if (e === 'all') return { ok: presentCount === total, expected: `all ${total}` };

@@ -13,7 +13,7 @@
  *   --mode=remove-baseline --role=<Requester|Approver|Finance|Admin>   controlled experiment (ADR-008): one RemovePrivilegeRole call per baseline privilege that is there (up to 9), idempotent, --dry-run reads and prints.
  *                   A 4xx stops at once, no other form is tried, nothing is retried. Needs --confirm-mutates-environment.
  *   --mode=restore-baseline --role=...   one AddPrivilegesRole call that puts the missing baseline privileges back at Global (idempotent)
- *   verify takes --expect-baseline=none|all|any (default any): how many of the nine must be there
+ *   verify takes --expect-baseline=none|all|any (default none: any of the nine that appears again fails): how many of the nine must be there
  *   --mode=cleanup  deletes ONLY the four roles named in the design, and only if no user and no team is a member of it. Needs --confirm-mutates-environment
  *
  * Before every write: 3 consecutive successful reads. A write is never retried. If the result of a write is unknown the script stops and says so.
@@ -32,7 +32,7 @@ const DRY = has('--dry-run');
 const SOLUTION = 'Muwafaqa';
 const q = encodeURIComponent;
 if (!['check', 'create', 'verify', 'cleanup', 'remove-baseline', 'restore-baseline'].includes(MODE)) { console.error('Missing or invalid --mode=check|create|verify|cleanup|remove-baseline|restore-baseline. Nothing was run.'); process.exit(2); }
-const EXPECT = argOf('expect-baseline') || 'any';
+const EXPECT = argOf('expect-baseline') || 'none';
 try { checkBaselineExpectation(EXPECT, 0); } catch (e) { console.error(`${e.message}. Nothing was run.`); process.exit(2); }
 if (['create', 'cleanup', 'remove-baseline', 'restore-baseline'].includes(MODE) && !DRY && !has('--confirm-mutates-environment')) {
   console.error(`WARNING: --mode=${MODE} writes security roles to the environment. Add --confirm-mutates-environment to run it on purpose, or --dry-run to see what it would send. Nothing was run.`);
