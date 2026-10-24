@@ -108,6 +108,23 @@ Notes: the two ApprovalMatrix and approver loaders must both be run once per env
 | `test-auditing.mjs` | Behavioral test of auditing with the admin account (ADR-009): counterparty create/edit/delete, contract create/edit/submit/withdraw/delete, a temporary matrix row (create, edit, delete) and an assignment row renamed and restored (restored in a finally block, read back); waits for the audit rows (poll every 10 s, at most 10 minutes) and records the real delay; checks who, what changed (old and new values), the operation, the plug-in changes and the steps, with the audits table, `RetrieveRecordChangeHistory` and `RetrieveAuditDetails`. Prefix `TEST-TMP-AUD`, flows OFF, counters restored. Modes `plan` (offline), `run`, `cleanup`, `--dry-run`. Run on 2026-10-24: 23 PASS, 0 FAIL, 6 OBS (ADR-009). A change of `mwf_user` is not tested |
 | `check-connection.mjs` | Read-only monitor. Acceptance (owner decision 2026-10-22): the environment only (GET and DNS of the environment host, at most 2 failures of each in 36 cycles, never two in a row); the neutral host and the old "any" line are diagnostics. Rule in `lib/connection-verdict.mjs` |
 
+
+### Expected number of contracts (K5 of docs/rebuild-runbook.md)
+
+The regression scripts check that the environment holds an exact number of contracts before and after a run. That number is one shared setting, read by `lib/expect-contracts.mjs`:
+
+| Source | Form | Precedence |
+|---|---|---|
+| Argument | `--expect-contracts=N` | 1 (wins) |
+| Environment variable | `MWF_EXPECT_CONTRACTS=N` | 2 |
+| Default | 11 (the contracts of the current environment) | 3 |
+
+`N` must be a whole number of 0 or more (digits only: no sign, decimals, spaces or leading zeros; an empty value is rejected too). Anything else stops the script with exit code 2 before it reads or writes anything. Every script below prints `INFO  contracts expected in the starting and the final state: N (source: ...)` first. The other starting numbers (110 active matrix rows, 5 active assignments, 0 approval steps, counters 0) are not configurable: a freshly seeded environment has the same ones.
+
+- **Checks that fail on the number:** `test-approval-chain`, `test-auditing`, `test-bulk-messages`, `test-contract-number`, `test-security-roles`, `test-flow-v2`, `test-flow-failures`, `verify-approval-chain-schema --cascade-test`. In the read-only `baseline` mode of `test-flow-v2` and `test-flow-failures` a wrong number prints `MISMATCH contracts: expected X (source), found Y` and exits 1.
+- **Message only (the count was never checked):** `test-approval-round`, `test-flow-approvalround`, `test-flow-checkpoints`, `test-flow-trigger`, `test-guard-flow`. Their "expected" text now shows the setting.
+- **Not changed:** `verification-api-tests.mjs` reads the seeded `TEST-CT-*` rows as input and does not count them; in an environment without those rows it reports something else. Tested in unit tests (`lib/expect-contracts.test.mjs`, 12 tests) and in the read-only modes on the current environment; **not tested in an environment without contracts**.
+
 ### Flow v2 builder (ADR-007, batch 3)
 
 | Script | What it does |

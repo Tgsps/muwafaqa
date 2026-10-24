@@ -34,10 +34,13 @@ import { deleteContracts } from './lib/contract-cleanup.mjs';
 import { enterCleanupPhase, recheckAfterWait } from './lib/resilient-fetch.mjs';
 import { allFlowsOff } from './lib/bulk-messages.mjs';
 import { AUDIT_TABLES, changesOf, describeRows, operationName, actionName, lagStats, classifyUser, unmetExpectations, pollFinished, noteNewRows, changeHistoryPath, auditDetailsPath } from './lib/auditing.mjs';
+import { expectContractsOrExit, describeExpectContracts, contractsVerdict } from './lib/expect-contracts.mjs';
 
 const PREFIX = 'TEST-TMP-AUD';
 const MAX_WAIT_MS = 10 * 60 * 1000; const POLL_MS = 10 * 1000; const QUIET_MS = 60 * 1000;
 const MODE = (process.argv.find((a) => a.startsWith('--mode=')) || '').slice(7);
+const EXPECT = expectContractsOrExit();   // contracts expected in the starting and the final state (argument, variable or default 11)
+console.log(describeExpectContracts(EXPECT));
 const q = encodeURIComponent;
 
 if (MODE === 'plan') {
@@ -79,7 +82,7 @@ async function checkClean() {
   const as = (await get(`mwf_approverassignments?$select=mwf_name&$filter=${q(`contains(mwf_name,'${PREFIX}')`)}`)).value.length;
   const total = await count('mwf_contracts'); const steps = await count('mwf_approvalsteps');
   const m = await count('mwf_approvalmatrixes?$filter=statecode eq 0'); const asg = await count('mwf_approverassignments?$filter=statecode eq 0');
-  console.log(`check-clean (prefix ${PREFIX}): contracts ${a}, counterparties ${b}, matrix rows renamed ${mx}, assignments renamed ${as}, total contracts ${total}, steps ${steps}, active matrix rows ${m}, active assignments ${asg} (expected 0, 0, 0, 0, 11, 0, 110, 5)`);
+  console.log(`check-clean (prefix ${PREFIX}): contracts ${a}, counterparties ${b}, matrix rows renamed ${mx}, assignments renamed ${as}, total contracts ${total}, steps ${steps}, active matrix rows ${m}, active assignments ${asg} (expected 0, 0, 0, 0, ${EXPECT.value}, 0, 110, 5)`);
   return { a, b, mx, as, total, steps, m, asg };
 }
 async function auditConfigApplied() {
@@ -132,7 +135,7 @@ async function run() {
   const f = await flowsOff(); check('flows', `both approval flows are OFF (${f.line})`, f.ok); if (!f.ok) throw new Stop('A flow is ON. Nothing was created.');
   if (!(await auditConfigApplied()) && !DRY) throw new Stop('Apply the audit configuration first (scripts/configure-auditing.mjs). Nothing was created.');
   const pre = await checkClean();
-  if (pre.a || pre.b || pre.mx || pre.as || pre.steps || pre.total !== 11 || pre.m !== 110 || pre.asg !== 5) throw new Stop('The starting state is not clean (see the line above). Nothing was created.');
+  if (pre.a || pre.b || pre.mx || pre.as || pre.steps || pre.total !== EXPECT.value || pre.m !== 110 || pre.asg !== 5) throw new Stop(`The starting state is not clean (see the line above; ${contractsVerdict(EXPECT, pre.total).text}). Nothing was created.`);
   ADMIN = (await get('WhoAmI')).UserId;
   SYSTEM_IDS = (await get(`systemusers?$select=fullname&$filter=${q("fullname eq 'SYSTEM'")}`)).value.map((x) => x.systemuserid);
   const usd = (await get("transactioncurrencies?$select=isocurrencycode&$filter=isocurrencycode eq 'USD' and statecode eq 0")).value[0].transactioncurrencyid;
@@ -225,7 +228,7 @@ async function run() {
     await cleanupRows();
     const rs = await restoreAfterRun(S.ctr, snap);
     const c = await checkClean();
-    check('D', 'check-clean: no TEST-TMP-AUD rows, no temporary matrix row, no renamed assignment row, 11 contracts, 0 steps, 110 matrix rows, 5 assignments, counters restored', c.a === 0 && c.b === 0 && c.mx === 0 && c.as === 0 && c.total === 11 && c.steps === 0 && c.m === 110 && c.asg === 5 && rs.refused === 0, `refused ${rs.refused}`);
+    check('D', 'check-clean: no TEST-TMP-AUD rows, no temporary matrix row, no renamed assignment row, ' + EXPECT.value + ' contracts, 0 steps, 110 matrix rows, 5 assignments, counters restored', c.a === 0 && c.b === 0 && c.mx === 0 && c.as === 0 && c.total === EXPECT.value && c.steps === 0 && c.m === 110 && c.asg === 5 && rs.refused === 0, `refused ${rs.refused}`);
   }
 }
 

@@ -45,8 +45,11 @@ import { allFlowsOff } from './lib/bulk-messages.mjs';
 import { BUILDER_STEP_NAME } from './lib/flow-failures.mjs';
 import { ENV_NAMES, PREFIX, NIL_ID, ROLE_ORDER, CASES, missingEnv, tokenRequest, associatePath, associateBody, disassociatePath, makeRedactor, judge, judgeProbeOnNilId, shortMessage, pollUntil, startRolesOk, phaseDecision, rolesToRelease, parseRolesArg, redactThenShorten } from './lib/security-test.mjs';
 import { membersVerdict } from './lib/security-roles.mjs';
+import { expectContractsOrExit, describeExpectContracts } from './lib/expect-contracts.mjs';
 
 const MODE = (process.argv.find((a) => a.startsWith('--mode=')) || '').slice(7);
+const EXPECT = expectContractsOrExit();   // contracts expected in the starting and the final state (argument, variable or default 11)
+console.log(describeExpectContracts(EXPECT));
 const q = encodeURIComponent;
 
 if (MODE === 'plan') {
@@ -146,7 +149,7 @@ async function checkClean() {
   const mx = (await get(`mwf_approvalmatrixes?$select=mwf_rulename&$filter=${q(`startswith(mwf_rulename,'${PREFIX}')`)}`)).value.length;
   const total = await count('mwf_contracts'); const steps = await count('mwf_approvalsteps');
   const m = await count('mwf_approvalmatrixes?$filter=statecode eq 0'); const asg = await count('mwf_approverassignments?$filter=statecode eq 0');
-  console.log(`check-clean (prefix ${PREFIX}): contracts ${a}, counterparties ${b}, matrix rows ${mx}, total contracts ${total}, steps ${steps}, active matrix rows ${m}, active assignments ${asg} (expected 0, 0, 0, 11, 0, 110, 5)`);
+  console.log(`check-clean (prefix ${PREFIX}): contracts ${a}, counterparties ${b}, matrix rows ${mx}, total contracts ${total}, steps ${steps}, active matrix rows ${m}, active assignments ${asg} (expected 0, 0, 0, ${EXPECT.value}, 0, 110, 5)`);
   return { a, b, mx, total, steps, m, asg };
 }
 async function baseline() {
@@ -157,7 +160,7 @@ async function baseline() {
   const names = await rolesOfUser(); out('state', startRolesOk(names) ? 'PASS' : 'FAIL', 'the application user holds no role, or the Requester role only', `${names.length} role(s): ${names.join(' | ') || 'none'}`);
   try { await appToken(); out('state', 'PASS', 'a token was obtained for the application user (client credentials)'); } catch (e) { out('state', 'FAIL', 'token for the application user', RED(e.message)); }
   const c = await checkClean();
-  out('state', c.a === 0 && c.b === 0 && c.mx === 0 && c.total === 11 && c.steps === 0 && c.m === 110 && c.asg === 5 ? 'PASS' : 'FAIL', 'the starting state is clean');
+  out('state', c.a === 0 && c.b === 0 && c.mx === 0 && c.total === EXPECT.value && c.steps === 0 && c.m === 110 && c.asg === 5 ? 'PASS' : 'FAIL', 'the starting state is clean');
   return !results.some((r) => r.status === 'FAIL');
 }
 
@@ -394,7 +397,7 @@ async function cleanupData(fromArgs = false) {
   for (const x of (await get(`mwf_approvalmatrixes?$select=mwf_rulename&$filter=${q(`startswith(mwf_rulename,'${PREFIX}')`)}`)).value) { const d = await S.call('DELETE', `mwf_approvalmatrixes(${x.mwf_approvalmatrixid})`); console.log(`INFO  cleanup: matrix row delete HTTP ${d.status}`); }
   const rs = fromArgs ? await restoreFromArgs(S.ctr) : await restoreAfterRun(S.ctr, SNAP);
   const c = await checkClean();
-  out('D', c.a === 0 && c.b === 0 && c.mx === 0 && c.total === 11 && c.steps === 0 && c.m === 110 && c.asg === 5 && rs.refused === 0 ? 'PASS' : 'FAIL', 'check-clean after the test: no TEST-TMP-SEC rows, 11 contracts, 0 steps, 110 matrix rows, 5 assignments, counters restored', `refused ${rs.refused}`);
+  out('D', c.a === 0 && c.b === 0 && c.mx === 0 && c.total === EXPECT.value && c.steps === 0 && c.m === 110 && c.asg === 5 && rs.refused === 0 ? 'PASS' : 'FAIL', 'check-clean after the test: no TEST-TMP-SEC rows, ' + EXPECT.value + ' contracts, 0 steps, 110 matrix rows, 5 assignments, counters restored', `refused ${rs.refused}`);
 }
 
 (async () => {

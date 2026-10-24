@@ -24,10 +24,13 @@ import { parseArgs, openSession, noGuid, Stop } from './lib/dv-session.mjs';
 import { snapshotCounters, restoreCounters, requireStableConnection } from './lib/counter-snapshot.mjs';
 import { approvalFlowState, deleteContracts } from './lib/contract-cleanup.mjs';
 import { enterCleanupPhase } from './lib/resilient-fetch.mjs';
+import { expectContractsOrExit, describeExpectContracts } from './lib/expect-contracts.mjs';
 
 const { argOf, env: ENV, auth: AUTH, has } = parseArgs();
 const SOLUTION = argOf('solution') || 'Muwafaqa';
 const MODE = argOf('mode') || 'verify';
+const EXPECT_CONTRACTS = expectContractsOrExit();   // contracts expected in the starting and the final state (argument, variable or default 11)
+console.log(describeExpectContracts(EXPECT_CONTRACTS));
 const CASCADE = has('--cascade-test');
 const PREFIX = 'TEST-TMP-STEP';
 const q = encodeURIComponent;
@@ -153,7 +156,7 @@ async function cascadeTest({ call, must, io, msgOf }) {
   const flow = await approvalFlowState(io);
   if (!flow.known || flow.on) throw new Stop('The approval flow is not confirmed OFF. Nothing was created.');
   const pre = (await must('GET', `mwf_contracts?$select=mwf_contractid&$count=true&$top=1`)).j['@odata.count'];
-  if (pre !== 11) throw new Stop(`Expected 11 contracts before the test, found ${pre}. Nothing was created.`);
+  if (pre !== EXPECT_CONTRACTS.value) throw new Stop(`Expected ${EXPECT_CONTRACTS.value} contracts before the test (${EXPECT_CONTRACTS.source}), found ${pre}. Nothing was created.`);
   const snap = await snapshotCounters(io);
   const consumed = {}; let cp = null; let contract = null; let ok = false;
   try {
@@ -196,7 +199,7 @@ async function cascadeTest({ call, must, io, msgOf }) {
     const b = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=startswith(mwf_name,'${PREFIX}')`)).j.value.length;
     const c2 = (await must('GET', `mwf_counterparties?$select=mwf_counterpartyid&$filter=startswith(mwf_name,'${PREFIX}')`)).j.value.length;
     const s2 = (await must('GET', `mwf_approvalsteps?$select=mwf_name&$filter=startswith(mwf_name,'${PREFIX}')`)).j.value.length;
-    check('S9g', 'clean after the test: 11 contracts, 0 TEST-TMP contracts, 0 temporary counterparties, 0 temporary steps, counters restored', ok && a === 11 && b === 0 && c2 === 0 && s2 === 0 && rs.refused === 0, `${a}/${b}/${c2}/${s2}, refused ${rs.refused}`);
+    check('S9g', 'clean after the test: ' + EXPECT_CONTRACTS.value + ' contracts, 0 TEST-TMP contracts, 0 temporary counterparties, 0 temporary steps, counters restored', ok && a === EXPECT_CONTRACTS.value && b === 0 && c2 === 0 && s2 === 0 && rs.refused === 0, `${a}/${b}/${c2}/${s2}, refused ${rs.refused}`);
   }
 }
 

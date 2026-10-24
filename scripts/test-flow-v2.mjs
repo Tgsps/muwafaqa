@@ -42,10 +42,13 @@ import { snapshotCounters, ctrIo, trackCreate, restoreAfterRun, restoreFromArgs,
 import { deleteContracts } from './lib/contract-cleanup.mjs';
 import { enterCleanupPhase, recheckAfterWait } from './lib/resilient-fetch.mjs';
 import { subjectOfTitle, isInformTitle, lastApprovalByContract, attributeRuns } from './lib/run-attribution.mjs';
+import { expectContractsOrExit, describeExpectContracts, contractsVerdict } from './lib/expect-contracts.mjs';
 
 const isMain = !!process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;   // false when the unit test imports this file
 const { argOf, env: ENV, auth: AUTH, has } = isMain ? parseArgs() : { argOf: () => '', env: '', auth: '', has: () => false };
 const MODE = argOf('mode');
+const EXPECT = expectContractsOrExit();   // contracts expected in the starting and the final state (argument, variable or default 11)
+if (isMain) console.log(describeExpectContracts(EXPECT));
 const CASE = argOf('case');
 const DRY = has('--dry-run');
 const q = encodeURIComponent;
@@ -137,10 +140,11 @@ async function baseline() {
   const m = (await get('mwf_approvalmatrixes?$select=mwf_rulename&$filter=statecode eq 0&$count=true&$top=1'))['@odata.count'];
   const asg = (await get('mwf_approverassignments?$select=mwf_name&$filter=statecode eq 0&$count=true&$top=1'))['@odata.count'];
   const c = await snapshotCounters(S.ctr);
-  console.log(`baseline: V2x contracts ${a}, V2x counterparties ${cp}, total contracts ${total} (11 expected), approval steps ${steps} (0), active matrix rows ${m} (110), active assignments ${asg} (5), counters ${Object.values(c.byType).map((x) => `${x.prefix}=${x.last}`).join(' ')} (all 0)`);
+  console.log(`baseline: V2x contracts ${a}, V2x counterparties ${cp}, total contracts ${total} (${EXPECT.value} expected), approval steps ${steps} (0), active matrix rows ${m} (110), active assignments ${asg} (5), counters ${Object.values(c.byType).map((x) => `${x.prefix}=${x.last}`).join(' ')} (all 0)`);
   const open = (await get(`msdyn_flow_approvals?$select=msdyn_flow_approval_title&$filter=${q("startswith(msdyn_flow_approval_title,'Approve contract: TEST-TMP-V2') or startswith(msdyn_flow_approval_title,'For information: contract TEST-TMP-V2')")}&$top=200`)).value.length;
   console.log(`INFO  approval requests with a TEST-TMP-V2 title already in the table: ${open} (0 expected before the session)`);
-  return a === 0 && cp === 0 && total === 11 && steps === 0 && m === 110 && asg === 5;
+  if (total !== EXPECT.value) console.log(`MISMATCH ${contractsVerdict(EXPECT, total).text}`);
+  return a === 0 && cp === 0 && total === EXPECT.value && steps === 0 && m === 110 && asg === 5;
 }
 
 // ---------------------------------------------------------------------------------------------------------------- approvals

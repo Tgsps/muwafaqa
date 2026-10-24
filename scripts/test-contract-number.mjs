@@ -31,11 +31,14 @@ import { execSync } from 'node:child_process';
 import { approvalFlowState, deleteContracts } from './lib/contract-cleanup.mjs';
 import { snapshotCounters, readCounters, restoreCounters, requireStableConnection } from './lib/counter-snapshot.mjs';
 import { resilientFetch, enterCleanupPhase, recheckAfterWait } from './lib/resilient-fetch.mjs';
+import { expectContractsOrExit, describeExpectContracts } from './lib/expect-contracts.mjs';
 
 const argOf = (n) => (process.argv.find((a) => a.startsWith(`--${n}=`)) || '').slice(n.length + 3);
 const ENV = argOf('env').replace(/\/+$/, '');
 const AUTH = argOf('auth') || 'device';
 const MODE = argOf('mode') || 'run';
+const EXPECT = expectContractsOrExit();   // contracts expected in the starting and the final state (argument, variable or default 11)
+console.log(describeExpectContracts(EXPECT));
 const BEFORE = argOf('before');      // cleanup mode: counters before the crashed run, e.g. MNT:0,PRC:0
 const CONSUMED = argOf('consumed');  // cleanup mode: numbers that run consumed, e.g. MNT:75,PRC:11
 const ROUNDS = Number(argOf('rounds') || 3);
@@ -133,7 +136,7 @@ async function checkClean() {
   const a = (await must('GET', `mwf_contracts?$select=mwf_contractid&$filter=${q("startswith(mwf_name,'${PREFIX}')")}`)).j.value.length;
   const b = (await must('GET', `mwf_counterparties?$select=mwf_counterpartyid&$filter=${q("startswith(mwf_name,'${PREFIX}')")}`)).j.value.length;
   const total = (await must('GET', 'mwf_contracts?$select=mwf_contractid&$count=true&$top=1')).j['@odata.count'];
-  console.log(`check-clean (prefix ${PREFIX}): contracts ${a}, counterparties ${b}, total contracts ${total} (expected 0, 0, 11 when nothing else exists)`);
+  console.log(`check-clean (prefix ${PREFIX}): contracts ${a}, counterparties ${b}, total contracts ${total} (expected 0, 0, ${EXPECT.value} when nothing else exists)`);
   return { a, b, total };
 }
 
@@ -314,7 +317,7 @@ async function run() {
     for (const l of rs.lines) console.log(`INFO  counter: ${l}`);
     console.log(`INFO  counters: restored ${rs.restored}, unchanged ${rs.unchanged}, refused ${rs.refused}`);
     const c = await checkClean();
-    check('D', 'check-clean: 0 TEST-TMP contracts, 0 counterparties, 11 contracts', c.a === 0 && c.b === 0 && c.total === 11, `${c.a}/${c.b}/${c.total}`);
+    check('D', 'check-clean: 0 TEST-TMP contracts, 0 counterparties, ' + EXPECT.value + ' contracts', c.a === 0 && c.b === 0 && c.total === EXPECT.value, `${c.a}/${c.b}/${c.total}`);
     const final = await readCounters(io, snap);
     console.log('INFO  counters after : ' + Object.values(final).map((x) => `${x.prefix}=${x.last}`).join(' ') + '  (before: ' + Object.values(snap.byType).map((x) => `${x.prefix}=${x.last}`).join(' ') + ')');
   }

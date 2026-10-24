@@ -34,10 +34,13 @@ import { snapshotCounters, ctrIo, trackCreate, restoreFromArgs, printHandoff, re
 import { deleteContracts } from './lib/contract-cleanup.mjs';
 import { enterCleanupPhase, recheckAfterWait } from './lib/resilient-fetch.mjs';
 import { CASES, BUILDER_STEP_NAME, bypassHeaders, manualStepBody, runsSince, finished, judgeRun, assignmentActive, sessionFlowState, ROLE_DEPARTMENT_HEAD, prefixesAreIndependent } from './lib/flow-failures.mjs';
+import { expectContractsOrExit, describeExpectContracts, contractsVerdict } from './lib/expect-contracts.mjs';
 
 const isMain = !!process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
 const { argOf, env: ENV, auth: AUTH, has } = isMain && !process.argv.includes('--mode=plan') ? parseArgs() : { argOf: (n) => (process.argv.find((a) => a.startsWith(`--${n}=`)) || '').slice(n.length + 3), env: '', auth: '', has: (f) => process.argv.includes(f) };
 const MODE = argOf('mode');
+const EXPECT = expectContractsOrExit();   // contracts expected in the starting and the final state (argument, variable or default 11)
+if (isMain) console.log(describeExpectContracts(EXPECT));
 const CASE = argOf('case');
 const DRY = has('--dry-run');
 const q = encodeURIComponent;
@@ -103,11 +106,12 @@ async function baseline() {
   const total = await count('mwf_contracts'); const steps = await count('mwf_approvalsteps');
   const m = await count('mwf_approvalmatrixes?$filter=statecode eq 0'); const asg = await count('mwf_approverassignments?$filter=statecode eq 0');
   const c = await snapshotCounters(S.ctr);
-  console.log(`baseline: TEST-TMP-FF contracts ${a}, counterparties ${cp}, total contracts ${total} (11 expected), approval steps ${steps} (0), active matrix rows ${m} (110), active assignments ${asg} (5), counters ${Object.values(c.byType).map((x) => `${x.prefix}=${x.last}`).join(' ')} (all 0)`);
+  console.log(`baseline: TEST-TMP-FF contracts ${a}, counterparties ${cp}, total contracts ${total} (${EXPECT.value} expected), approval steps ${steps} (0), active matrix rows ${m} (110), active assignments ${asg} (5), counters ${Object.values(c.byType).map((x) => `${x.prefix}=${x.last}`).join(' ')} (all 0)`);
   try { const id = await builderStep(); console.log(`INFO  the ApprovalChainBuilder Update step exists and is enabled (id read, not printed): ${!!id}`); } catch (e) { console.log(`NOTE: ${noGuid(e.message)}`); }
   const open = (await get(`msdyn_flow_approvals?$select=msdyn_flow_approval_title&$filter=${q("contains(msdyn_flow_approval_title,'TEST-TMP-FF')")}&$top=50`)).value.length;
   console.log(`INFO  approval requests with a TEST-TMP-FF title: ${open} (0 expected: these cases create none)`);
-  return a === 0 && cp === 0 && total === 11 && steps === 0 && m === 110 && asg === 5;
+  if (total !== EXPECT.value) console.log(`MISMATCH ${contractsVerdict(EXPECT, total).text}`);
+  return a === 0 && cp === 0 && total === EXPECT.value && steps === 0 && m === 110 && asg === 5;
 }
 
 // ---------------------------------------------------------------------------------------------------------------- runs

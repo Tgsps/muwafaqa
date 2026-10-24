@@ -31,9 +31,12 @@ import { parseArgs, openSession, noGuid, Stop } from './lib/dv-session.mjs';
 import { snapshotCounters, ctrIo, trackCreate, restoreAfterRun, restoreFromArgs, printHandoff, cleanupHint, requireStableConnection } from './lib/counter-snapshot.mjs';
 import { approvalFlowState, deleteContracts } from './lib/contract-cleanup.mjs';
 import { enterCleanupPhase } from './lib/resilient-fetch.mjs';
+import { expectContractsOrExit, describeExpectContracts, contractsVerdict } from './lib/expect-contracts.mjs';
 
 const { argOf, env: ENV, auth: AUTH, has } = parseArgs();
 const MODE = argOf('mode') || 'run';
+const EXPECT = expectContractsOrExit();   // contracts expected in the starting and the final state (argument, variable or default 11)
+console.log(describeExpectContracts(EXPECT));
 const ONLY = argOf('only');
 const want = (id) => !ONLY || ONLY.split(',').map((x) => x.trim()).includes(id);
 const PREFIX = 'TEST-TMP-CHAIN';
@@ -122,7 +125,7 @@ async function checkClean() {
   const total = await count('mwf_contracts');
   const steps = await count('mwf_approvalsteps');
   const cfg = await configIsClean();
-  console.log(`check-clean (prefix ${PREFIX}): TEST-TMP contracts ${a}, counterparties ${b}, total contracts ${total}, approval steps ${steps}, active matrix rows ${cfg.m}, active assignments ${cfg.asg} (expected 0, 0, 11, 0, 110, 5)`);
+  console.log(`check-clean (prefix ${PREFIX}): TEST-TMP contracts ${a}, counterparties ${b}, total contracts ${total}, approval steps ${steps}, active matrix rows ${cfg.m}, active assignments ${cfg.asg} (expected 0, 0, ${EXPECT.value}, 0, 110, 5)`);
   return { a, b, total, steps, ...cfg };
 }
 
@@ -132,7 +135,7 @@ async function run() {
   if (!flow.known || flow.on) throw new Stop(`The approval flow is ${flow.known ? 'ON' : 'not readable'}. It must be confirmed OFF. Nothing was created.`);
   console.log('INFO  approval flow is OFF (read only check)');
   const pre = await checkClean();
-  if (pre.a || pre.b || pre.steps || pre.total !== 11 || pre.m !== 110 || pre.asg !== 5) throw new Stop('The starting state is not clean (see the line above). Nothing was created.');
+  if (pre.a || pre.b || pre.steps || pre.total !== EXPECT.value || pre.m !== 110 || pre.asg !== 5) throw new Stop(`The starting state is not clean (see the line above; ${contractsVerdict(EXPECT, pre.total).text}). Nothing was created.`);
   const cur = (await get("transactioncurrencies?$select=isocurrencycode&$filter=isocurrencycode eq 'USD' and statecode eq 0")).value;
   if (cur.length !== 1) throw new Stop(`active USD currency: expected 1, found ${cur.length}`);
   USD = cur[0].transactioncurrencyid;
@@ -303,8 +306,8 @@ async function run() {
     if (CP) { const d = await S.call('DELETE', `mwf_counterparties(${CP})`); console.log(`INFO  cleanup: counterparty delete HTTP ${d.status}`); }
     const rs = await restoreAfterRun(ctr, snap);
     const c = await checkClean();
-    check('D', 'check-clean: 0 TEST-TMP contracts, 0 counterparties, 11 contracts, 0 steps, 110 active matrix rows, 5 active assignments, counters restored',
-      c.a === 0 && c.b === 0 && c.total === 11 && c.steps === 0 && c.m === 110 && c.asg === 5 && rs.refused === 0, `${c.a}/${c.b}/${c.total}/${c.steps}/${c.m}, refused ${rs.refused}`);
+    check('D', 'check-clean: 0 TEST-TMP contracts, 0 counterparties, ' + EXPECT.value + ' contracts, 0 steps, 110 active matrix rows, 5 active assignments, counters restored',
+      c.a === 0 && c.b === 0 && c.total === EXPECT.value && c.steps === 0 && c.m === 110 && c.asg === 5 && rs.refused === 0, `${c.a}/${c.b}/${c.total}/${c.steps}/${c.m}, refused ${rs.refused}`);
   }
   const bad = results.filter((r) => r.status === 'FAIL').length;
   console.log(`\nSUMMARY: ${results.filter((r) => r.status === 'PASS').length} PASS, ${bad} FAIL, ${results.filter((r) => r.status === 'OBS').length} OBS.`);
