@@ -1,6 +1,6 @@
 # ADR-009: Dataverse auditing
 
-- **Status:** **Proposed.** Research, scripts and dry-runs only (2026-10-24). **Nothing has been changed in the environment**: auditing is still off, no table or column definition was touched, no role received the new privileges. The scripts `scripts/configure-auditing.mjs` and `scripts/test-auditing.mjs` are written, unit tested (23 tests in `scripts/lib/auditing.test.mjs`) and dry-run only.
+- **Status:** **Proposed**, **partly applied**. Research and scripts were written on 2026-10-24. The same day the **table-level** audit flag of the five tables was switched on by `configure-auditing.mjs` (each time: backup, a no-op PUT with no difference, then only `IsAuditEnabled.Value` changed, PublishXml). The lookup columns, the organization switch, the Admin role's two privileges and the behavioral test were **not** done when this text was written; the results of the application are reported separately and this ADR is updated after the owner's review. The first column showed a deviation (next section).
 - **Date:** 2026-10-24
 - **Related:** [ADR-004](ADR-004-contract-state-guard.md) (guard), [ADR-007](ADR-007-approval-chain.md) (chain, flow v2), [ADR-008](ADR-008-security-roles.md) (roles), `scripts/lib/auditing.mjs`.
 
@@ -57,6 +57,16 @@ The contracts, the approval steps, the approval matrix, the approver assignments
 4. `apply --org` (the audit rows start, for our tables and for the 61 platform tables).
 5. `create-security-roles.mjs --mode=add-missing --role=Admin` then `--mode=verify`.
 6. `test-auditing.mjs --mode=run` (admin account; both flows OFF), report, then decide. Then a `pac solution sync` for the role change.
+
+## Deviation observed on 2026-10-24: the no-op PUT of a column changes `ModifiedOn`
+
+**What happened (script).** The five tables were switched on with the procedure of this ADR: for each, the whole definition was saved outside the repository, a PUT of the unchanged definition left **no difference at all** in the definition read before and after (0 differences), and then the real PUT changed only `IsAuditEnabled.Value` (1 difference, 0 unexpected), followed by PublishXml. For the first lookup column (`mwf_approverassignment.mwf_user`) the same no-op PUT left **one** difference: the **top-level `ModifiedOn`** (from the date the column was created to the time of the PUT). The script stopped as designed and PUT the saved definition back; that restore is itself a PUT, so `ModifiedOn` moved again, and a read showed that the column equalled the backup in everything except `ModifiedOn` and that `IsAuditEnabled` was still false (the real change had not been made).
+
+**What is known and what is not.** Observed: a no-op PUT of a table definition changes nothing; a no-op PUT of a column definition changes `ModifiedOn` and nothing else. Why the two differ is **not confirmed by Learn** (the pages read do not mention `ModifiedOn` in the update samples; the sample responses show it as a property of the column definition), so no explanation is stated here. The single observation is on one column.
+
+**Decision (owner, 2026-10-24).** `ModifiedOn` is treated as a field the platform maintains, in the comparisons of **column** definitions (no-op, after the change, after a restore). The exception is **deliberately narrow**: only the **top-level** property `ModifiedOn`, only for a **column** definition (`relevantDiffs` in `scripts/lib/auditing.mjs`, with a unit test that excuses nothing else: not a nested `ModifiedOn`, not another spelling, not another property, not a table definition). Any other difference stops the script, the saved definition is PUT back, and no other form of the request is tried.
+
+**Cost.** The proof "nothing else changed" is slightly weaker: a real change of `ModifiedOn` itself would be invisible. It is a timestamp with no behavior, which is why the owner accepted it.
 
 ## What was verified, and how
 

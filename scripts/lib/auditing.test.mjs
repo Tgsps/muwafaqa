@@ -160,3 +160,39 @@ test('the function paths follow the Learn forms', () => {
   assert.deepEqual(JSON.parse(decodeURIComponent(p.split('&@paginginfo=')[1])), { PageNumber: 1, Count: 50, ReturnTotalRecordCount: true });
   assert.equal(auditDetailsPath('A1'), 'audits(A1)/Microsoft.Dynamics.CRM.RetrieveAuditDetails');
 });
+
+import { backupName, latestBackup, parseTarget, isNoopClean } from './auditing.mjs';
+
+test('backupName and latestBackup: no id or host in the name; the newest wins', () => {
+  const a = backupName('entity', 'mwf_approvalmatrix', null, Date.parse('2026-10-24T10:00:00.123Z'));
+  const b = backupName('entity', 'mwf_approvalmatrix', null, Date.parse('2026-10-24T11:00:00Z'));
+  assert.equal(a, 'mwf_approvalmatrix.entity.20261024T100000Z.json');
+  assert.equal(backupName('attr', 'mwf_approverassignment', 'mwf_user', Date.parse('2026-10-24T10:00:00Z')), 'mwf_approverassignment.mwf_user.attr.20261024T100000Z.json');
+  assert.equal(latestBackup([a, b, 'other.entity.20270101T000000Z.json'], 'entity', 'mwf_approvalmatrix'), b);
+  assert.equal(latestBackup([a], 'attr', 'mwf_approvalmatrix', 'x'), null);
+  assert.throws(() => backupName('table', 't', null, 0));
+});
+
+test('parseTarget accepts entity:<table> and attr:<table>.<column> only', () => {
+  assert.deepEqual(parseTarget('entity:mwf_contract'), { kind: 'entity', table: 'mwf_contract', column: null });
+  assert.deepEqual(parseTarget('attr:mwf_contract.mwf_counterpartyid'), { kind: 'attr', table: 'mwf_contract', column: 'mwf_counterpartyid' });
+  for (const bad of ['', 'entity:', 'attr:mwf_contract', 'entity:mwf_contract.x', 'table:x', undefined]) assert.throws(() => parseTarget(bad), undefined, String(bad));
+});
+
+test('isNoopClean needs zero differences', () => { assert.equal(isNoopClean([]), true); assert.equal(isNoopClean([{ path: 'x' }]), false); });
+
+import { VOLATILE_COLUMN_PATHS, relevantDiffs } from './auditing.mjs';
+
+test('relevantDiffs excuses ONLY the top-level ModifiedOn of a column definition', () => {
+  assert.deepEqual([...VOLATILE_COLUMN_PATHS], ['ModifiedOn']);
+  const d = (path) => ({ path, before: 1, after: 2 });
+  assert.deepEqual(relevantDiffs('attr', [d('ModifiedOn')]), []);
+  assert.deepEqual(relevantDiffs('attr', [d('ModifiedOn'), d('IsAuditEnabled.Value')]).map((x) => x.path), ['IsAuditEnabled.Value']);
+  // nothing else is excused: nested paths, other spellings, other properties, look-alikes
+  for (const p of ['DisplayName.LocalizedLabels[0].ModifiedOn', 'Settings[0].ModifiedOn', 'modifiedon', 'ModifiedOnX', 'XModifiedOn', 'CreatedOn', 'MetadataId', 'IsAuditEnabled.CanBeChanged', 'RequiredLevel.Value', 'ModifiedOn.x']) {
+    assert.deepEqual(relevantDiffs('attr', [d(p)]).map((x) => x.path), [p], p);
+  }
+  // a table definition is never excused
+  assert.deepEqual(relevantDiffs('entity', [d('ModifiedOn')]).map((x) => x.path), ['ModifiedOn']);
+  assert.deepEqual(relevantDiffs('attr', []), []);
+});

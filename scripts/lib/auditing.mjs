@@ -189,3 +189,39 @@ export function changeHistoryPath(entitySet, id, count = 50) {
   return `RetrieveRecordChangeHistory(Target=@target,PagingInfo=@paginginfo)?@target=${target}&@paginginfo=${paging}`;
 }
 export const auditDetailsPath = (auditId) => `audits(${auditId})/Microsoft.Dynamics.CRM.RetrieveAuditDetails`;
+
+// ---------------------------------------------------------------------------------------------------------------- backup, restore, revert (outside the repository)
+
+/** The name of a backup file: entity or attr, table, column, time. No id and no host in it. */
+export function backupName(kind, table, column, atMs) {
+  if (!['entity', 'attr'].includes(kind)) throw new Error(`unknown backup kind ${kind}`);
+  const stamp = new Date(atMs).toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
+  return kind === 'entity' ? `${table}.entity.${stamp}.json` : `${table}.${column}.attr.${stamp}.json`;
+}
+/** The newest backup name of a target among the names of a directory (the stamp sorts as text). */
+export function latestBackup(names, kind, table, column) {
+  const prefix = kind === 'entity' ? `${table}.entity.` : `${table}.${column}.attr.`;
+  return (names || []).filter((n) => n.startsWith(prefix) && n.endsWith('.json')).sort().pop() ?? null;
+}
+/** --target=entity:mwf_x  or  --target=attr:mwf_x.mwf_col */
+export function parseTarget(text) {
+  const m = /^(entity|attr):([a-z0-9_]+)(?:\.([a-z0-9_]+))?$/.exec(String(text || ''));
+  if (!m) throw new Error('--target must be entity:<table> or attr:<table>.<column>');
+  if (m[1] === 'attr' && !m[3]) throw new Error('--target=attr needs <table>.<column>');
+  if (m[1] === 'entity' && m[3]) throw new Error('--target=entity takes only <table>');
+  return { kind: m[1], table: m[2], column: m[3] || null };
+}
+/** A PUT with no change must leave NO difference at all. */
+export const isNoopClean = (diffs) => diffs.length === 0;
+
+// ---------------------------------------------------------------------------------------------------------------- the one tolerated difference
+/**
+ * A PUT of a COLUMN definition (even one that changes nothing) updates ModifiedOn, a timestamp the platform maintains (observed 2026-10-24: the no-op PUT of
+ * a lookup column changed only ModifiedOn; the no-op PUT of a table changed nothing). The exception is deliberately narrow (owner decision): ONLY the TOP-LEVEL
+ * path "ModifiedOn", ONLY for a column definition. A nested path, another spelling, another property, or a table definition is never excused.
+ */
+export const VOLATILE_COLUMN_PATHS = Object.freeze(['ModifiedOn']);
+export function relevantDiffs(kind, diffs) {
+  if (kind !== 'attr') return diffs;
+  return diffs.filter((d) => !VOLATILE_COLUMN_PATHS.includes(d.path));
+}
