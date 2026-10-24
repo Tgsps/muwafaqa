@@ -111,14 +111,6 @@
         <Dependent type="80" schemaName="mwf_MuwafaqaContracts" displayName="Muwafaqa Contracts" />
       </MissingDependency>
       <MissingDependency>
-        <Required type="connectionreference" displayName="new_sharedcommondataserviceforapps_43184" solution="Active" id.connectionreferencelogicalname="new_sharedcommondataserviceforapps_43184" />
-        <Dependent type="29" displayName="Muwafaqa - Contract Approval v2" id="{83618a50-bccd-f111-a05a-000d3ab4ceb3}" />
-      </MissingDependency>
-      <MissingDependency>
-        <Required type="connectionreference" displayName="new_sharedcommondataserviceforapps_43184" solution="Active" id.connectionreferencelogicalname="new_sharedcommondataserviceforapps_43184" />
-        <Dependent type="29" displayName="Muwafaqa - Contract Approval v1" id="{cbedcc8c-6fc2-f111-aaad-000d3ab4ceb3}" />
-      </MissingDependency>
-      <MissingDependency>
         <Required type="SettingDefinition" displayName="AppChannel" solution="msdyn_AppFrameworkInfraExtensions (1.0.0.27)" id.uniquename="AppChannel">
           <package appName="PowerAppsAppFramework Package" version="1.0.0.27">PowerAppsAppFramework_Anchor (1.0.0.27)</package>
         </Required>
