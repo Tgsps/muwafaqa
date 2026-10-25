@@ -99,7 +99,7 @@ async function assignmentOfDH() {
 }
 async function baseline() {
   const f = await flows();
-  console.log(`INFO  v1: ${f.v1 ? (f.v1.statecode === 1 ? 'ON' : 'OFF') : 'missing'} (modifiedon ${String(f.v1?.modifiedon).slice(0, 19)}Z), v2: ${f.v2 ? (f.v2.statecode === 1 ? 'ON' : 'OFF') : 'missing'} (modifiedon ${String(f.v2?.modifiedon).slice(0, 19)}Z)`);
+  console.log(`INFO  v1: ${f.v1 ? `${f.v1.statecode === 1 ? 'ON' : 'OFF'} (modifiedon ${String(f.v1.modifiedon).slice(0, 19)}Z)` : 'does not exist (retired)'}, v2: ${f.v2 ? `${f.v2.statecode === 1 ? 'ON' : 'OFF'} (modifiedon ${String(f.v2.modifiedon).slice(0, 19)}Z)` : 'missing'}`);
   const filt = q(PREFIXES.map((p) => `startswith(mwf_name,'${p}')`).join(' or '));
   const a = (await get(`mwf_contracts?$select=mwf_name&$filter=${filt}`)).value.length;
   const cp = (await get(`mwf_counterparties?$select=mwf_name&$filter=${filt}`)).value.length;
