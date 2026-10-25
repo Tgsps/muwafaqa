@@ -6,7 +6,7 @@ Records what was built and what happened at each registration attempt. No secret
 
 | Item | Value |
 |---|---|
-| Source commit | `33d939b17a73958e99b516fe022c9e45d5b1cff1` (feat(plugins): freeze USD value on contract submission) |
+| Source commit | `42af860dac0c374935dcf037baef3fd5355951d8` (feat(plugins): freeze USD value on contract submission) |
 | Tree state when built | Clean (`git status` empty for `plugins/`) |
 | Build | `dotnet build -c Release`, SDK 10.0.401, target `net48`, 0 warnings, 0 errors |
 | Assembly SHA-256 | `f262c5d0c972717f54211712a10fdd06d63b061a48679e558a39a741429e7f09` (identical in two clean builds, so reproducible) |
@@ -47,7 +47,7 @@ Next step: not decided. See the report for the proposed change of target framewo
 
 | Item | Value |
 |---|---|
-| Source commit | `654ce46e4254546b90ba4b7660392a1b16be9e32` (fix(plugins): target net462, the only framework the package upload accepts) |
+| Source commit | `c6f557596e3f8488631812951456ebdc2b76c11d` (fix(plugins): target net462, the only framework the package upload accepts) |
 | Tree state when built | Clean (`git status` empty for `plugins/`), `bin/` and `obj/` deleted before the build |
 | Build | `dotnet build -c Release`, SDK 10.0.401, target `net462`, 0 warnings, 0 errors |
 | Package content | `lib/net462/Muwafaqa.Plugins.dll` (15,872 bytes) |
@@ -150,7 +150,7 @@ All integration cases passed: Update path 10 of 10, case 3 (Create), case 9 (flo
 
 | Item | Value |
 |---|---|
-| Source commit | `44b6c0956c1b9922b8693465d378dae2bb767fee` (chore(plugins): bump assembly version to 1.0.1.0), on top of the guard commit `4ece66898a99cded7c4907d5a0a50b552033b955` |
+| Source commit | `d8ef06eaa14a8c60847c2034e4764f42faa8311a` (chore(plugins): bump assembly version to 1.0.1.0), on top of the guard commit `3bd686b381b60614c7a558693d0a5f4d85f66104` |
 | Version | AssemblyVersion and FileVersion 1.0.1.0. PackageId `mwf_muwafaqaplugins` and package Version 1.0.0 unchanged |
 | Build | Clean Release, `net462`, 0 warnings, 0 errors. Tests: 233 passed, 0 failed |
 | Assembly SHA-256 | `147ad2fe9a794a329c3ba5e366a233bb5519a3e32e81d93a31c74f4ad2092f0a` |

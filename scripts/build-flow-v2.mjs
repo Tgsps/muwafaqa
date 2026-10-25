@@ -318,7 +318,7 @@ const V1_NAMES = ['Approval_DeptHead', 'Check_Stage1', 'Get_contract_after_stage
 /**
  * The trigger of the flow "Muwafaqa - Contract Approval v1", written here as a constant because v1 is being retired and its file leaves src/Workflows.
  * v2 must keep the IDENTICAL trigger (ADR-007, docs/flow-approval-v2.md): message 3 (Update), table mwf_contract, scope 4 (Organization), filtering column
- * mwf_valueusdfrozen, filter statuscode eq 867640000 (Pending Approval). Captured from the v1 source (src/Workflows, last changed in commit 57b5b3b)
+ * mwf_valueusdfrozen, filter statuscode eq 867640000 (Pending Approval). Captured from the v1 source (src/Workflows, last changed in commit 2381f0b)
  * and checked against it by a unit test for as long as that file exists. It holds no id, host or address.
  */
 export const EXPECTED_TRIGGER = {

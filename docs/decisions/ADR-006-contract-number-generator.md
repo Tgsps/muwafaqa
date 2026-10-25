@@ -130,7 +130,7 @@ Only managed platform roles hold privileges on the table: System Administrator (
 
 ## Manual test in the app (owner, model-driven app UI)
 
-Done by the owner by hand after commit `08740be`; I did not see the screens. The owner's report:
+Done by the owner by hand after commit `23f5874`; I did not see the screens. The owner's report:
 
 - (a) A new Maintenance contract saved with an empty Contract Number received **`MNT-0001`**. (owner)
 - (b) Changing the Contract Type after saving was rejected with a Business Process Error. (owner)
