@@ -56,3 +56,8 @@ desktop.ini
 
 # --- Claude Code local state ---
 .claude/settings.local.json
+
+# --- Local scratch, temporary output and backups (never commit: they can hold environment data) ---
+scratch/
+tmp/
+*.bundle

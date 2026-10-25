@@ -45,7 +45,7 @@ const CLIENT_ID = '04b07795-8ddb-461a-bbee-02f9e1bf7b46'; // public Azure CLI cl
 const PREFIX = 'TEST-TMP-USD';
 const FLOW_OFF_CONFIRMED = process.argv.includes('--flow-off-confirmed');
 
-if (!['update-cases', 'create-case', 'flow-case', 'guard-smoke', 'cleanup', 'check-clean'].includes(MODE)) { console.error('Missing or invalid --mode=update-cases|create-case|flow-case|guard-smoke|cleanup|check-clean. Nothing was run.'); process.exit(2); }
+if (!['update-cases', 'create-case', 'flow-case', 'guard-smoke', 'cleanup', 'check-clean'].includes(MODE)) { console.error('Missing or invalid --mode=update-cases|create-case|flow-case|guard-smoke|cleanup|check-clean (flow-case is a v1 scenario, retired). Nothing was run.'); process.exit(2); }
 if (!/^https:\/\/[^/]+$/.test(ENV)) { console.error('Missing or invalid --env=https://<org>.crm4.dynamics.com. Nothing was run.'); process.exit(2); }
 if (!['device', 'az'].includes(AUTH)) { console.error('Invalid --auth=device|az. Nothing was run.'); process.exit(2); }
 if (MODE !== 'check-clean' && !process.argv.includes('--confirm-mutates-environment')) {

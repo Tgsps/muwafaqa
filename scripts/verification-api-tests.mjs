@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 /**
+ * *** Historical one-off verification. *** It depends on the seeded TEST-CT-* rows (it reads them as input) and some modes are obsolete (for example key-tests,
+ * obsolete since ADR-006). Kept as evidence of the checks recorded in docs/verification-checklist.md; not part of the regression pass.
+ *
  * WARNING: THIS SCRIPT MODIFIES THE ENVIRONMENT TEMPORARILY AND THEN RESTORES IT.
  *   - It creates and deletes TEST-TMP-* rows (contracts and one counterparty).
  *   - t3 changes the exchange rate of the AED currency record and puts the original value back.
@@ -50,6 +53,7 @@ if (!process.argv.includes('--confirm-mutates-environment')) {
     '  - creates and deletes TEST-TMP-* rows',
     '  - t3 changes the AED exchange rate and restores it',
     '  - t1 inserts and deletes a spare Status Reason option on Contract',
+    'NOTE: historical one-off verification; it depends on the seeded TEST-CT-* rows and some modes are obsolete (for example key-tests).',
     'Nothing was run. To run it on purpose, add --confirm-mutates-environment (and --env=<url>).',
   ].join('\n'));
   process.exit(2);
