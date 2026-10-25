@@ -143,7 +143,7 @@ async function run() {
   let rowId = null; const ts = {};
   try {
     const c = await write('POST', 'mwf_approverassignments', createBody(OWNER));
-    if (!c.ok) throw new Stop(`The temporary row could not be created: HTTP ${c.status} ${noGuid(S.msgOf(c))}. Nothing was created. If the alternate key or a required rule refuses a row without a role, the safer alternatives are listed by --mode=plan.`);
+    if (!c.ok) throw new Stop(`The temporary row could not be created: HTTP ${c.status} ${noGuid(String(c.j?.error?.message ?? c.text ?? ''))} [full error body, not shortened; the id is masked]. Nothing was created. If the alternate key or a required rule refuses a row without a role, the safer alternatives are listed by --mode=plan.`);
     rowId = c.id; ts.create = Date.now();
     if (DRY) { console.log('\nDRY-RUN: the update, the waits, the assertions and the delete are not shown further; nothing was sent.'); return; }
     out('create', 'PASS', 'the temporary assignment row (no role) was created', 'the server accepted an empty key column');
