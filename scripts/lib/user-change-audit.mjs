@@ -47,13 +47,39 @@ export function otherChangedColumns(detail, col, ignore = ['modifiedon', 'modifi
   return [...keys].sort();
 }
 
-/** The second user to move the lookup to: the first active, interactive user that is neither the owner nor SYSTEM / INTEGRATION nor an application user. Returns the id or null. */
-export function pickSecondUser(users, ownerId) {
-  const owner = String(ownerId || '').toLowerCase();
-  const u = (users || []).find((x) => x && x.systemuserid && String(x.systemuserid).toLowerCase() !== owner
-    && x.isdisabled === false && !x.applicationid && [0, 1].includes(x.accessmode) && !/^(SYSTEM|INTEGRATION)$/i.test(String(x.fullname || '').trim()));
-  return u ? u.systemuserid : null;
+/** The kind of a user, for choosing B and for the output: "application user", "non-interactive user", "interactive user", or null for a kind that is never used (support user and others). */
+export function kindOf(u) {
+  if (!u) return null;
+  if (u.applicationid) return 'application user';
+  if (u.accessmode === 3) return 'non-interactive user';
+  if ([0, 1].includes(u.accessmode)) return 'interactive user';
+  return null;
 }
+
+const KIND_RANK = { 'application user': 0, 'non-interactive user': 1, 'interactive user': 2 };
+
+/**
+ * User B, to move the lookup to (owner decision 2026-10-25: B may be an enabled non-interactive user, because the environment has one interactive user).
+ * Rules: enabled; not the owner; not SYSTEM or INTEGRATION; the name does not start with "#" (the platform's application users); a kind that is used (see kindOf).
+ * Preference: application user, then non-interactive user, then interactive user; inside a kind the full name (case-insensitive), then the id, so the choice is always the same.
+ * Returns { id, kind, namePrefix } (namePrefix = the first 4 characters of the name, the only part of it ever printed) or null.
+ */
+export function pickUserB(users, ownerId) {
+  const owner = String(ownerId || '').toLowerCase();
+  const name = (x) => String(x.fullname || '').trim();
+  const ok = (users || []).filter((x) => x && x.systemuserid && String(x.systemuserid).toLowerCase() !== owner && x.isdisabled === false
+    && !/^(SYSTEM|INTEGRATION)$/i.test(name(x)) && !name(x).startsWith('#') && kindOf(x));
+  ok.sort((p, q) => KIND_RANK[kindOf(p)] - KIND_RANK[kindOf(q)]
+    || name(p).toLowerCase().localeCompare(name(q).toLowerCase())
+    || String(p.systemuserid).toLowerCase().localeCompare(String(q.systemuserid).toLowerCase()));
+  const u = ok[0];
+  return u ? { id: u.systemuserid, kind: kindOf(u), namePrefix: name(u).slice(0, 4) } : null;
+}
+
+/** How B is shown: its kind and the first 4 characters of its name. */
+export const describeB = (b) => (b ? `${b.kind}, name starts with "${b.namePrefix}"` : 'none');
+/** True when B is not a person who can sign in (an application or non-interactive user): the limitation the test output must make visible. */
+export const isNonInteractive = (b) => !!b && b.kind !== 'interactive user';
 
 /** Audit expectations (for unmetExpectations in lib/auditing.mjs). phase 1: the Create row and one Update row after the lookup was changed; phase 2: the Delete row. */
 export function expectationsFor(rowId, phase) {

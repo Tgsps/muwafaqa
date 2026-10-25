@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { idFrom, keysOfColumn, lookupValueOf, assertUserChange, otherChangedColumns, pickSecondUser, expectationsFor, createBody, moveBody, isTestRow, PREFIX } from './user-change-audit.mjs';
+import { idFrom, keysOfColumn, lookupValueOf, assertUserChange, otherChangedColumns, kindOf, pickUserB, describeB, isNonInteractive, expectationsFor, createBody, moveBody, isTestRow, PREFIX } from './user-change-audit.mjs';
 
 const A = '11111111-aaaa-4aaa-8aaa-111111111111';
 const B = '22222222-bbbb-4bbb-8bbb-222222222222';
@@ -58,20 +58,57 @@ test('otherChangedColumns lists the other columns of the detail without housekee
   assert.deepEqual(otherChangedColumns({ OldValue: { _mwf_user_value: A }, NewValue: { _mwf_user_value: B } }, 'mwf_user'), []);
 });
 
-test('pickSecondUser: first active interactive user that is not the owner, SYSTEM, INTEGRATION or an application user', () => {
+const U = (id, fullname, extra = {}) => ({ systemuserid: id, fullname, isdisabled: false, accessmode: 0, applicationid: null, ...extra });
+const ID = (n) => `${String(n).repeat(8)}-aaaa-4aaa-8aaa-${String(n).repeat(12)}`;
+
+test('kindOf: application user, non-interactive user, interactive user, and null for the kinds never used', () => {
+  assert.equal(kindOf(U(ID(1), 'x', { applicationid: 'app', accessmode: 4 })), 'application user');
+  assert.equal(kindOf(U(ID(1), 'x', { accessmode: 3 })), 'non-interactive user');
+  assert.equal(kindOf(U(ID(1), 'x', { accessmode: 0 })), 'interactive user');
+  assert.equal(kindOf(U(ID(1), 'x', { accessmode: 1 })), 'interactive user');
+  assert.equal(kindOf(U(ID(1), 'x', { accessmode: 2 })), null);   // support user
+  assert.equal(kindOf(U(ID(1), 'x', { accessmode: 5 })), null);
+  assert.equal(kindOf(null), null);
+});
+
+test('pickUserB: never the owner, SYSTEM, INTEGRATION, a disabled user, a name starting with # or an unused kind', () => {
   const users = [
-    { systemuserid: A, fullname: 'Owner', isdisabled: false, accessmode: 0, applicationid: null },
-    { systemuserid: C.replace('3', '4'), fullname: 'SYSTEM', isdisabled: false, accessmode: 4, applicationid: null },
-    { systemuserid: C.replace('3', '5'), fullname: 'INTEGRATION', isdisabled: false, accessmode: 4, applicationid: null },
-    { systemuserid: C.replace('3', '6'), fullname: 'App', isdisabled: false, accessmode: 4, applicationid: 'some-app' },
-    { systemuserid: C.replace('3', '7'), fullname: 'Disabled', isdisabled: true, accessmode: 0, applicationid: null },
-    { systemuserid: B, fullname: 'Second', isdisabled: false, accessmode: 0, applicationid: null },
-    { systemuserid: C, fullname: 'Third', isdisabled: false, accessmode: 0, applicationid: null },
+    U(A, 'Owner'),
+    U(ID(4), 'SYSTEM', { accessmode: 4 }), U(ID(5), 'integration', { accessmode: 4 }),
+    U(ID(6), '# Platform app', { applicationid: 'p', accessmode: 4 }), U(ID(7), '#Other', { applicationid: 'q', accessmode: 4 }),
+    U(ID(8), 'Disabled app', { applicationid: 'r', accessmode: 4, isdisabled: true }),
+    U(ID(9), 'Support', { accessmode: 2 }), U(ID(2), 'Unknown kind', { accessmode: 5 }),
   ];
-  assert.equal(pickSecondUser(users, A.toUpperCase()), B);
-  assert.equal(pickSecondUser(users.slice(0, 5), A), null);
-  assert.equal(pickSecondUser([], A), null);
-  assert.equal(pickSecondUser(undefined, A), null);
+  assert.equal(pickUserB(users, A.toUpperCase()), null);
+  assert.equal(pickUserB([], A), null);
+  assert.equal(pickUserB(undefined, A), null);
+  assert.equal(pickUserB([null, {}], A), null);
+});
+
+test('pickUserB prefers an application user, then a non-interactive user, then an interactive user', () => {
+  const owner = U(A, 'Owner'); const person = U(B, 'Second person'); const noninter = U(C, 'Batch account', { accessmode: 3 }); const app = U(ID(7), 'Zeta app', { applicationid: 'a', accessmode: 4 });
+  assert.deepEqual(pickUserB([owner, person, noninter, app], A), { id: ID(7), kind: 'application user', namePrefix: 'Zeta' });
+  assert.equal(pickUserB([owner, person, noninter], A).kind, 'non-interactive user');
+  assert.equal(pickUserB([owner, person], A).kind, 'interactive user');
+});
+
+test('pickUserB is deterministic: the order of the input does not matter (name, then id)', () => {
+  const a = U(ID(6), 'beta', { applicationid: 'a', accessmode: 4 }); const b = U(ID(5), 'Alpha', { applicationid: 'b', accessmode: 4 }); const c = U(ID(4), 'alpha', { applicationid: 'c', accessmode: 4 });
+  const orders = [[a, b, c], [c, b, a], [b, a, c], [c, a, b]];
+  const picks = orders.map((o) => pickUserB(o, A).id);
+  assert.deepEqual([...new Set(picks)], [ID(4)]);   // 'alpha' = 'Alpha' case-insensitively, then the smaller id (the owner A is ID(1), never chosen)
+});
+
+test('pickUserB returns only the first 4 characters of the name, and describeB / isNonInteractive show the limitation', () => {
+  const b = pickUserB([U(A, 'Owner'), U(ID(7), 'Muwafaqa test app', { applicationid: 'a', accessmode: 4 })], A);
+  assert.equal(b.namePrefix, 'Muwa');
+  assert.ok(!JSON.stringify(b).includes('Muwafaqa'));
+  assert.equal(describeB(b), 'application user, name starts with "Muwa"');
+  assert.equal(isNonInteractive(b), true);
+  assert.equal(isNonInteractive({ kind: 'non-interactive user', namePrefix: 'S' }), true);
+  assert.equal(isNonInteractive({ kind: 'interactive user', namePrefix: 'S' }), false);
+  assert.equal(isNonInteractive(null), false);
+  assert.equal(describeB(null), 'none');
 });
 
 test('expectations: phase 1 is Create and Update, phase 2 is Delete, all on the same row', () => {
