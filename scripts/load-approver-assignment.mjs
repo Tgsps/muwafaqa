@@ -18,6 +18,7 @@
  * The rows are data: they do NOT travel with the solution. Run this script once per environment.
  */
 import { parseArgs, openSession, noGuid, Stop } from './lib/dv-session.mjs';
+import { USER_BIND_KEY } from './lib/assignment-columns.mjs';
 
 const { argOf, env: ENV, auth: AUTH, has } = parseArgs();
 const MODE = argOf('mode');
@@ -85,7 +86,7 @@ const isGuid = (s) => /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]
         console.log(`SKIP     ${roleName} (exists${have._mwf_user_value === userId ? '' : ', points to a DIFFERENT user; not changed'})`);
         continue;
       }
-      await must('POST', SET, { mwf_name: roleName, mwf_approverrole: value, 'mwf_User@odata.bind': `/systemusers(${userId})` });
+      await must('POST', SET, { mwf_name: roleName, mwf_approverrole: value, [USER_BIND_KEY]: `/systemusers(${userId})` });
       console.log(`CREATED  ${roleName}`);
     }
     console.log('\nLoaded. Run --mode=validate for the read-back.');

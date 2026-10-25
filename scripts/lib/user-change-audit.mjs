@@ -1,4 +1,6 @@
 // Pure helpers of scripts/test-auditing-user-change.mjs: reading a lookup to a user out of an audit detail, choosing the second user, the expectations.
+import { USER_BIND_KEY } from './assignment-columns.mjs';
+
 // No network, no ids written anywhere. Tested in lib/user-change-audit.test.mjs.
 
 const GUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -97,7 +99,7 @@ export const isTestRow = (name) => String(name || '').startsWith(PREFIX);
 
 /** The request body that creates the temporary assignment row with the user A. No role is sent: the five real rows already use the five role values, and the alternate key allows one row per role. */
 export function createBody(userAId) {
-  return { mwf_name: rowName(), 'mwf_user@odata.bind': `/systemusers(${userAId})` };
+  return { mwf_name: rowName(), [USER_BIND_KEY]: `/systemusers(${userAId})` };
 }
 /** The request body that moves the lookup to the user B. */
-export const moveBody = (userBId) => ({ 'mwf_user@odata.bind': `/systemusers(${userBId})` });
+export const moveBody = (userBId) => ({ [USER_BIND_KEY]: `/systemusers(${userBId})` });

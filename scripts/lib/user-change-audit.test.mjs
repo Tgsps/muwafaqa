@@ -120,10 +120,34 @@ test('expectations: phase 1 is Create and Update, phase 2 is Delete, all on the 
 test('request bodies: the temporary row has no role (the key allows one row per role) and only the lookup moves', () => {
   const c = createBody(A);
   assert.equal(c.mwf_name, `${PREFIX} assignment`);
-  assert.equal(c['mwf_user@odata.bind'], `/systemusers(${A})`);
+  assert.equal(c[USER_BIND_KEY], `/systemusers(${A})`);
   assert.equal('mwf_approverrole' in c, false);
-  assert.deepEqual(moveBody(B), { 'mwf_user@odata.bind': `/systemusers(${B})` });
+  assert.deepEqual(moveBody(B), { [USER_BIND_KEY]: `/systemusers(${B})` });
   assert.equal(isTestRow(c.mwf_name), true);
   assert.equal(isTestRow('Owner assignment'), false);
   assert.equal(isTestRow(undefined), false);
+});
+
+// ---- the bind key of the lookup mwf_user: HTTP 400 on 2026-10-25 when it was written in lower case (the navigation property name is case-sensitive)
+import { USER_BIND_KEY } from './assignment-columns.mjs';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+const HERE = dirname(fileURLToPath(import.meta.url));
+const LOADER = readFileSync(join(HERE, '..', 'load-approver-assignment.mjs'), 'utf8');
+
+test('the bind key of mwf_user is exactly the one the approver loader uses: mwf_User@odata.bind (capital U)', () => {
+  assert.equal(USER_BIND_KEY, 'mwf_User@odata.bind');
+  // the loader sends this key through the shared constant and keeps no copy of its own (a copy in another letter case is the defect of 2026-10-25)
+  const importsConstant = LOADER.includes("import { USER_BIND_KEY } from './lib/assignment-columns.mjs'");
+  const sendsConstant = LOADER.includes('[USER_BIND_KEY]:');
+  const literalCopies = [...LOADER.matchAll(/'(mwf_user@odata\.bind)'/gi)].map((m) => m[1]);
+  assert.ok(importsConstant && sendsConstant, 'the loader must import USER_BIND_KEY and send it');
+  assert.deepEqual(literalCopies, [], 'the loader must not keep its own copy of the key');
+});
+
+test('createBody and moveBody use that key, with no lower-case variant anywhere in the body', () => {
+  assert.deepEqual(Object.keys(createBody(A)).sort(), ['mwf_name', USER_BIND_KEY].sort());
+  assert.deepEqual(Object.keys(moveBody(B)), [USER_BIND_KEY]);
+  assert.ok(!JSON.stringify([createBody(A), moveBody(B)]).includes('mwf_user@odata.bind'));
 });
