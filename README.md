@@ -57,10 +57,10 @@ Every number below comes from the documents linked next to it; the test scripts 
 |---|---|---|
 | Plug-in unit tests (`dotnet test`) | 346 passed, 0 failed | no environment needed |
 | Script unit tests (`node --test`) | 202 tests: 201 pass, 1 skipped on purpose (it compares a constant with a file that no longer exists), 0 fail | no environment needed |
-| State guard, server | 75 PASS, 0 FAIL, 4 OBS ([ADR-006](docs/decisions/ADR-006-contract-number-generator.md), regression table) | the owner's account (a System Administrator) through the Web API |
+| State guard, server | 76 PASS, 0 FAIL, 4 OBS ([plug-in registration log](docs/plugin-registration-log.md), re-run after the Create-must-be-Draft change; [ADR-004](docs/decisions/ADR-004-contract-state-guard.md)) | the owner's account (a System Administrator) through the Web API |
 | Contract number, server | 18 PASS, 0 FAIL in the full run ([ADR-007](docs/decisions/ADR-007-approval-chain.md), regression table); 20 parallel creates, three rounds in a row, gave unique consecutive numbers ([ADR-006](docs/decisions/ADR-006-contract-number-generator.md)) | same |
 | USD freeze, server | 10 + 1 + 5 PASS ([ADR-003](docs/decisions/ADR-003-usd-value-at-submission.md)) | same |
-| Approval round, server | 12 PASS, 0 FAIL, 2 OBS ([ADR-007](docs/decisions/ADR-007-approval-chain.md), regression table; design in [ADR-005](docs/decisions/ADR-005-approval-round.md)) | same |
+| Approval round, server | 13 PASS, 0 FAIL, 1 OBS ([plug-in registration log](docs/plugin-registration-log.md), same re-run; design in [ADR-005](docs/decisions/ADR-005-approval-round.md)) | same |
 | Approval chain builder, server | 37 PASS, 0 FAIL, 3 OBS ([ADR-007](docs/decisions/ADR-007-approval-chain.md)) | same |
 | `CreateMultiple` / `UpdateMultiple` against the guard | 31 PASS, 0 FAIL, 4 OBS ([ADR-007](docs/decisions/ADR-007-approval-chain.md)) | same |
 | Schema read-back | 35 PASS, 0 FAIL, 3 OBS (read-only, last run on 2026-10-24) | same |
