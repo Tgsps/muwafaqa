@@ -1,6 +1,6 @@
 # Contract form script (UX only)
 
-**Status (2026-10-26): first manual test = PARTIAL FAILURE; fixed in code, NOT yet retested on the real form.** The script is registered in the development environment by the owner (not in the solution in `src/` yet). Its logic is unit tested against a fake form object (16 tests). **It is untested on the real form until the owner repeats the manual test below and it passes.** The Xrm part (the real `formContext`) is not covered by any automated test.
+**Status (2026-10-26): tested by the owner on the real model-driven app; the five checks below passed after the fix of commit `7e90dfb`. Not tested: other browsers, the card and quick forms, an interactive non-admin user.** The script is registered in the development environment by the owner. The Xrm part (the real `formContext`) is covered by no automated test, only by the manual test below. **Known limitation, not fixed:** after the ribbon commands Activate / Deactivate the form keeps the old banner and locks until the user presses Refresh (see the manual test, check 5).
 
 ## First manual test (2026-10-26): partial failure, cause, fix
 
@@ -43,11 +43,13 @@ Before a retest after the fix: open the web resource `mwf_contract_form.js` in t
 
 | # | Check | You should see | Result |
 |---|---|---|---|
-| 1 | Create a **new** contract (Draft) | The five fields (Value, Currency, Contract Type, Contract Direction, Counterparty) are **editable**; no blue notice at the top. | not run (first test: only Currency locked on a Pending contract; this check is to be repeated) |
-| 2 | In a Draft, fill the required fields, set Status Reason to **Pending Approval**, Save | After the save the five fields become **disabled** and the blue notice appears: "This contract is no longer a Draft…". (If the server refuses the save, read the message and report it.) | not run |
-| 3 | Open an existing **Pending Approval** contract | The five fields are disabled, the notice is shown. | not run |
-| 4 | Open an **In Force** contract | The five fields are disabled, the notice is shown. | not run |
-| 5 | Open a **Rejected** contract, set Status Reason to **Draft**, Save | After the save the five fields become **editable** again and the notice disappears. | not run |
-| 6 | On every one of the cases above look at **Contract Number** | It is read-only every time (it comes from the form XML, not from the script). | not run |
+| 1 | Create a **new** contract (Draft) | The five fields (Value, Currency, Contract Type, Contract Direction, Counterparty) are **editable**; no blue notice at the top. | **PASS** (2026-10-26) |
+| 2 | In a Draft, fill the required fields, set Status Reason to **Pending Approval**, Save | After the save the five fields become **disabled** and the blue notice appears: "This contract is no longer a Draft…". (If the server refuses the save, read the message and report it.) | **PASS** (2026-10-26): banner and the five locks appeared right after the save, without a reload |
+| 3 | Open an existing **Pending Approval** contract | The five fields are disabled, the notice is shown. | **PASS** after the fix (2026-10-26). **First attempt FAILED before the fix:** four fields stayed editable (cause: the control names are GUIDs, see above) |
+| 4 | Open an **In Force** contract | The five fields are disabled, the notice is shown. | **PASS** (2026-10-26), on an existing In Force contract, looked at only |
+| 5 | Open a **Rejected** contract, set Status Reason to **Draft**, Save | After the save the five fields become **editable** again and the notice disappears. | **PASS with a limitation** (2026-10-26): Pending to Rejected (Deactivate) and Rejected to Draft (Activate) were both accepted by the server. **After Activate / Deactivate the form keeps the old banner and locks until Refresh** (those commands do not run `OnLoad` or `PostSave`; not fixed). After Refresh the five fields were open and the banner gone. Pending to Draft by a normal Save also unlocked them. |
+| 6 | On every one of the cases above look at **Contract Number** | It is read-only every time (it comes from the form XML, not from the script). | **PASS** (2026-10-26), in all the states above |
+
+**What this test did and did not show (2026-10-26).** Who: the owner, with the **System Administrator** account (not a non-admin user), on the real model-driven app with flow v2 OFF, with one test contract (created, taken through the checks, set back to Draft and deleted; the contract count must be 11 again, the owner confirms it) and one existing In Force contract (looked at only). The owner saw the lock icons and the banner on screen; **typing into a locked field in Pending was not tried**, and that an unlocked field accepts typing was seen in an earlier attempt. **Not tested:** other browsers, the card and quick forms, an interactive non-admin user.
 
 Also report anything unexpected (a locked new form, a notice that stays after Rejected to Draft, a script error banner). The browser console (F12) would show a script error.
