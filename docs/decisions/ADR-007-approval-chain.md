@@ -175,6 +175,27 @@ Flow OFF, one script at a time. Before the pass: 338 + 25 unit tests passed; 3 G
 
 The probe consumed two Maintenance numbers because it did not register its creates with the counter helper; the counter was put back from 2 to 0 afterwards by the helper rule (now == snapshot 0 + consumed 2, no contract with that prefix exists). Final state read again: flow OFF, 11 contracts, 0 TEST-TMP, 0 temporary counterparties, counters 0/0/0/0/0, 0 steps.
 
+## Regression pass after the retirement of flow v1 (2026-10-25, flow v2 OFF)
+
+Run with the owner's account through the Azure CLI sign-in, one script at a time, after flow v1 was deleted (2026-10-24) and with v2 OFF. Before the session: a 3-minute connection window (environment DNS 0 of 36, GET 0 of 36 failures: accepted), `create-security-roles --mode=verify` (22 PASS, 0 FAIL), and a baseline read. Before and after **each** script the baseline was read: 11 contracts, 110 active matrix rows, 5 active assignments, 0 approval steps, counters 0/0/0/0/0, 5 counterparties, one flow row (v2, OFF), no `TEST-TMP` row. The owner stayed out of the portal and the app, and answered no approval request. Every script restored the counters (`refused 0`).
+
+| Script (mode) | Result 2026-10-25 | Previous result (2026-10-22) | Wall clock | Verdict |
+|---|---|---|---|---|
+| `test-state-guard --mode=integration --skip-ui-rows` | 76 PASS, 0 FAIL, 4 OBS | 76 / 0 / 4 | 97 s | same |
+| `test-usd-freeze --mode=update-cases` | 10 PASS, 0 FAIL | 10 | 36 s | same |
+| `test-usd-freeze --mode=create-case` | 1 PASS, 0 FAIL | 1 | 10 s | same |
+| `test-usd-freeze --mode=guard-smoke` | 5 PASS, 0 FAIL | 5 | 13 s | same |
+| `test-contract-number` (full) | 18 PASS, 0 FAIL (T3: 20 parallel creates, three rounds, 20/20 each, unique and consecutive) | 18 / 0 | 79 s | same |
+| `test-approval-round` | 13 PASS, 0 FAIL, 1 OBS | 13 / 0 / 1 | 22 s | same |
+| `test-approval-chain` | 37 PASS, 0 FAIL, 3 OBS | 37 / 0 / 3 | 82 s | same |
+| `test-bulk-messages --mode=run` | 31 PASS, 0 FAIL, 4 OBS | 31 / 0 / 4 | 126 s | same |
+| `verify-approval-chain-schema --cascade-test` | 42 PASS, 0 FAIL, 2 OBS; S9a to S9g all PASS: the alternate key rejected a duplicate step (HTTP 412), the same order in another round was accepted, deleting the Draft contract deleted its 3 steps | read-only run of 2026-10-24: 35 PASS, 0 FAIL, 3 OBS (the S9 cases ran in batch 1, 2026-10-22) | 26 s | same, plus the 7 live S9 checks |
+| `test-auditing-user-change --mode=run` | 10 PASS, 0 FAIL, 4 OBS (second attempt; the first stopped before creating anything, see [ADR-009](ADR-009-auditing.md), "Update 2026-10-25") | not run before | 152 s | new test |
+
+**No failure in the product, and none in the scripts whose code changed since their last server run** (the expected number of contracts, the reading of the flow state with one or two rows, the message texts). The only failure of the session was a defect in the new audit-test script (the lookup bind key written in lower case), found at its first attempt and fixed.
+
+**Not re-run in this session, and why:** `test-security-roles` and `test-auditing` (the roles and the audit configuration did not change since their runs of 2026-10-24); `test-flow-v2`, `test-flow-failures` and `test-flow-approvalround` (they need v2 turned ON by the owner and, for the first two, approval requests answered; the flow definition did not change since 2026-10-22, but the code of the first two changed since: v1 is optional now, and only their read-only modes ran, on 2026-10-24); the retired v1 scenarios and `verification-api-tests` (not part of the regression pass).
+
 ## Corrected: the Min description of the ApprovalMatrix
 
 The live description of `mwf_minvalueusd` said "inclusive" while the documentation, the CSV, the loader and the 110 rows use **Min exclusive**. Nothing read the column, so nothing was wrong in behavior. Both descriptions are now: Min "lower bound of the value band, exclusive", Max "upper bound, inclusive; empty means no upper limit" (script, 2026-10-22). The earlier convention "a value of exactly 0 matches no band" is **replaced by decision 2**: 0 falls on the first band.

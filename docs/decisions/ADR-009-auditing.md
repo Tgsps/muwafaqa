@@ -1,6 +1,6 @@
 # ADR-009: Dataverse auditing
 
-- **Status:** **Accepted: applied and tested with the admin account on 2026-10-24.** Organization on (retention 365 days, provisional), the five tables and the four lookup columns audited, the Admin role holds the two audit-read privileges; `test-auditing.mjs` gave 23 PASS, 0 FAIL, 6 OBS ("Result of the behavioral test"). **Not tested:** a change of `mwf_approverassignment.mwf_user`, changes by a non-admin user or an application user, the volume of the 61 platform tables under real use (measured in quiet periods only), and the other items at the end. The solution files in `src/` are synchronized in a separate commit.
+- **Status:** **Accepted: applied and tested with the admin account on 2026-10-24.** Organization on (retention 365 days, provisional), the five tables and the four lookup columns audited, the Admin role holds the two audit-read privileges; `test-auditing.mjs` gave 23 PASS, 0 FAIL, 6 OBS ("Result of the behavioral test"). **Update 2026-10-25:** a change of `mwf_approverassignment.mwf_user` is now tested (`test-auditing-user-change.mjs`, 10 PASS, 0 FAIL, 4 OBS; see "Update 2026-10-25"). **Not tested:** that change by a non-admin caller or between two people (user B was an application user), changes by a non-admin user or an application user as the caller, the volume of the 61 platform tables under real use (measured in quiet periods only), and the other items at the end. The solution files in `src/` are synchronized in a separate commit.
 - **Date:** 2026-10-24
 - **Related:** [ADR-004](ADR-004-contract-state-guard.md) (guard), [ADR-007](ADR-007-approval-chain.md) (chain, flow v2), [ADR-008](ADR-008-security-roles.md) (roles), `scripts/lib/auditing.mjs`.
 
@@ -72,7 +72,7 @@ Every write went through the gate of this project (a fresh 3-minute window that 
 | Noise of the platform tables, 3 minutes after the switch (flows OFF, no activity) | 1 audit row in the whole environment: the organization change itself ("Audit Change at Org Level"); 0 rows from the 61 platform tables and 0 from ours |
 | Admin role | `add-missing --role=Admin` added `prvReadAuditSummary` and `prvReadRecordAuditHistory` at Organization level (22 designed privileges); four of the nine removed baseline privileges came back and were removed again (see [ADR-008](ADR-008-security-roles.md)); the default `verify` passes (22 PASS, 0 FAIL) |
 
-State after the application (`configure-auditing.mjs --mode=verify`: 9 PASS, 0 FAIL, 1 OBS): organization on; the five tables ON; the four lookup columns ON; `mwf_approvalstep.mwf_contract` and the Contract Number Counter table off on purpose. **`mwf_approverassignment.mwf_user` is audited, but a change of it was NOT tried** (nothing may change who approves).
+State after the application (`configure-auditing.mjs --mode=verify`: 9 PASS, 0 FAIL, 1 OBS): organization on; the five tables ON; the four lookup columns ON; `mwf_approvalstep.mwf_contract` and the Contract Number Counter table off on purpose. **`mwf_approverassignment.mwf_user` is audited, but a change of it was NOT tried** on 2026-10-24 (nothing may change who approves); it was tried on 2026-10-25 on one temporary row, see "Update 2026-10-25".
 
 ## Result of the behavioral test (`scripts/test-auditing.mjs`, admin account)
 
@@ -95,13 +95,41 @@ The six OBS, as printed:
 
 **Noise of the 61 platform tables: measured only in quiet periods.** 0 rows in the 3 minutes after the organization switch and 0 during the test (about 3 minutes of activity of ours, flows OFF). This says nothing about the volume under real use (flows running, approvals, users).
 
+## Update 2026-10-25: a change of `mwf_approverassignment.mwf_user` is tested
+
+Script `scripts/test-auditing-user-change.mjs`, run with the owner's account through the Azure CLI sign-in, flow v2 OFF, a 3-minute connection window accepted (0 of 36 failures), baseline 11 contracts / 110 matrix rows / 5 assignments / 0 steps / counters 0 before and after.
+
+**Scenario.** One temporary assignment row `TEST-TMP-AUDUSER assignment` was created **without a role**, with `mwf_user` = user A (the signed-in owner); its `mwf_user` was changed to user B; the audits table was polled every 10 s; the row was deleted and the Delete row was polled. The 5 real assignment rows were only counted, never changed. The role is left empty because the alternate key `mwf_ApproverAssignmentKey` allows one row per role, the Choice has five values and the five real rows use all five.
+
+**First attempt (not a product result).** The server refused the create with HTTP 400 "Error identified in Payload" before anything was created (nothing was left behind). Cause, a defect in the new script: the lookup was written as `mwf_user@odata.bind`, but the navigation property name is case-sensitive and is `mwf_User` (read from the entity metadata; the approver loader already used it). Fixed with one shared constant and a unit test that fails if the key is not that text.
+
+**Second attempt: 10 PASS, 0 FAIL, 4 OBS.**
+
+| Check | Result |
+|---|---|
+| Create of the row without a role | PASS: **the server accepted an empty key column** |
+| Create row and Update row appeared | PASS (after 63 s of polling, until quiet) |
+| U1: an Update row shows `mwf_user` OLD = user A and NEW = user B (`RetrieveAuditDetails`) | PASS |
+| U2: the Update row was made by the signed-in owner (`userid`) | PASS; `callinguserid` not set |
+| U3 (OBS): other columns listed by the same Update row | none |
+| U4: the Create row shows `mwf_user` = user A | PASS |
+| U5 (OBS): column named in the detail | `_mwf_user_value` (a lookup appears as `_<name>_value`) |
+| Delete row appeared; U6: made by the signed-in owner | PASS |
+| `userB` (OBS) | user B was a non-interactive application user |
+| `lag` (OBS) | 3 rows: 21, 22 and 26 s (min, median, max) between the operation and the moment the poll first saw the row; polling every 10 s, so these are upper bounds |
+| Check-clean | PASS: no `TEST-TMP` row, 11 contracts, 0 steps, 110 matrix rows, 5 assignments |
+
+Audit rows in order (UTC): Create 08:19:41, Update 08:19:46, Delete 08:20:54, all by the owner's account.
+
+**Limits of this result.** User B was **an enabled application user chosen by rule, not a second person** (the environment has one interactive user, owner decision 2026-10-25), so a person-to-person change is not shown. **No non-admin caller was tested**: every change was made by the owner. The server accepted an assignment row with an empty role: the key does not stop a row without a role. Nothing was tested about a change of `mwf_user` made through the model-driven app.
+
 ## Order of work (as proposed; all steps were carried out on 2026-10-24)
 
 1. `configure-auditing.mjs --mode=check`; 2. the matrix; 3. the other four tables; 4. the four lookup columns; 5. the organization; 6. `add-missing --role=Admin` and `verify`; 7. `test-auditing.mjs --mode=run`; 8. `pac solution sync` (separate commit). The tables were switched on before the organization on purpose: no audit row is written until the organization switch is on.
 
 ## Not tested / not known (nothing is assumed)
 
-- **A change of `mwf_approverassignment.mwf_user`** (the column is audited; changing it was deliberately not tried).
+- **A change of `mwf_approverassignment.mwf_user` by a non-admin caller, or between two people** (tested on 2026-10-25 only with the owner as the caller and an application user as user B; see "Update 2026-10-25").
 - Changes by a **non-admin user or an application user**; whether the audit row then carries that user; impersonation of other kinds; bulk messages (`CreateMultiple`, `UpdateMultiple`); the **flows' own changes**.
 - The volume of the **61 platform tables under real use**, the log storage used, retention deletion (365 days cannot be observed now).
 - Read audit and user access audit (off), the audit of role or privilege changes (the `role` table is not audited), `DeleteRecordChangeHistory`, export of audit data, audit through the model-driven app.

@@ -729,3 +729,11 @@ Details and tables: [ADR-007](decisions/ADR-007-approval-chain.md), "v2 flow-ON 
 - **Connection:** three 3-minute windows (see ADR-007). The acceptance rule was changed by the owner to the environment only (GET and DNS of the environment host); the neutral host is a diagnostic. Window 3: environment DNS 0/36, GET 1/36 (`ENOENT`), accepted. No network error during the run, no write retried.
 - **Cleanup:** 9 contracts and the counterparty deleted, counters restored (MNT 5 to 0, PRC 1 to 0, INS 1 to 0, SAL 2 to 0, refused 0). Final baseline: 11 contracts, 0 steps, 110 matrix rows, 5 assignments, counters 0, v1 and v2 OFF.
 - **Code added:** `scripts/test-bulk-messages.mjs`, `scripts/lib/bulk-messages.mjs`, `scripts/test-bulk-messages.test.mjs` (12 tests), `scripts/lib/connection-verdict.mjs` and its test (8 tests); `scripts/check-connection.mjs` changed to use the rule.
+
+## Regression pass after the retirement of flow v1, 2026-10-25 (flow v2 OFF, no registration change)
+
+The full table, the connection window, the baselines and the reasons for what was not re-run are in [ADR-007](decisions/ADR-007-approval-chain.md), "Regression pass after the retirement of flow v1". Summary (script, owner's account through the Azure CLI sign-in, one script at a time, baseline read before and after each: 11 contracts, 110 matrix rows, 5 assignments, 0 steps, counters 0, one flow row OFF):
+
+- `test-state-guard --skip-ui-rows` 76 PASS, 0 FAIL, 4 OBS; `test-usd-freeze` update-cases 10, create-case 1, guard-smoke 5 PASS; `test-contract-number` 18 PASS; `test-approval-round` 13 PASS, 0 FAIL, 1 OBS; `test-approval-chain` 37 PASS, 0 FAIL, 3 OBS; `test-bulk-messages` 31 PASS, 0 FAIL, 4 OBS; `verify-approval-chain-schema --cascade-test` 42 PASS, 0 FAIL, 2 OBS. All equal to the run of 2026-10-22, the first server run since flow v1 was deleted and since the scripts changed (expected contract count, flow state read with one or two rows).
+- `test-auditing-user-change` (new): the first attempt was refused with HTTP 400 before anything was created (bind key `mwf_user` instead of `mwf_User`); the second gave 10 PASS, 0 FAIL, 4 OBS ([ADR-009](decisions/ADR-009-auditing.md), "Update 2026-10-25").
+- Counters were restored after each script (`refused 0`); nothing was left behind (0 `TEST-TMP` rows in the five tables).

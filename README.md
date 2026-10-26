@@ -56,18 +56,19 @@ Every number below comes from the documents linked next to it; the test scripts 
 | Area | Result | Run with |
 |---|---|---|
 | Plug-in unit tests (`dotnet test`) | 346 passed, 0 failed | no environment needed |
-| Script unit tests (`node --test`) | 202 tests: 201 pass, 1 skipped on purpose (it compares a constant with a file that no longer exists), 0 fail | no environment needed |
-| State guard, server | 76 PASS, 0 FAIL, 4 OBS ([plug-in registration log](docs/plugin-registration-log.md), re-run after the Create-must-be-Draft change; [ADR-004](docs/decisions/ADR-004-contract-state-guard.md)) | the owner's account (a System Administrator) through the Web API |
-| Contract number, server | 18 PASS, 0 FAIL in the full run ([ADR-007](docs/decisions/ADR-007-approval-chain.md), regression table); 20 parallel creates, three rounds in a row, gave unique consecutive numbers ([ADR-006](docs/decisions/ADR-006-contract-number-generator.md)) | same |
-| USD freeze, server | 10 + 1 + 5 PASS ([ADR-003](docs/decisions/ADR-003-usd-value-at-submission.md)) | same |
-| Approval round, server | 13 PASS, 0 FAIL, 1 OBS ([plug-in registration log](docs/plugin-registration-log.md), same re-run; design in [ADR-005](docs/decisions/ADR-005-approval-round.md)) | same |
-| Approval chain builder, server | 37 PASS, 0 FAIL, 3 OBS ([ADR-007](docs/decisions/ADR-007-approval-chain.md)) | same |
-| `CreateMultiple` / `UpdateMultiple` against the guard | 31 PASS, 0 FAIL, 4 OBS ([ADR-007](docs/decisions/ADR-007-approval-chain.md)) | same |
-| Schema read-back | 35 PASS, 0 FAIL, 3 OBS (read-only, last run on 2026-10-24) | same |
+| Script unit tests (`node --test`) | 216 tests: 215 pass, 1 skipped on purpose (it compares a constant with a file that no longer exists), 0 fail | no environment needed |
+| State guard, server | 76 PASS, 0 FAIL, 4 OBS (last run 2026-10-25, after flow v1 was deleted; [ADR-007](docs/decisions/ADR-007-approval-chain.md), regression section; design in [ADR-004](docs/decisions/ADR-004-contract-state-guard.md)) | the owner's account (a System Administrator) through the Web API |
+| Contract number, server | 18 PASS, 0 FAIL in the full run (last run 2026-10-25, [ADR-007](docs/decisions/ADR-007-approval-chain.md), regression table); 20 parallel creates, three rounds in a row, gave unique consecutive numbers ([ADR-006](docs/decisions/ADR-006-contract-number-generator.md)) | same |
+| USD freeze, server | 10 + 1 + 5 PASS (last run 2026-10-25; [ADR-003](docs/decisions/ADR-003-usd-value-at-submission.md)) | same |
+| Approval round, server | 13 PASS, 0 FAIL, 1 OBS (last run 2026-10-25, [ADR-007](docs/decisions/ADR-007-approval-chain.md), regression section; design in [ADR-005](docs/decisions/ADR-005-approval-round.md)) | same |
+| Approval chain builder, server | 37 PASS, 0 FAIL, 3 OBS (last run 2026-10-25; [ADR-007](docs/decisions/ADR-007-approval-chain.md)) | same |
+| `CreateMultiple` / `UpdateMultiple` against the guard | 31 PASS, 0 FAIL, 4 OBS (last run 2026-10-25; [ADR-007](docs/decisions/ADR-007-approval-chain.md)) | same |
+| Schema read-back | 42 PASS, 0 FAIL, 2 OBS with `--cascade-test` (last run 2026-10-25: the alternate key rejected a duplicate step with HTTP 412, deleting a Draft contract deleted its 3 steps); the read-only run of 2026-10-24 gave 35 PASS, 0 FAIL, 3 OBS | same |
 | Flow v2 with real approvals, cases A to D | 6, 6, 6 and 7 PASS, 0 FAIL ([ADR-007](docs/decisions/ADR-007-approval-chain.md)) | the owner turned the flow on and answered each approval request |
 | Flow v2 failed endings | 7 PASS (no step rows) and 8 PASS (a role with no active approver) | the owner turned the flow on; no approval request was created |
 | Security roles, behavior | per role, with the platform-added privileges removed: Requester 40, Approver 22, Finance 25, Admin 28 PASS, 0 FAIL ([ADR-008](docs/decisions/ADR-008-security-roles.md)); the stored privileges equal the design (8, 3, 9 and 22) | **a non-interactive application user**, not a person |
-| Auditing, behavior | 23 PASS, 0 FAIL, 6 OBS ([ADR-009](docs/decisions/ADR-009-auditing.md)); audit rows appeared within 18 to 58 seconds of an operation (upper bounds, polled every 10 s) | the owner's account |
+| Auditing, behavior | 23 PASS, 0 FAIL, 6 OBS (run 2026-10-24, [ADR-009](docs/decisions/ADR-009-auditing.md)); audit rows appeared within 18 to 58 seconds of an operation (upper bounds, polled every 10 s) | the owner's account |
+| Auditing, change of the approver user (`mwf_user`) | 10 PASS, 0 FAIL, 4 OBS (run 2026-10-25, [ADR-009](docs/decisions/ADR-009-auditing.md), "Update 2026-10-25"): old and new value, the executing user, the Create and Delete rows; lag 21 to 26 s (polled every 10 s). User B was a non-interactive application user, not a second person; no non-admin caller was tested | the owner's account |
 
 The seed data (110 approval-matrix rows, 5 approver assignments, 5 number counters) is loaded by scripts, and the demo files in `data/` are fictional.
 
@@ -78,7 +79,7 @@ The full list is in [docs/rebuild-runbook.md](docs/rebuild-runbook.md), section 
 - **The solution import has never been run**, in any environment. `pac solution pack` of `src/` works; the import and what it brings (or does not bring) are untested.
 - The plug-in package file is not in the repository; it is rebuilt from `plugins/` and registered by script. Registering it as one fresh sequence in a new environment was not done.
 - **Roles were tested only with a non-interactive application user.** An interactive user, team membership and access to the model-driven app were not tested. Whether the nine privileges the platform adds to custom roles come back after an import is not known (four of them did come back on one role when privileges were added to it, and were removed again).
-- The audit configuration (organization settings) is not part of the solution; a change of the approver user on an assignment row was deliberately not tried; the volume of the platform's own audited tables was measured only while the environment was quiet.
+- The audit configuration (organization settings) is not part of the solution; a change of the approver user on an assignment row was tested only with the owner as the caller and an application user as the new value (ADR-009); the volume of the platform's own audited tables was measured only while the environment was quiet.
 - The flows run with the owner's connection, so approvals depend on one person's account. Column security was not decided.
 - The Flow checker passed a flow design that then failed on turn-on; a flow is only proven by running it.
 - The model-driven app, its forms and views exist but are not covered by automated tests; three guard cases were checked by hand in the app.
