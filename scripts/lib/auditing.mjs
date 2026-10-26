@@ -12,18 +12,21 @@
  *    functions. Learn warns that the Web API result of RetrieveRecordChangeHistory does not carry the AuditRecord, so who and when must come from the audits table.
  */
 
+import { AUDIT_PLAN_ENTRIES } from './reminder-schema.mjs';
+
 export const AUDIT_TABLES = ['mwf_approvalmatrix', 'mwf_approverassignment', 'mwf_counterparty', 'mwf_approvalstep', 'mwf_contract'];   // lowest risk first
 export const EXCLUDED_TABLES = {
   mwf_contractnumbercounter: 'written by the SYSTEM plug-in on every contract creation: high volume, no business value; the effect is visible in the contract number of each contract (owner decision)',
 };
 export const ORG_TARGET = Object.freeze({ isauditenabled: true, auditretentionperiodv2: 365, isreadauditenabled: false, isuseraccessauditenabled: false });
 
-/** Columns that are OFF by default (lookups) and that the design wants audited. */
+/** Columns that the design wants audited: the lookups (OFF by default) and, since 2026-10-26, the two reminder columns of ADR-010 (created with audit ON; listed so `--mode=verify` covers them). */
 export const COLUMN_ENABLE = [
   { table: 'mwf_contract', column: 'mwf_counterpartyid', reason: 'who the contract is with; locked after Draft by the guard (ADR-004), so a change in Draft is the only one worth seeing' },
   { table: 'mwf_approvalstep', column: 'mwf_actualapprover', reason: 'who really decided the step' },
   { table: 'mwf_approvalstep', column: 'mwf_originalapprover', reason: 'who the step was assigned to' },
   { table: 'mwf_approverassignment', column: 'mwf_user', reason: 'who approves for a role: the most sensitive configuration of the chain' },
+  ...AUDIT_PLAN_ENTRIES,
 ];
 /** Columns left OFF on purpose, with the reason (the report and ADR-009 print this). */
 export const COLUMN_EXCLUDE = [

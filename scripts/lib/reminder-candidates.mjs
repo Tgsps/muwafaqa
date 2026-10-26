@@ -99,3 +99,21 @@ export function pickCandidates({ steps, contracts, nowMs, timers }) {
   }
   return { actions, skipped, notDue };
 }
+
+/**
+ * DECIDED by the owner on 2026-10-26 (ADR-010, "Hard cap per run"): at most this many notices (reminders and escalations together) in one scan.
+ * Hard-coded. `capActions` itself has no default: the caller passes the number.
+ */
+export const MAX_NOTICES_PER_RUN = 5;
+
+/**
+ * The hard cap of one run. Takes the actions of `pickCandidates`, returns at most `maxPerRun` of them, the ones that have waited the longest first
+ * (ties: the step id, so the result is deterministic), and the number left over. A step that is left over is NOT claimed by the flow in this run, so it
+ * is picked up by the next scan; nothing is dropped. maxPerRun must be an explicit whole number >= 1 (no default: an unset cap must not mean "no cap").
+ * @returns {{send:object[], deferred:number}}
+ */
+export function capActions(actions, maxPerRun) {
+  if (!Number.isInteger(maxPerRun) || maxPerRun < 1) throw new Error('maxPerRun must be an explicit whole number >= 1');
+  const ordered = [...(actions || [])].sort((a, b) => (a.waitingSinceMs - b.waitingSinceMs) || String(a.stepId).localeCompare(String(b.stepId)));
+  return { send: ordered.slice(0, maxPerRun), deferred: Math.max(0, ordered.length - maxPerRun) };
+}

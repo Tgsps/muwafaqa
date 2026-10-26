@@ -48,7 +48,8 @@ const EXPECT = {
   mwf_approvalstep: {
     columns: { mwf_name: ['String', 'ApplicationRequired'], mwf_contract: ['Lookup', 'ApplicationRequired'], mwf_approvalround: ['Integer', 'ApplicationRequired'], mwf_steporder: ['Integer', 'ApplicationRequired'],
       mwf_approverrole: ['Picklist', 'ApplicationRequired'], mwf_actiontype: ['Picklist', 'ApplicationRequired'], mwf_decision: ['Picklist', 'ApplicationRequired'],
-      mwf_originalapprover: ['Lookup', 'None'], mwf_actualapprover: ['Lookup', 'None'], mwf_decidedon: ['DateTime', 'None'], mwf_comments: ['Memo', 'None'], mwf_delegated: ['Boolean', 'None'] },
+      mwf_originalapprover: ['Lookup', 'None'], mwf_actualapprover: ['Lookup', 'None'], mwf_decidedon: ['DateTime', 'None'], mwf_comments: ['Memo', 'None'], mwf_delegated: ['Boolean', 'None'],
+      mwf_remindedon: ['DateTime', 'None'], mwf_escalatedon: ['DateTime', 'None'] },   // the last two: ADR-010, created 2026-10-26
     options: { mwf_approverrole: ROLES, mwf_actiontype: { Approve: 867640000, Inform: 867640001 },
       mwf_decision: { Pending: 867640000, Waiting: 867640001, Approved: 867640002, Rejected: 867640003, Informed: 867640004, Cancelled: 867640005 } },
     lookups: { mwf_contract: ['mwf_contract', 'Cascade'], mwf_originalapprover: ['systemuser', 'RemoveLink'], mwf_actualapprover: ['systemuser', 'RemoveLink'] },

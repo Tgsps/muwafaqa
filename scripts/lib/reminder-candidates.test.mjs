@@ -194,3 +194,34 @@ test('the test and the production timers are valid, and differ only in the two n
   assert.throws(() => timersFor('prod'));
   assert.ok(Object.isFrozen(TEST_TIMERS) && Object.isFrozen(PRODUCTION_TIMERS));
 });
+
+// ---- the hard cap of one run (the number itself is the owner's decision; the code takes it as an argument)
+import { capActions, MAX_NOTICES_PER_RUN } from './reminder-candidates.mjs';
+
+const act = (id, since, action = 'remind') => ({ stepId: id, action, waitingSinceMs: since, waitingMinutes: 0 });
+
+test('cap: at most maxPerRun notices are sent, the longest waiting first, and the rest is counted as deferred (not dropped)', () => {
+  const all = [act('c', 300), act('a', 100), act('b', 200), act('d', 400)];
+  const r = capActions(all, 2);
+  assert.deepEqual(r.send.map((x) => x.stepId), ['a', 'b']);
+  assert.equal(r.deferred, 2);
+  assert.equal(all.length, 4);   // the input is not changed
+});
+
+test('cap: fewer actions than the cap are all sent; none gives none; equal waiting times are ordered by the step id', () => {
+  assert.deepEqual(capActions([act('x', 5)], 5), { send: [act('x', 5)], deferred: 0 });
+  assert.deepEqual(capActions([], 5), { send: [], deferred: 0 });
+  assert.deepEqual(capActions(undefined, 5), { send: [], deferred: 0 });
+  assert.deepEqual(capActions([act('b', 1), act('a', 1)], 1).send.map((x) => x.stepId), ['a']);
+});
+
+test('cap: reminders and escalations count together', () => {
+  const r = capActions([act('r1', 1, 'remind'), act('e1', 2, 'escalate'), act('r2', 3, 'remind')], 2);
+  assert.deepEqual(r.send.map((x) => x.action), ['remind', 'escalate']);
+  assert.equal(r.deferred, 1);
+});
+
+test('cap: there is no default; an unset, zero, negative, fractional or text cap throws (an unset cap must never mean no cap)', () => {
+  for (const bad of [undefined, null, 0, -1, 1.5, '5', NaN, Infinity]) assert.throws(() => capActions([act('a', 1)], bad), /explicit whole number/, String(bad));
+  assert.equal(MAX_NOTICES_PER_RUN, 5);   // decided by the owner on 2026-10-26
+});

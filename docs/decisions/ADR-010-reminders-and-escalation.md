@@ -1,8 +1,8 @@
 # ADR-010: Reminders and escalation of pending approvals
 
-- **Status:** **Proposed.** The design direction was approved by the owner on 2026-10-26 (separate scheduled flow, derived waiting time, two columns, claim-first, informational escalation); **nothing is built or created**: no column, no flow, no flow definition. The data model change must be reviewed by the owner before the columns are created. The notification channel is **not decided**.
+- **Status:** **Proposed.** The design direction was approved by the owner on 2026-10-26 (separate scheduled flow, derived waiting time, two columns, claim-first, informational escalation). **Only the two columns exist** (created on 2026-10-26, see "Implementation note"); **no flow and no flow definition** exists. The notification channel is **not decided**.
 - **Date:** 2026-10-26
-- **Related:** [ADR-007](ADR-007-approval-chain.md) (chain, flow v2), [ADR-004](ADR-004-contract-state-guard.md) (guard), [ADR-008](ADR-008-security-roles.md) (roles), [ADR-009](ADR-009-auditing.md) (auditing), `scripts/lib/reminder-candidates.mjs`, `scripts/lib/reminder-schema.mjs`, `scripts/add-reminder-columns.mjs` (written, not run).
+- **Related:** [ADR-007](ADR-007-approval-chain.md) (chain, flow v2), [ADR-004](ADR-004-contract-state-guard.md) (guard), [ADR-008](ADR-008-security-roles.md) (roles), [ADR-009](ADR-009-auditing.md) (auditing), `scripts/lib/reminder-candidates.mjs`, `scripts/lib/reminder-schema.mjs`, `scripts/add-reminder-columns.mjs` (run once on 2026-10-26).
 - Tags: (from Learn), (script), (unit), (assumption), (not tested).
 
 ## Context
@@ -49,7 +49,7 @@ Learn (limits-and-config): a flow **run lasts at most 30 days, including pending
 - **A2:** the reminder goes to the user assigned to the role, at the same address v2 uses to address the approval (`internalemailaddress` of the assigned user). Whether that is the right address for a reminder was not checked.
 - **A3:** the placeholders 48 h and 96 h, the scan interval and the working-hours question (are weekends counted?) are not decided. This design counts calendar time.
 
-## New columns (proposal; nothing created)
+## New columns (created on 2026-10-26, see the implementation note)
 
 | Column | Type | Table | Audit | Written by |
 |---|---|---|---|---|
@@ -84,8 +84,24 @@ Method: the builder is run with the **test** timers (3 and 6 minutes), the scan 
 3. **The reminder and escalation hours (48 h, 96 h) are placeholders**; also whether weekends count.
 4. **The 30-day run limit:** what must happen to a contract whose step waits longer.
 5. Monitoring of the reminder flow itself (a silent failure means silent approvals).
-6. The data-model review of the two columns by the owner, before `add-reminder-columns.mjs --mode=apply` is ever run.
+6. The columns were created on the owner's explicit approval of 2026-10-26; a formal data-model review (the step table in ADR-007 does not list them yet) is still to be done.
+7. (Decided on 2026-10-26: the cap is 5 notices per run, hard-coded.)
 
-## Not built, not run
+## Hard cap per run, and the flow stays OFF (owner decision of 2026-10-26: N = 5, hard-coded)
 
-No flow definition, no flow row, no column, no change in `src/`. The schema script and the two pure modules are written and unit tested only (`scripts/lib/reminder-schema.test.mjs`, `scripts/lib/reminder-candidates.test.mjs`); the schema script's default mode is an offline plan.
+- **Cap:** the scan sends at most **N notices per run**, reminders and escalations together, the longest waiting first (`capActions` in `scripts/lib/reminder-candidates.mjs`, unit tested). **N = 5, hard-coded** (`MAX_NOTICES_PER_RUN`; the function itself has no default and throws when N is not given, so an unset cap can never mean "no cap"). Why 5: with one user and a handful of steps it never limits a normal run, and if the scan was off for days and many steps become due together, it bounds the mails of one run to 5.
+- **What a cap costs:** the rest waits for the next scan (one interval later). A step that is left over is **not claimed** in this run, so nothing is lost; with 60 s between scans, 50 due steps take 10 minutes to be notified.
+- **OFF by default:** the flow row is created **OFF**, the owner alone turns it on, only for a test, and turns it off after it (as for v2; no script turns a flow on or off). A cap is a limit on damage, not a reason to leave the flow on.
+- **Not designed:** a kill switch inside the flow (for example a configuration row it reads first), and an alert when a run hits the cap.
+
+## Implementation note (2026-10-26)
+
+Run with the owner's account (Azure CLI sign-in), flow v2 OFF, the owner not using the portal. **The two columns were created** on `mwf_approvalstep` with `scripts/add-reminder-columns.mjs --mode=apply`; the flow, the notification channel and the scan do **not** exist.
+
+- **Gate:** a 3-minute window with the project's Node settings: environment DNS 0 of 36, environment GET 0 of 36 (accepted).
+- **Baseline before and after (script, read only):** 11 contracts, 110 active matrix rows, 5 active assignments, 0 approval steps, 4 flow rows all OFF, counters [1, 0, 0, 0, 0] (MNT, PRC, INS, SAL, SRV by the order the API returned them); identical before and after. The MNT counter is 1 and not 0 because of the owner's manual test of the contract form earlier on 2026-10-26 (a contract was created and deleted; a gap is allowed, ADR-006); the contract count is 11 and no contract has the MNT prefix. This is an inference from the counter's `modifiedon` (2026-10-26 09:16 UTC) and the owner's statement, not something this script observed.
+- **Create (script):** both columns created with the solution header and audit ON in the request; read back: 10 PASS each (type Date and Time, user local, not required, audit ON, valid for create and update, labels as specified). `--mode=check` afterwards: 0 failed checks.
+- **Audit (script):** `configure-auditing.mjs --mode=apply` for the two columns made **no write** ("audit already ON"); `--mode=verify`: 9 PASS, 0 FAIL, 1 OBS; `mwf_approvalstep` has 13 of 14 custom columns audited (off: `mwf_contract`, on purpose); the counter table stays off. The two columns are now in `COLUMN_ENABLE` (`lib/auditing.mjs`).
+- **Schema verifier (script, read only, no `--cascade-test`):** 35 PASS, 0 FAIL, 3 OBS with the script as it was (the same as the earlier read-only run); after teaching it the two columns: **37 PASS, 0 FAIL, 3 OBS**. The cascade test was not run.
+- **In the solution:** the table `mwf_approvalstep` is a component of Muwafaqa with all subcomponents (`rootcomponentbehavior` 0) and the two columns have no component row of their own, exactly like `mwf_decidedon`. So they belong to the solution by that rule (the same inference as for `mwf_approvalround`), **not proven by a row**. The `pac solution sync` that followed (script) exported both columns into `src/Entities/mwf_ApprovalStep/Entity.xml` (+80 lines, nothing else changed; `Solution.xml` unchanged), which shows that they travel with the solution; the import of that file into another environment was not tested.
+- **Not tested:** that a flow can write the columns (nothing writes them yet); that the guard, the chain builder and the roles are unaffected (no row was created in this session; the plug-in unit tests do not touch these columns); an import into another environment.

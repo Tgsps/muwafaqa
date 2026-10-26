@@ -112,3 +112,9 @@ test('--mode=apply without --confirm-mutates-environment refuses before any sign
   assert.equal(noEnv.status, 2);
   assert.match(noEnv.stderr, /--env/);
 });
+
+import { COLUMN_ENABLE } from './auditing.mjs';
+
+test('since 2026-10-26 the two columns are in the audit plan, so configure-auditing --mode=verify covers them', () => {
+  for (const e of AUDIT_PLAN_ENTRIES) assert.ok(COLUMN_ENABLE.some((x) => x.table === e.table && x.column === e.column), e.column);
+});
