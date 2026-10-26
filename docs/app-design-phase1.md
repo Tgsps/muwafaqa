@@ -9,7 +9,7 @@ A click-by-click specification for make.powerapps.com. Nothing here is built yet
 
 ## 0. Phase 1 limits (read first)
 
-Everything the form does to restrict users is **client-side only** (read-only, hidden, required on the form). It does not stop the API, flows, imports, or plugins. Real enforcement is Phase 2 (plugin and JavaScript). *Update 2026-10-26: enforcement is the server plug-in (ADR-004); a form script exists only as a UX aid, is not registered yet and is untested on the real form, see [contract-form-js.md](contract-form-js.md).* Known gaps in Phase 1:
+Everything the form does to restrict users is **client-side only** (read-only, hidden, required on the form). It does not stop the API, flows, imports, or plugins. Real enforcement is Phase 2 (plugin and JavaScript). *Update 2026-10-26: enforcement is the server plug-in (ADR-004); a form script exists only as a UX aid; its first manual test on the real form partly failed, it was fixed in code and is not retested yet, see [contract-form-js.md](contract-form-js.md).* Known gaps in Phase 1:
 
 | Gap | Why it exists | Phase |
 |---|---|---|

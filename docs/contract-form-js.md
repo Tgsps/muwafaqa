@@ -1,17 +1,25 @@
 # Contract form script (UX only)
 
-**Status (2026-10-26): the script is written and its logic is unit tested against a fake form object. It is NOT registered in the environment and NOT in the solution yet, and it has NOT been tried on the real form. It is untested on the real form until the owner's manual test below passes.** The Xrm part (the real `formContext`) is not covered by any automated test.
+**Status (2026-10-26): first manual test = PARTIAL FAILURE; fixed in code, NOT yet retested on the real form.** The script is registered in the development environment by the owner (not in the solution in `src/` yet). Its logic is unit tested against a fake form object (16 tests). **It is untested on the real form until the owner repeats the manual test below and it passes.** The Xrm part (the real `formContext`) is not covered by any automated test.
+
+## First manual test (2026-10-26): partial failure, cause, fix
+
+- **Observed (owner):** the script loaded, `onLoad` ran (the blue notification showed) and Currency got the lock icon, but on a saved Pending Approval contract **Value, Contract Type, Contract Direction and Counterparty stayed editable** (a change to Procurement / Expense / $100 showed as unsaved).
+- **Cause (read from the form XML, not guessed):** the first version used `formContext.getControl(columnName)`. Learn: the argument of `getControl` is the control **name** (or an index), it returns null when no control has that name, and when several controls are bound to one column only the first is returned. In the main form `{a72298be-…}` the control id (its name) equals the column name only for `transactioncurrencyid`; for the other four it is a GUID (`mwf_value`, `mwf_contracttype`, `mwf_direction`, `mwf_counterpartyid`). So `getControl` returned null for those four and the code skipped them silently, which matches what the owner saw. Each of the five columns has exactly one control in the main form, and none appears in the card or quick form, so duplicate controls were **not** the cause here (the fix still covers them).
+- **Fix:** the columns are locked through the attribute, `formContext.getAttribute(name).controls.forEach(c => c.setDisabled(flag))` (the pattern Learn gives for changing every control bound to a column). A missing attribute is skipped, and a failure on one column or one control is logged with `console.warn` and does not stop the others.
+- **Proof in the unit tests:** the fake form now names the controls like the real one (GUID names, `getControl` matches by name). With the new tests, the **old code fails 8 of 16** (including the new regression test for GUID names and two controls per column) and the **new code passes 16 of 16** (script). This shows the logic against a fake, not that the real form now behaves; that is the retest.
+- **Learn also says** that disabling a control bound to a Business Required column makes the form stop requiring a value for it before saving. Value, Contract Type, Direction and Counterparty are Business Required; they are only disabled when the status is not Draft and they already hold a value, and the server guard is the enforcement anyway.
 
 **This is user-experience only, not security.** It disables controls on the Contract main form so that a user does not type into a column the server will refuse. The API, imports and other forms ignore it. The enforcement is the server-side Contract State Guard plug-in ([ADR-004](decisions/ADR-004-contract-state-guard.md)).
 
 - File: `src/WebResources/mwf_contract_form.js` (web resource name `mwf_contract_form.js`, type Script JScript). Until it is registered and the solution is synced, `pac solution pack` of `src/` ignores it (checked locally: the pack succeeds and the zip has no copy of the file).
-- Unit tests: `scripts/contract-form.test.mjs` (13 tests): the pure function `lockedColumnsFor`, the handlers against a fake form, and a comparison of the locked-column list with the table of ADR-004. They do not prove that the real Xrm object behaves the same.
+- Unit tests: `scripts/contract-form.test.mjs` (16 tests): the pure function `lockedColumnsFor`, the handlers against a fake form that copies the real control names, a column with two controls, a column that throws, and a comparison of the locked-column list with the table of ADR-004. They do not prove that the real Xrm object behaves the same.
 
 ## Rules
 
 | # | Rule | Trigger | Detail |
 |---|---|---|---|
-| 1 | The **saved** status decides which columns are locked | `OnLoad`, and after every save (`PostSave`, registered from `OnLoad`) | Draft (`statuscode` = 1): Value, Currency, Contract Type, Contract Direction and Counterparty are **enabled**. Any other value, and an empty or unknown value (fail-safe): they are **disabled**. Works both ways, so Rejected to Draft unlocks them. |
+| 1 | The **saved** status decides which columns are locked | `OnLoad`, and after every save (`PostSave`, registered from `OnLoad`) | Draft (`statuscode` = 1): Value, Currency, Contract Type, Contract Direction and Counterparty are **enabled**. Any other value, and an empty or unknown value (fail-safe): they are **disabled**. Works both ways, so Rejected to Draft unlocks them. Applied through `getAttribute(name).controls`, so every control bound to the column is covered. |
 | 2 | An INFO notification explains the lock | same | Fixed id `mwf_contract_locked`; cleared in the Draft case. |
 
 Decisions behind this (owner, 2026-10-26): `getInitialValue()` is not used, because Learn documents it only for Yes/No, Choice and Choices columns and `statuscode` is a Status column; the value is read with `getValue()` at `OnLoad` and again at `PostSave`. The status filter on Status Reason and the lock of Status Reason on a Create form were considered and dropped.
@@ -31,11 +39,11 @@ Decisions behind this (owner, 2026-10-26): `getInitialValue()` is not used, beca
 
 ## Manual test (the owner)
 
-Use fictional data only. Hard refresh the app (Ctrl+F5) before the test.
+Before a retest after the fix: open the web resource `mwf_contract_form.js` in the solution, **Choose file** with the new `src/WebResources/mwf_contract_form.js`, Save, **Publish all customizations** (the form and its handler registration do not change), then hard refresh the app (Ctrl+F5). Use fictional data only.
 
 | # | Check | You should see | Result |
 |---|---|---|---|
-| 1 | Create a **new** contract (Draft) | The five fields (Value, Currency, Contract Type, Contract Direction, Counterparty) are **editable**; no blue notice at the top. | not run |
+| 1 | Create a **new** contract (Draft) | The five fields (Value, Currency, Contract Type, Contract Direction, Counterparty) are **editable**; no blue notice at the top. | not run (first test: only Currency locked on a Pending contract; this check is to be repeated) |
 | 2 | In a Draft, fill the required fields, set Status Reason to **Pending Approval**, Save | After the save the five fields become **disabled** and the blue notice appears: "This contract is no longer a Draft…". (If the server refuses the save, read the message and report it.) | not run |
 | 3 | Open an existing **Pending Approval** contract | The five fields are disabled, the notice is shown. | not run |
 | 4 | Open an **In Force** contract | The five fields are disabled, the notice is shown. | not run |

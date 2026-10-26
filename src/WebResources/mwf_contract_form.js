@@ -52,14 +52,41 @@ Muwafaqa.ContractForm = (function () {
     return value;
   }
 
+  function warn(message, error) {
+    if (typeof console !== 'undefined' && console.warn) console.warn('mwf_contract_form: ' + message, error);
+  }
+
+  // Through the ATTRIBUTE, not getControl(name): getControl matches the control NAME (the control id in the form XML), which
+  // is a GUID for four of the five columns, and returns only the first control when a column has several. attribute.controls
+  // covers every control bound to the column. A missing attribute is skipped; a failure on one column (or one control)
+  // is logged and never stops the others.
+  function setColumnDisabled(formContext, name, disabled) {
+    try {
+      var attribute = formContext.getAttribute(name);
+      if (!attribute) return;
+      attribute.controls.forEach(function (control) {
+        try {
+          control.setDisabled(disabled);
+        } catch (controlError) {
+          warn('setDisabled failed on a control of ' + name, controlError);
+        }
+      });
+    } catch (columnError) {
+      warn('could not change ' + name, columnError);
+    }
+  }
+
   function apply(formContext) {
     var locked = lockedColumnsFor(readStatus(formContext));
     LOCKED_COLUMNS.forEach(function (name) {
-      var control = formContext.getControl(name);
-      if (control) control.setDisabled(locked.indexOf(name) !== -1);
+      setColumnDisabled(formContext, name, locked.indexOf(name) !== -1);
     });
-    if (locked.length > 0) formContext.ui.setFormNotification(NOTIFICATION_TEXT, 'INFO', NOTIFICATION_ID);
-    else formContext.ui.clearFormNotification(NOTIFICATION_ID);
+    try {
+      if (locked.length > 0) formContext.ui.setFormNotification(NOTIFICATION_TEXT, 'INFO', NOTIFICATION_ID);
+      else formContext.ui.clearFormNotification(NOTIFICATION_ID);
+    } catch (notificationError) {
+      warn('could not change the notification', notificationError);
+    }
   }
 
   function onPostSave(executionContext) {
