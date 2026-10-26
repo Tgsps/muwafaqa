@@ -1,6 +1,6 @@
 # Plan for the flow-ON test session
 
-> This file holds the plan of the **v1** session (executed on 2026-10-19) and, at the end, the **session plan for v2** (prepared 2026-10-22, not executed). The five v1 scripts are v1 scenarios (v1 was retired on 2026-10-24; the scripts stay as history, four of them with a banner): see the note at the end about which of them can be used with v2.
+> This file holds the plan of the **v1** session (executed on 2026-10-19) and, at the end, the **session plan for v2** (prepared 2026-10-22, executed the same day: ADR-007, "v2 flow-ON session (2026-10-22): results"). The five v1 scripts are v1 scenarios (v1 was retired on 2026-10-24; the scripts stay as history, four of them with a banner): see the note at the end about which of them can be used with v2.
 
 Status: **executed on 2026-10-19; results at the end of this file.** It covers the five scripts that need the approval flow ON. The flow is turned on and off **by the owner**; no script and no assistant turns it on or off.
 
@@ -125,9 +125,9 @@ Rules followed: the owner alone turned the flow on and off and cancelled runs; t
 
 ---
 
-# Session plan for v2 (prepared 2026-10-22; NOT executed)
+# Session plan for v2 (prepared 2026-10-22; executed the same day, see ADR-007, "v2 flow-ON session (2026-10-22): results")
 
-Flow: "Muwafaqa - Contract Approval v2" ([flow-approval-v2.md](flow-approval-v2.md), ADR-007). Status of v2 today: created OFF, opened in the designer by the owner (31 actions, Flow checker 0 errors and 0 warnings), **never run**. Tags: **(from code)**, **(estimate)** = a guess, **(not tested)**.
+Flow: "Muwafaqa - Contract Approval v2" ([flow-approval-v2.md](flow-approval-v2.md), ADR-007). Status of v2 today: created OFF, opened in the designer by the owner (31 actions, Flow checker 0 errors and 0 warnings), **never run** *(state when the plan was written; the session ran later on 2026-10-22)*. Tags: **(from code)**, **(estimate)** = a guess, **(not tested)**.
 
 ## Rules (unchanged, and two new ones)
 

@@ -88,7 +88,7 @@ Rules (all accepted by the owner):
 
 Order of the pipeline on a submission: guard (PreValidation 10), then plug-in 1 (PreOperation 20: frozen value and round), then the update, then the chain builder (PostOperation 40) in the same transaction. The approval flow starts after the commit, so the steps exist when it runs.
 
-### The flow v2 (batch 3: written, checked offline; redesigned on 2026-10-22 after the first Turn on failed; never run)
+### The flow v2 (batch 3: written, checked offline; redesigned on 2026-10-22 after the first Turn on failed; run against real approvals the same day, see "v2 flow-ON session")
 
 Full specification, action table, expressions, differences from v1, error handling and the list of what could not be checked: [flow-approval-v2.md](../flow-approval-v2.md). Summary of the **current definition** (50 actions, depth 6):
 

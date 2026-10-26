@@ -77,7 +77,7 @@ Result: **5 passed, 0 failed.**
 - PreImage read back: count 1, alias `pre`, image type PreImage, message property `Target`, attributes `statuscode`, `mwf_value`, `transactioncurrencyid`
 - the step is a component of the solution (component type 92)
 
-Not run yet: integration cases, Create step. Waiting for the confirmation that the approval flow is OFF.
+Not run yet (at the time of this entry): integration cases, Create step. Waiting for the confirmation that the approval flow is OFF. They were run in the sections below (the Update path on 2026-10-12, later passes up to 2026-10-25).
 
 ## Integration tests: Update path (2026-10-12, approval flow OFF)
 
@@ -686,7 +686,9 @@ Failures that coincided: (a) and (c): 0 (a failed alone); (a) and (b): 0 (a fail
 - **Not done:** turning v2 on, any run, the designer for the new row.
 - **`src/` is NOT synced and will not be until after the v2 flow-ON session** (the flow may still change during the session). The live v2 holds the real host in its record links, so that sync needs `scripts/scrub-emails.mjs` before `git add`.
 
-### `scripts/test-flow-v2.mjs` written, not run against a live flow (2026-10-22)
+### `scripts/test-flow-v2.mjs` written (2026-10-22); run against the live flow the same day, see ADR-007, "v2 flow-ON session (2026-10-22): results"
+
+*Status when this entry was written: not run against a live flow. It was run against the live flow later on 2026-10-22 (cases A to D, 25 PASS, 0 FAIL; the failed endings F1 and F2 with `test-flow-failures.mjs`); the bullets below describe the state at writing.*
 
 - The script for the cases A to D of the v2 session plan (`docs/flow-on-session-plan.md`). Prefixes `TEST-TMP-V2A`, `-V2B`, `-V2C`, `-V2D` (no one a prefix of another or of the prefixes of the other scripts: unit test). Modes: `plan`, `baseline`, `setup`, `request`, `await`, `steps`, `withdraw-resubmit`, `verdict`, `cleanup`; `--dry-run` prints the writes and sends none. It never answers, cancels or deletes an approval request, and its cleanup needs no click on a pending request.
 - **Unit tests** (`scripts/test-flow-v2.test.mjs`, 7 tests, all pass): no prefix is a prefix of another; the chain planned for each case equals the chain the ApprovalMatrix gives for its value (fictional seed structure); the `(min, max]` bands, the zero rule, a gap and an overlap; the titles and the Subject read back from them; the owner is never asked to answer an Inform request.

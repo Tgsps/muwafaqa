@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Behavioral test of the four project security roles (ADR-008) with a Dataverse APPLICATION USER (service principal) that the owner creates
- * in the environment. NOT RUN YET. FICTIONAL rows only, prefix TEST-TMP-SEC. Every approval flow must be OFF the whole time (read; the script stops if
+ * in the environment. Run on 2026-10-24 (ADR-008). FICTIONAL rows only, prefix TEST-TMP-SEC. Every approval flow must be OFF the whole time (read; the script stops if
  * one is ON and never turns one on or off).
  *
  * Authentication of the application user: OAuth 2.0 client credentials. The tenant id, client id and secret come ONLY from the environment variables

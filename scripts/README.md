@@ -137,7 +137,7 @@ The regression scripts check that the environment holds an exact number of contr
 | `build-flow-v2.mjs` | The definition of "Muwafaqa - Contract Approval v2" as code. `--mode=build` prints the action table (and writes the clientdata JSON to `--out=<path outside the repository>`); `--mode=check` runs the structural checks offline (no network) and exits 1 on a failure; `--mode=create` (needs `--env`, `--confirm-mutates-environment`) sends **one** POST that creates the flow row **OFF** in the solution, never retried, then reads it back (and confirms v1 is unchanged if a v1 row exists); the connection references come from the solution (exactly one per connector); `--mode=verify` (read only) checks that v2 is OFF and in the solution (and that v1 is OFF if it exists). v1 is retired: the expected trigger is the documented constant `EXPECTED_TRIGGER`, no v1 file is read. It never turns a flow on or off and never starts a run. The record link keeps the placeholder `<ORG_HOST>`, replaced in memory by the host of `--env` |
 | `build-flow-v2.test.mjs` | 18 unit tests (`node --test scripts/build-flow-v2.test.mjs`): the definition passes and every check fails when the matching defect is introduced |
 
-### Flow v2 session script (ADR-007; written, not run against a live flow)
+### Flow v2 session script (ADR-007; run against the live flow on 2026-10-22: cases A to D, 25 PASS, 0 FAIL)
 
 | Script | What it does |
 |---|---|

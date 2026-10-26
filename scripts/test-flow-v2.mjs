@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Flow-ON session for "Muwafaqa - Contract Approval v2" (ADR-007, docs/flow-on-session-plan.md, "Session plan for v2"). NOT RUN YET.
+ * Flow-ON session for "Muwafaqa - Contract Approval v2" (ADR-007, docs/flow-on-session-plan.md, "Session plan for v2"). Run against the live flow on 2026-10-22: cases A to D, 25 PASS, 0 FAIL (ADR-007, "v2 flow-ON session").
  * FICTIONAL rows only. One prefix per case, and no prefix is a prefix of another: TEST-TMP-V2A, TEST-TMP-V2B, TEST-TMP-V2C, TEST-TMP-V2D.
  *
  * The OWNER alone turns flows on and off. This script never does. v2 must be ON and v1 OFF (read only check; never both ON).

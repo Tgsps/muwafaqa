@@ -58,4 +58,10 @@ Exported flow files (`src/Workflows/`): they carry the environment host in the r
 
 ## Current status
 
-Phase 1 (core): data model finalized for the owner's decisions, pending build. No test data until the owner asks.
+Phase 1 (core) was completed on 2026-10-11 (owner's statement); Phase 2 (server rules, approval chain, roles, auditing) is built too. Details and numbers: `README.md` and the ADRs.
+
+- **Built (one unmanaged Developer environment):** 6 tables, a model-driven app, 4 plug-in classes in 7 steps, flow v2 (v1 retired on 2026-10-24), 4 security roles, auditing on 5 tables and 4 lookups, 110 matrix rows and 5 approver assignments.
+- **Tested:** the plug-ins and the seed rules by scripts with the owner's account (last regression pass 2026-10-25); flow v2 with real approvals, cases A to D, and the failed endings F1 and F2 (2026-10-22, the owner answered each request); roles with a non-interactive application user (2026-10-24); auditing, including a change of `mwf_user` (2026-10-24 and 2026-10-25).
+- **Not tested:** the solution import (never run), roles with an interactive user or in the app, a non-admin caller of the audit test, whether the nine platform privileges return after an import. Full list: `README.md` and `docs/rebuild-runbook.md`, section 5.
+- **Environment:** an unmanaged Developer environment; per Learn it is suspended from 2026-12-15 and deleted from 2027-01-15 (not checked: whether a managed or other environment is available). The rebuild plan, with a rehearsal that has not been run yet, is `docs/rebuild-runbook.md`.
+- **Data:** fictional only; the scripts create and remove their own `TEST-TMP` rows (the environment holds 11 contracts).

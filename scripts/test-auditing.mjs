@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Behavioral test of Dataverse auditing (ADR-009) with the ADMIN account only (`--auth=az`). NOT RUN YET. FICTIONAL rows only, prefix TEST-TMP-AUD.
+ * Behavioral test of Dataverse auditing (ADR-009) with the ADMIN account only (`--auth=az`). Run on 2026-10-24: 23 PASS, 0 FAIL, 6 OBS (ADR-009). FICTIONAL rows only, prefix TEST-TMP-AUD.
  * Every approval flow (v2, and v1 while it exists) must be OFF. The audit configuration must already be applied (scripts/configure-auditing.mjs): the script checks it and stops otherwise.
  *
  * What it does (every write is preceded by 3 consecutive successful reads and is never retried):

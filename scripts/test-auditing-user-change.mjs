@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Audit test for the approver-user lookup `mwf_approverassignment.mwf_user` (ADR-009 left a change of this column "not tested"). NOT RUN YET.
+ * Audit test for the approver-user lookup `mwf_approverassignment.mwf_user` (ADR-009 left a change of this column "not tested" until it was run on 2026-10-25: 10 PASS, 0 FAIL, 4 OBS, see ADR-009, "Update 2026-10-25").
  * FICTIONAL row only, prefix TEST-TMP-AUDUSER. Signs in as the OWNER (device code by default, or --auth=az), never as an application user.
  *
  * Scenario (plan mode by default; a write needs --mode=run and --confirm-mutates-environment):
