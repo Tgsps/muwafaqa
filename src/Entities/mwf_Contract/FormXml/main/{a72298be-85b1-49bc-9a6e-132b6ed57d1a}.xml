@@ -215,6 +215,16 @@
       <DisplayConditions Order="0" FallbackForm="true">
         <Everyone />
       </DisplayConditions>
+      <formLibraries>
+        <Library name="mwf_contract_form.js" libraryUniqueId="{08b58655-3f8b-4e5b-8974-04244a2fd9f6}" />
+      </formLibraries>
+      <events>
+        <event name="onload" application="false" active="false">
+          <Handlers>
+            <Handler functionName="Muwafaqa.ContractForm.onLoad" libraryName="mwf_contract_form.js" handlerUniqueId="{630a8aa5-75f1-49fe-b790-51b0b4c90780}" enabled="true" parameters="" passExecutionContext="true" />
+          </Handlers>
+        </event>
+      </events>
     </form>
     <IsCustomizable>1</IsCustomizable>
     <CanBeDeleted>1</CanBeDeleted>
