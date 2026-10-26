@@ -121,10 +121,10 @@ pipelines/   placeholder (empty)
 I designed, directed and verified Muwafaqa, and I built it together with AI tools. Nothing here was produced without my direction.
 
 - **Me:** I set the requirements and make every design decision (the ADRs record each decision and the trade-off I accepted). I do the work in the Power Platform portals myself (maker portal, Power Automate, admin center). I decide when anything runs: I am the only person who turns the flow on or off, and I answered the approval requests in the live flow tests myself. I review every result and decide what counts as tested.
-- **Claude Code** (an AI coding assistant) writes the code, scripts and documents under my instructions, and runs a script against the environment only after I approve it explicitly.
-- **Claude** (chat) helps me plan and review.
+- **An AI coding assistant** writes the code, scripts and documents under my instructions, and runs a script against the environment only after I approve it explicitly.
+- **An AI chat assistant** helps me plan and review.
 
-The AI assistance is disclosed in the commit history: the commits carry `Co-Authored-By` trailers naming the assistant.
+In this build the coding assistant was Claude Code and the chat assistant was Claude (both from Anthropic); the process does not depend on a particular model. The AI assistance is disclosed in the commit history: the commits carry `Co-Authored-By` trailers naming the assistant.
 
 ## Security and confidentiality
 
