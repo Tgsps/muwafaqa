@@ -2,7 +2,7 @@
 
 A contract and approval management system on Microsoft Power Platform: Dataverse tables and a model-driven app, C# plug-ins that enforce the rules on the server, and a Power Automate flow that runs a multi-level approval chain. It is modeled on a real multi-level approval process in the hospitality sector (maintenance, procurement, insurance, sales and services contracts). **All data in this repository is fictional, and the approval limits are placeholders, not real thresholds.**
 
-It is a portfolio project for the PL-400 and AB-620 skill areas. It is built and checked by one person working with an AI coding assistant (see "How this was built"), in a single Dataverse development environment.
+It is a portfolio project for the PL-400 and AB-620 skill areas. I designed, directed and verified it, and built it together with AI tools (see "How this was built"), in a single Dataverse development environment.
 
 ## Architecture
 
@@ -57,18 +57,18 @@ Every number below comes from the documents linked next to it; the test scripts 
 |---|---|---|
 | Plug-in unit tests (`dotnet test`) | 346 passed, 0 failed | no environment needed |
 | Script unit tests (`node --test`) | 216 tests: 215 pass, 1 skipped on purpose (it compares a constant with a file that no longer exists), 0 fail | no environment needed |
-| State guard, server | 76 PASS, 0 FAIL, 4 OBS (last run 2026-10-25, after flow v1 was deleted; [ADR-007](docs/decisions/ADR-007-approval-chain.md), regression section; design in [ADR-004](docs/decisions/ADR-004-contract-state-guard.md)) | the owner's account (a System Administrator) through the Web API |
+| State guard, server | 76 PASS, 0 FAIL, 4 OBS (last run 2026-10-25, after flow v1 was deleted; [ADR-007](docs/decisions/ADR-007-approval-chain.md), regression section; design in [ADR-004](docs/decisions/ADR-004-contract-state-guard.md)) | my account (a System Administrator) through the Web API |
 | Contract number, server | 18 PASS, 0 FAIL in the full run (last run 2026-10-25, [ADR-007](docs/decisions/ADR-007-approval-chain.md), regression table); 20 parallel creates, three rounds in a row, gave unique consecutive numbers ([ADR-006](docs/decisions/ADR-006-contract-number-generator.md)) | same |
 | USD freeze, server | 10 + 1 + 5 PASS (last run 2026-10-25; [ADR-003](docs/decisions/ADR-003-usd-value-at-submission.md)) | same |
 | Approval round, server | 13 PASS, 0 FAIL, 1 OBS (last run 2026-10-25, [ADR-007](docs/decisions/ADR-007-approval-chain.md), regression section; design in [ADR-005](docs/decisions/ADR-005-approval-round.md)) | same |
 | Approval chain builder, server | 37 PASS, 0 FAIL, 3 OBS (last run 2026-10-25; [ADR-007](docs/decisions/ADR-007-approval-chain.md)) | same |
 | `CreateMultiple` / `UpdateMultiple` against the guard | 31 PASS, 0 FAIL, 4 OBS (last run 2026-10-25; [ADR-007](docs/decisions/ADR-007-approval-chain.md)) | same |
 | Schema read-back | 42 PASS, 0 FAIL, 2 OBS with `--cascade-test` (last run 2026-10-25: the alternate key rejected a duplicate step with HTTP 412, deleting a Draft contract deleted its 3 steps); the read-only run of 2026-10-24 gave 35 PASS, 0 FAIL, 3 OBS | same |
-| Flow v2 with real approvals, cases A to D | 6, 6, 6 and 7 PASS, 0 FAIL ([ADR-007](docs/decisions/ADR-007-approval-chain.md)) | the owner turned the flow on and answered each approval request |
-| Flow v2 failed endings | 7 PASS (no step rows) and 8 PASS (a role with no active approver) | the owner turned the flow on; no approval request was created |
+| Flow v2 with real approvals, cases A to D | 6, 6, 6 and 7 PASS, 0 FAIL ([ADR-007](docs/decisions/ADR-007-approval-chain.md)) | I turned the flow on and answered each approval request |
+| Flow v2 failed endings | 7 PASS (no step rows) and 8 PASS (a role with no active approver) | I turned the flow on; no approval request was created |
 | Security roles, behavior | per role, with the platform-added privileges removed: Requester 40, Approver 22, Finance 25, Admin 28 PASS, 0 FAIL ([ADR-008](docs/decisions/ADR-008-security-roles.md)); the stored privileges equal the design (8, 3, 9 and 22) | **a non-interactive application user**, not a person |
-| Auditing, behavior | 23 PASS, 0 FAIL, 6 OBS (run 2026-10-24, [ADR-009](docs/decisions/ADR-009-auditing.md)); audit rows appeared within 18 to 58 seconds of an operation (upper bounds, polled every 10 s) | the owner's account |
-| Auditing, change of the approver user (`mwf_user`) | 10 PASS, 0 FAIL, 4 OBS (run 2026-10-25, [ADR-009](docs/decisions/ADR-009-auditing.md), "Update 2026-10-25"): old and new value, the executing user, the Create and Delete rows; lag 21 to 26 s (polled every 10 s). User B was a non-interactive application user, not a second person; no non-admin caller was tested | the owner's account |
+| Auditing, behavior | 23 PASS, 0 FAIL, 6 OBS (run 2026-10-24, [ADR-009](docs/decisions/ADR-009-auditing.md)); audit rows appeared within 18 to 58 seconds of an operation (upper bounds, polled every 10 s) | my account |
+| Auditing, change of the approver user (`mwf_user`) | 10 PASS, 0 FAIL, 4 OBS (run 2026-10-25, [ADR-009](docs/decisions/ADR-009-auditing.md), "Update 2026-10-25"): old and new value, the executing user, the Create and Delete rows; lag 21 to 26 s (polled every 10 s). User B was a non-interactive application user, not a second person; no non-admin caller was tested | my account |
 
 The seed data (110 approval-matrix rows, 5 approver assignments, 5 number counters) is loaded by scripts, and the demo files in `data/` are fictional.
 
@@ -79,8 +79,8 @@ The full list is in [docs/rebuild-runbook.md](docs/rebuild-runbook.md), section 
 - **The solution import has never been run**, in any environment. `pac solution pack` of `src/` works; the import and what it brings (or does not bring) are untested.
 - The plug-in package file is not in the repository; it is rebuilt from `plugins/` and registered by script. Registering it as one fresh sequence in a new environment was not done.
 - **Roles were tested only with a non-interactive application user.** An interactive user, team membership and access to the model-driven app were not tested. Whether the nine privileges the platform adds to custom roles come back after an import is not known (four of them did come back on one role when privileges were added to it, and were removed again).
-- The audit configuration (organization settings) is not part of the solution; a change of the approver user on an assignment row was tested only with the owner as the caller and an application user as the new value (ADR-009); the volume of the platform's own audited tables was measured only while the environment was quiet.
-- The flows run with the owner's connection, so approvals depend on one person's account. Column security was not decided.
+- The audit configuration (organization settings) is not part of the solution; a change of the approver user on an assignment row was tested only with me as the caller and an application user as the new value (ADR-009); the volume of the platform's own audited tables was measured only while the environment was quiet.
+- The flows run with my connection, so approvals depend on one person's account. Column security was not decided.
 - The Flow checker passed a flow design that then failed on turn-on; a flow is only proven by running it.
 - The model-driven app, its forms and views exist but are not covered by automated tests; three guard cases were checked by hand in the app.
 - The regression scripts expect the starting state of the development environment (a configurable contract count; 110 matrix rows and 5 assignments are fixed).
@@ -118,10 +118,13 @@ pipelines/   placeholder (empty)
 
 ## How this was built
 
-- **The owner** designs the system, makes every decision, does the clicking in the maker portal and Power Automate, turns flows on and off (nobody else does), and verifies the results.
-- **Claude Code** (an AI coding assistant) writes the code, scripts and documents, and runs a script against the environment only after the owner approves it explicitly. It does not push to a remote unless asked.
-- **Claude (chat)** helps with planning and review.
-- **Working rules:** do not guess, verify; do not invent numbers; every claim in the documents is tagged as checked by a script, by a unit test, taken from Microsoft Learn, or **not tested**; every design suggestion states its trade-off; the data model is reviewed and approved before anything is built on it. The AI assistance is disclosed in the commit history: the commits carry `Co-Authored-By` trailers naming the assistant.
+I designed, directed and verified Muwafaqa, and I built it together with AI tools. Nothing here was produced without my direction.
+
+- **Me:** I set the requirements and make every design decision (the ADRs record each decision and the trade-off I accepted). I do the work in the Power Platform portals myself (maker portal, Power Automate, admin center). I decide when anything runs: I am the only person who turns the flow on or off, and I answered the approval requests in the live flow tests myself. I review every result and decide what counts as tested.
+- **Claude Code** (an AI coding assistant) writes the code, scripts and documents under my instructions, and runs a script against the environment only after I approve it explicitly.
+- **Claude** (chat) helps me plan and review.
+
+The AI assistance is disclosed in the commit history: the commits carry `Co-Authored-By` trailers naming the assistant.
 
 ## Security and confidentiality
 
