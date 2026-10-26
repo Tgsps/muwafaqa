@@ -1,0 +1,789 @@
+{
+  "properties": {
+    "connectionReferences": {
+      "shared_commondataserviceforapps": {
+        "api": {
+          "name": "shared_commondataserviceforapps"
+        },
+        "connection": {
+          "connectionReferenceLogicalName": "new_sharedcommondataserviceforapps_43184"
+        },
+        "runtimeSource": "embedded"
+      },
+      "shared_office365": {
+        "api": {
+          "name": "shared_office365"
+        },
+        "connection": {
+          "connectionReferenceLogicalName": "mwf_sharedoffice365_reminders"
+        },
+        "runtimeSource": "embedded"
+      }
+    },
+    "definition": {
+      "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+      "contentVersion": "1.0.0.0",
+      "parameters": {
+        "$authentication": {
+          "defaultValue": {},
+          "type": "SecureObject"
+        },
+        "$connections": {
+          "defaultValue": {},
+          "type": "Object"
+        }
+      },
+      "triggers": {
+        "Recurrence": {
+          "type": "Recurrence",
+          "recurrence": {
+            "frequency": "Minute",
+            "interval": 1
+          }
+        }
+      },
+      "actions": {
+        "Init_runStartedAt": {
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "runStartedAt",
+                "type": "string",
+                "value": "@{utcNow()}"
+              }
+            ]
+          },
+          "runAfter": {}
+        },
+        "Init_noticesSent": {
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "noticesSent",
+                "type": "integer",
+                "value": 0
+              }
+            ]
+          },
+          "runAfter": {
+            "Init_runStartedAt": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Init_proceed": {
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "proceed",
+                "type": "string",
+                "value": ""
+              }
+            ]
+          },
+          "runAfter": {
+            "Init_noticesSent": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Init_sinceUtc": {
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "sinceUtc",
+                "type": "string",
+                "value": ""
+              }
+            ]
+          },
+          "runAfter": {
+            "Init_proceed": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Init_action": {
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "action",
+                "type": "string",
+                "value": ""
+              }
+            ]
+          },
+          "runAfter": {
+            "Init_sinceUtc": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Init_recipientEmail": {
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "recipientEmail",
+                "type": "string",
+                "value": ""
+              }
+            ]
+          },
+          "runAfter": {
+            "Init_action": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Get_pending_contracts": {
+          "type": "OpenApiConnection",
+          "inputs": {
+            "parameters": {
+              "entityName": "mwf_contracts",
+              "$select": "mwf_contractid,mwf_name,mwf_contractnumber,mwf_approvalround,_ownerid_value",
+              "$filter": "statuscode eq 867640000",
+              "$orderby": "modifiedon asc",
+              "$top": 50
+            },
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps",
+              "operationId": "ListRecords",
+              "connectionName": "shared_commondataserviceforapps"
+            }
+          },
+          "runAfter": {
+            "Init_recipientEmail": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Apply_to_each_contract": {
+          "type": "Foreach",
+          "foreach": "@outputs('Get_pending_contracts')?['body/value']",
+          "actions": {
+            "Get_due_steps": {
+              "type": "OpenApiConnection",
+              "inputs": {
+                "parameters": {
+                  "entityName": "mwf_approvalsteps",
+                  "$select": "mwf_approvalstepid,mwf_steporder,mwf_approverrole,createdon,mwf_remindedon,mwf_escalatedon",
+                  "$filter": "_mwf_contract_value eq @{items('Apply_to_each_contract')?['mwf_contractid']} and mwf_approvalround eq @{items('Apply_to_each_contract')?['mwf_approvalround']} and mwf_decision eq 867640001 and mwf_actiontype eq 867640000 and ((mwf_remindedon eq null and createdon lt @{formatDateTime(addMinutes(variables('runStartedAt'), -3), 'yyyy-MM-ddTHH:mm:ssZ')}) or (mwf_remindedon ne null and mwf_escalatedon eq null and createdon lt @{formatDateTime(addMinutes(variables('runStartedAt'), -6), 'yyyy-MM-ddTHH:mm:ssZ')}))",
+                  "$orderby": "mwf_steporder asc",
+                  "$top": 5
+                },
+                "host": {
+                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps",
+                  "operationId": "ListRecords",
+                  "connectionName": "shared_commondataserviceforapps"
+                }
+              },
+              "runAfter": {}
+            },
+            "Apply_to_each_due_step": {
+              "type": "Foreach",
+              "foreach": "@outputs('Get_due_steps')?['body/value']",
+              "actions": {
+                "Set_proceed": {
+                  "type": "SetVariable",
+                  "inputs": {
+                    "name": "proceed",
+                    "value": "@{if(less(variables('noticesSent'), 5), 'yes', '')}"
+                  },
+                  "runAfter": {}
+                },
+                "Reset_sinceUtc": {
+                  "type": "SetVariable",
+                  "inputs": {
+                    "name": "sinceUtc",
+                    "value": ""
+                  },
+                  "runAfter": {
+                    "Set_proceed": [
+                      "Succeeded"
+                    ]
+                  }
+                },
+                "Reset_action": {
+                  "type": "SetVariable",
+                  "inputs": {
+                    "name": "action",
+                    "value": ""
+                  },
+                  "runAfter": {
+                    "Reset_sinceUtc": [
+                      "Succeeded"
+                    ]
+                  }
+                },
+                "Reset_recipientEmail": {
+                  "type": "SetVariable",
+                  "inputs": {
+                    "name": "recipientEmail",
+                    "value": ""
+                  },
+                  "runAfter": {
+                    "Reset_action": [
+                      "Succeeded"
+                    ]
+                  }
+                },
+                "Gate_waiting_since": {
+                  "type": "If",
+                  "expression": {
+                    "equals": [
+                      "@variables('proceed')",
+                      "yes"
+                    ]
+                  },
+                  "actions": {
+                    "Branch_waiting_since": {
+                      "type": "If",
+                      "expression": {
+                        "equals": [
+                          "@items('Apply_to_each_due_step')?['mwf_steporder']",
+                          1
+                        ]
+                      },
+                      "actions": {
+                        "Set_sinceUtc_from_createdon": {
+                          "type": "SetVariable",
+                          "inputs": {
+                            "name": "sinceUtc",
+                            "value": "@{items('Apply_to_each_due_step')?['createdon']}"
+                          }
+                        }
+                      },
+                      "else": {
+                        "actions": {
+                          "Get_previous_step": {
+                            "type": "OpenApiConnection",
+                            "inputs": {
+                              "parameters": {
+                                "entityName": "mwf_approvalsteps",
+                                "$select": "mwf_decision,mwf_decidedon",
+                                "$filter": "_mwf_contract_value eq @{items('Apply_to_each_contract')?['mwf_contractid']} and mwf_approvalround eq @{items('Apply_to_each_contract')?['mwf_approvalround']} and mwf_steporder eq @{sub(items('Apply_to_each_due_step')?['mwf_steporder'], 1)}",
+                                "$top": 1
+                              },
+                              "host": {
+                                "apiId": "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps",
+                                "operationId": "ListRecords",
+                                "connectionName": "shared_commondataserviceforapps"
+                              }
+                            },
+                            "runAfter": {}
+                          },
+                          "Check_previous_step_exists": {
+                            "type": "If",
+                            "expression": {
+                              "greater": [
+                                "@length(outputs('Get_previous_step')?['body/value'])",
+                                0
+                              ]
+                            },
+                            "actions": {
+                              "Check_previous_step_decided": {
+                                "type": "If",
+                                "expression": {
+                                  "and": [
+                                    {
+                                      "or": [
+                                        {
+                                          "equals": [
+                                            "@first(outputs('Get_previous_step')?['body/value'])?['mwf_decision']",
+                                            867640002
+                                          ]
+                                        },
+                                        {
+                                          "equals": [
+                                            "@first(outputs('Get_previous_step')?['body/value'])?['mwf_decision']",
+                                            867640004
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "not": {
+                                        "equals": [
+                                          "@empty(first(outputs('Get_previous_step')?['body/value'])?['mwf_decidedon'])",
+                                          true
+                                        ]
+                                      }
+                                    }
+                                  ]
+                                },
+                                "actions": {
+                                  "Set_sinceUtc_from_previous": {
+                                    "type": "SetVariable",
+                                    "inputs": {
+                                      "name": "sinceUtc",
+                                      "value": "@{first(outputs('Get_previous_step')?['body/value'])?['mwf_decidedon']}"
+                                    }
+                                  }
+                                },
+                                "else": {
+                                  "actions": {}
+                                }
+                              }
+                            },
+                            "else": {
+                              "actions": {}
+                            },
+                            "runAfter": {
+                              "Get_previous_step": [
+                                "Succeeded"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "else": {
+                    "actions": {}
+                  },
+                  "runAfter": {
+                    "Reset_recipientEmail": [
+                      "Succeeded"
+                    ]
+                  }
+                },
+                "Gate_decide": {
+                  "type": "If",
+                  "expression": {
+                    "and": [
+                      {
+                        "equals": [
+                          "@variables('proceed')",
+                          "yes"
+                        ]
+                      },
+                      {
+                        "not": {
+                          "equals": [
+                            "@variables('sinceUtc')",
+                            ""
+                          ]
+                        }
+                      }
+                    ]
+                  },
+                  "actions": {
+                    "Set_action": {
+                      "type": "SetVariable",
+                      "inputs": {
+                        "name": "action",
+                        "value": "@{if(and(empty(items('Apply_to_each_due_step')?['mwf_remindedon']), greaterOrEquals(div(sub(ticks(variables('runStartedAt')), ticks(variables('sinceUtc'))), 600000000), 3)), 'remind', if(and(not(empty(items('Apply_to_each_due_step')?['mwf_remindedon'])), empty(items('Apply_to_each_due_step')?['mwf_escalatedon']), greaterOrEquals(div(sub(ticks(variables('runStartedAt')), ticks(variables('sinceUtc'))), 600000000), 6)), 'escalate', ''))}"
+                      }
+                    }
+                  },
+                  "else": {
+                    "actions": {}
+                  },
+                  "runAfter": {
+                    "Gate_waiting_since": [
+                      "Succeeded"
+                    ]
+                  }
+                },
+                "Gate_recipient": {
+                  "type": "If",
+                  "expression": {
+                    "not": {
+                      "equals": [
+                        "@variables('action')",
+                        ""
+                      ]
+                    }
+                  },
+                  "actions": {
+                    "Branch_recipient": {
+                      "type": "If",
+                      "expression": {
+                        "equals": [
+                          "@variables('action')",
+                          "remind"
+                        ]
+                      },
+                      "actions": {
+                        "Get_assignment_of_role": {
+                          "type": "OpenApiConnection",
+                          "inputs": {
+                            "parameters": {
+                              "entityName": "mwf_approverassignments",
+                              "$select": "mwf_approverassignmentid,_mwf_user_value",
+                              "$filter": "mwf_approverrole eq @{items('Apply_to_each_due_step')?['mwf_approverrole']} and statecode eq 0",
+                              "$top": 1
+                            },
+                            "host": {
+                              "apiId": "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps",
+                              "operationId": "ListRecords",
+                              "connectionName": "shared_commondataserviceforapps"
+                            }
+                          },
+                          "runAfter": {}
+                        },
+                        "Check_assignment_exists": {
+                          "type": "If",
+                          "expression": {
+                            "greater": [
+                              "@length(outputs('Get_assignment_of_role')?['body/value'])",
+                              0
+                            ]
+                          },
+                          "actions": {
+                            "Get_approver_user_list": {
+                              "type": "OpenApiConnection",
+                              "inputs": {
+                                "parameters": {
+                                  "entityName": "systemusers",
+                                  "$select": "internalemailaddress",
+                                  "$filter": "systemuserid eq @{first(outputs('Get_assignment_of_role')?['body/value'])?['_mwf_user_value']}",
+                                  "$top": 1
+                                },
+                                "host": {
+                                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps",
+                                  "operationId": "ListRecords",
+                                  "connectionName": "shared_commondataserviceforapps"
+                                }
+                              },
+                              "runAfter": {}
+                            },
+                            "Set_recipient_approver": {
+                              "type": "SetVariable",
+                              "inputs": {
+                                "name": "recipientEmail",
+                                "value": "@{coalesce(first(outputs('Get_approver_user_list')?['body/value'])?['internalemailaddress'], '')}"
+                              },
+                              "runAfter": {
+                                "Get_approver_user_list": [
+                                  "Succeeded"
+                                ]
+                              }
+                            }
+                          },
+                          "else": {
+                            "actions": {}
+                          },
+                          "runAfter": {
+                            "Get_assignment_of_role": [
+                              "Succeeded"
+                            ]
+                          }
+                        }
+                      },
+                      "else": {
+                        "actions": {
+                          "Get_owner_user_list": {
+                            "type": "OpenApiConnection",
+                            "inputs": {
+                              "parameters": {
+                                "entityName": "systemusers",
+                                "$select": "internalemailaddress",
+                                "$filter": "systemuserid eq @{items('Apply_to_each_contract')?['_ownerid_value']}",
+                                "$top": 1
+                              },
+                              "host": {
+                                "apiId": "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps",
+                                "operationId": "ListRecords",
+                                "connectionName": "shared_commondataserviceforapps"
+                              }
+                            },
+                            "runAfter": {}
+                          },
+                          "Check_owner_found": {
+                            "type": "If",
+                            "expression": {
+                              "greater": [
+                                "@length(outputs('Get_owner_user_list')?['body/value'])",
+                                0
+                              ]
+                            },
+                            "actions": {
+                              "Set_recipient_owner": {
+                                "type": "SetVariable",
+                                "inputs": {
+                                  "name": "recipientEmail",
+                                  "value": "@{coalesce(first(outputs('Get_owner_user_list')?['body/value'])?['internalemailaddress'], '')}"
+                                }
+                              }
+                            },
+                            "else": {
+                              "actions": {}
+                            },
+                            "runAfter": {
+                              "Get_owner_user_list": [
+                                "Succeeded"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "else": {
+                    "actions": {}
+                  },
+                  "runAfter": {
+                    "Gate_decide": [
+                      "Succeeded"
+                    ]
+                  }
+                },
+                "Gate_claim_and_send": {
+                  "type": "If",
+                  "expression": {
+                    "and": [
+                      {
+                        "not": {
+                          "equals": [
+                            "@variables('action')",
+                            ""
+                          ]
+                        }
+                      },
+                      {
+                        "not": {
+                          "equals": [
+                            "@variables('recipientEmail')",
+                            ""
+                          ]
+                        }
+                      }
+                    ]
+                  },
+                  "actions": {
+                    "Get_step_before_claim": {
+                      "type": "OpenApiConnection",
+                      "inputs": {
+                        "parameters": {
+                          "entityName": "mwf_approvalsteps",
+                          "recordId": "@items('Apply_to_each_due_step')?['mwf_approvalstepid']",
+                          "$select": "mwf_decision,mwf_remindedon,mwf_escalatedon"
+                        },
+                        "host": {
+                          "apiId": "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps",
+                          "operationId": "GetItem",
+                          "connectionName": "shared_commondataserviceforapps"
+                        }
+                      },
+                      "runAfter": {}
+                    },
+                    "Check_step_still_due": {
+                      "type": "If",
+                      "expression": {
+                        "and": [
+                          {
+                            "equals": [
+                              "@outputs('Get_step_before_claim')?['body/mwf_decision']",
+                              867640001
+                            ]
+                          },
+                          {
+                            "or": [
+                              {
+                                "and": [
+                                  {
+                                    "equals": [
+                                      "@variables('action')",
+                                      "remind"
+                                    ]
+                                  },
+                                  {
+                                    "equals": [
+                                      "@empty(outputs('Get_step_before_claim')?['body/mwf_remindedon'])",
+                                      true
+                                    ]
+                                  }
+                                ]
+                              },
+                              {
+                                "and": [
+                                  {
+                                    "equals": [
+                                      "@variables('action')",
+                                      "escalate"
+                                    ]
+                                  },
+                                  {
+                                    "equals": [
+                                      "@empty(outputs('Get_step_before_claim')?['body/mwf_remindedon'])",
+                                      false
+                                    ]
+                                  },
+                                  {
+                                    "equals": [
+                                      "@empty(outputs('Get_step_before_claim')?['body/mwf_escalatedon'])",
+                                      true
+                                    ]
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      "actions": {
+                        "Branch_claim": {
+                          "type": "If",
+                          "expression": {
+                            "equals": [
+                              "@variables('action')",
+                              "remind"
+                            ]
+                          },
+                          "actions": {
+                            "Claim_reminder": {
+                              "type": "OpenApiConnection",
+                              "inputs": {
+                                "parameters": {
+                                  "entityName": "mwf_approvalsteps",
+                                  "recordId": "@items('Apply_to_each_due_step')?['mwf_approvalstepid']",
+                                  "item/mwf_remindedon": "@utcNow()"
+                                },
+                                "host": {
+                                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps",
+                                  "operationId": "UpdateOnlyRecord",
+                                  "connectionName": "shared_commondataserviceforapps"
+                                }
+                              }
+                            }
+                          },
+                          "else": {
+                            "actions": {
+                              "Claim_escalation": {
+                                "type": "OpenApiConnection",
+                                "inputs": {
+                                  "parameters": {
+                                    "entityName": "mwf_approvalsteps",
+                                    "recordId": "@items('Apply_to_each_due_step')?['mwf_approvalstepid']",
+                                    "item/mwf_escalatedon": "@utcNow()"
+                                  },
+                                  "host": {
+                                    "apiId": "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps",
+                                    "operationId": "UpdateOnlyRecord",
+                                    "connectionName": "shared_commondataserviceforapps"
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          "runAfter": {}
+                        },
+                        "Increment_noticesSent": {
+                          "type": "IncrementVariable",
+                          "inputs": {
+                            "name": "noticesSent",
+                            "value": 1
+                          },
+                          "runAfter": {
+                            "Branch_claim": [
+                              "Succeeded"
+                            ]
+                          }
+                        },
+                        "Branch_send": {
+                          "type": "If",
+                          "expression": {
+                            "equals": [
+                              "@variables('action')",
+                              "remind"
+                            ]
+                          },
+                          "actions": {
+                            "Send_reminder_email": {
+                              "type": "OpenApiConnection",
+                              "inputs": {
+                                "parameters": {
+                                  "emailMessage/To": "@variables('recipientEmail')",
+                                  "emailMessage/Subject": "[Muwafaqa test] Reminder: approval waiting for contract @{items('Apply_to_each_contract')?['mwf_name']}",
+                                  "emailMessage/Body": "<p>This is a reminder from the Muwafaqa approval system (sample text).</p><p>The approval of step @{items('Apply_to_each_due_step')?['mwf_steporder']} (@{json('{\"867640000\":\"Department Head\",\"867640001\":\"Finance Manager\",\"867640002\":\"General Manager\",\"867640003\":\"Regional Office\",\"867640004\":\"Owner\"}')?[string(items('Apply_to_each_due_step')?['mwf_approverrole'])]}) of contract @{items('Apply_to_each_contract')?['mwf_name']} (number @{items('Apply_to_each_contract')?['mwf_contractnumber']}) has been waiting for your answer for @{div(sub(ticks(variables('runStartedAt')), ticks(variables('sinceUtc'))), 600000000)} minutes.</p><p>Please answer the approval request that was sent to you earlier. This message does not need an answer.</p><p><a href=\"https://<ORG_HOST>/main.aspx?etn=mwf_contract&pagetype=entityrecord&id=@{items('Apply_to_each_contract')?['mwf_contractid']}\">Open the contract</a></p>"
+                                },
+                                "host": {
+                                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_office365",
+                                  "operationId": "SendEmailV2",
+                                  "connectionName": "shared_office365"
+                                }
+                              }
+                            }
+                          },
+                          "else": {
+                            "actions": {
+                              "Send_escalation_email": {
+                                "type": "OpenApiConnection",
+                                "inputs": {
+                                  "parameters": {
+                                    "emailMessage/To": "@variables('recipientEmail')",
+                                    "emailMessage/Subject": "[Muwafaqa test] Escalation notice: approval still waiting for contract @{items('Apply_to_each_contract')?['mwf_name']}",
+                                    "emailMessage/Body": "<p>This is an informational notice from the Muwafaqa approval system (sample text).</p><p>The approval of step @{items('Apply_to_each_due_step')?['mwf_steporder']} (@{json('{\"867640000\":\"Department Head\",\"867640001\":\"Finance Manager\",\"867640002\":\"General Manager\",\"867640003\":\"Regional Office\",\"867640004\":\"Owner\"}')?[string(items('Apply_to_each_due_step')?['mwf_approverrole'])]}) of contract @{items('Apply_to_each_contract')?['mwf_name']} (number @{items('Apply_to_each_contract')?['mwf_contractnumber']}) is still waiting for the approver after @{div(sub(ticks(variables('runStartedAt')), ticks(variables('sinceUtc'))), 600000000)} minutes. A reminder was sent earlier.</p><p>Nothing was changed: this notice does not approve, reject, skip or reassign anything. The step stays with its approver.</p><p><a href=\"https://<ORG_HOST>/main.aspx?etn=mwf_contract&pagetype=entityrecord&id=@{items('Apply_to_each_contract')?['mwf_contractid']}\">Open the contract</a></p>"
+                                  },
+                                  "host": {
+                                    "apiId": "/providers/Microsoft.PowerApps/apis/shared_office365",
+                                    "operationId": "SendEmailV2",
+                                    "connectionName": "shared_office365"
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          "runAfter": {
+                            "Increment_noticesSent": [
+                              "Succeeded"
+                            ]
+                          }
+                        }
+                      },
+                      "else": {
+                        "actions": {}
+                      },
+                      "runAfter": {
+                        "Get_step_before_claim": [
+                          "Succeeded"
+                        ]
+                      }
+                    }
+                  },
+                  "else": {
+                    "actions": {}
+                  },
+                  "runAfter": {
+                    "Gate_recipient": [
+                      "Succeeded"
+                    ]
+                  }
+                }
+              },
+              "runtimeConfiguration": {
+                "concurrency": {
+                  "repetitions": 1
+                }
+              },
+              "runAfter": {
+                "Get_due_steps": [
+                  "Succeeded"
+                ]
+              }
+            }
+          },
+          "runtimeConfiguration": {
+            "concurrency": {
+              "repetitions": 1
+            }
+          },
+          "runAfter": {
+            "Get_pending_contracts": [
+              "Succeeded"
+            ]
+          }
+        }
+      }
+    },
+    "templateName": null
+  },
+  "schemaVersion": "1.0.0.0"
+}

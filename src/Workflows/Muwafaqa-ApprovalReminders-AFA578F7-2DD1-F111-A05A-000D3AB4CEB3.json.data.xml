@@ -1,0 +1,30 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Workflow WorkflowId="{afa578f7-2dd1-f111-a05a-000d3ab4ceb3}" Name="Muwafaqa - Approval Reminders" Description="Scheduled flow of ADR-010: one reminder and one informational escalation notice for approval steps that wait too long (variant test). Created OFF by scripts/build-flow-reminders.mjs. Only the owner turns it on." xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <JsonFileName>/Workflows/Muwafaqa-ApprovalReminders-AFA578F7-2DD1-F111-A05A-000D3AB4CEB3.json</JsonFileName>
+  <Type>1</Type>
+  <Subprocess>0</Subprocess>
+  <Category>5</Category>
+  <Mode>0</Mode>
+  <Scope>4</Scope>
+  <OnDemand>0</OnDemand>
+  <TriggerOnCreate>0</TriggerOnCreate>
+  <TriggerOnDelete>0</TriggerOnDelete>
+  <AsyncAutodelete>0</AsyncAutodelete>
+  <SyncWorkflowLogOnFailure>0</SyncWorkflowLogOnFailure>
+  <StateCode>0</StateCode>
+  <StatusCode>1</StatusCode>
+  <RunAs>1</RunAs>
+  <IsTransacted>1</IsTransacted>
+  <IntroducedVersion>1.0.0.0</IntroducedVersion>
+  <IsCustomizable>1</IsCustomizable>
+  <BusinessProcessType>0</BusinessProcessType>
+  <IsCustomProcessingStepAllowedForOtherPublishers>1</IsCustomProcessingStepAllowedForOtherPublishers>
+  <ModernFlowType>0</ModernFlowType>
+  <PrimaryEntity>none</PrimaryEntity>
+  <LocalizedNames>
+    <LocalizedName languagecode="1033" description="Muwafaqa - Approval Reminders" />
+  </LocalizedNames>
+  <Descriptions>
+    <Description languagecode="1033" description="Scheduled flow of ADR-010: one reminder and one informational escalation notice for approval steps that wait too long (variant test). Created OFF by scripts/build-flow-reminders.mjs. Only the owner turns it on." />
+  </Descriptions>
+</Workflow>
