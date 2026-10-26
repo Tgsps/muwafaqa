@@ -1,6 +1,6 @@
 # ADR-010: Reminders and escalation of pending approvals
 
-- **Status:** **Proposed.** The design direction was approved by the owner on 2026-10-26 (separate scheduled flow, derived waiting time, two columns, claim-first, informational escalation). **Only the two columns exist** (created on 2026-10-26, see "Implementation note"); **no flow and no flow definition** exists. The notification channel is **not decided**.
+- **Status:** **Proposed.** The design direction was approved by the owner on 2026-10-26 (separate scheduled flow, derived waiting time, two columns, claim-first, informational escalation). **Only the two columns exist** (created on 2026-10-26, see "Implementation note"); **no flow row exists**; the definition of the flow is generated and checked **offline** (see "Flow definition"). The notification channel is Office 365 Outlook (owner, 2026-10-26; the mailbox exists), and its connection reference does not exist yet.
 - **Date:** 2026-10-26
 - **Related:** [ADR-007](ADR-007-approval-chain.md) (chain, flow v2), [ADR-004](ADR-004-contract-state-guard.md) (guard), [ADR-008](ADR-008-security-roles.md) (roles), [ADR-009](ADR-009-auditing.md) (auditing), `scripts/lib/reminder-candidates.mjs`, `scripts/lib/reminder-schema.mjs`, `scripts/add-reminder-columns.mjs` (run once on 2026-10-26).
 - Tags: (from Learn), (script), (unit), (assumption), (not tested).
@@ -86,6 +86,19 @@ Method: the builder is run with the **test** timers (3 and 6 minutes), the scan 
 5. Monitoring of the reminder flow itself (a silent failure means silent approvals).
 6. The columns were created on the owner's explicit approval of 2026-10-26; a formal data-model review (the step table in ADR-007 does not list them yet) is still to be done.
 7. (Decided on 2026-10-26: the cap is 5 notices per run, hard-coded.)
+8. The parameter keys of Send an email (V2) in the flow definition (Learn lists flat keys, the designer usually nested ones): to be compared in the designer after the first creation.
+9. The production scan interval (15 minutes is a placeholder) and the limit of 50 Pending Approval contracts per scan.
+
+## Flow definition (generated offline, 2026-10-26)
+
+`scripts/build-flow-reminders.mjs` generates the definition of the flow **"Muwafaqa - Approval Reminders"** (spec, manual cases and the list of what is not verified: [flow-approval-reminders.md](../flow-approval-reminders.md)). Its creation mode (dry run by default; the only write is ONE POST of a row that carries no state, so the row is OFF) was run once on 2026-10-26 for the **test** variant: the row exists, OFF, in the solution, and has never been turned on or run (details in the flow document). No code path turns a flow on. The flow is designed with two variants (test and production); **only the TEST variant exists in the environment and in `src/`** (created OFF on 2026-10-26); the production variant is generated and checked offline only.
+
+- **Shape:** a Recurrence trigger; the Pending Approval contracts (server side, 50 at most); per contract, the Waiting Approve steps of its **current round** that may need a notice (server side, with a time cut that is a necessary condition, so nothing due is lost); per step, the derived waiting time, the decision, the recipient, a re-read, the claim, the counter, then the email. **42 actions, nesting depth 7** (limits 500 and 8); separate from v2.
+- **Variants:** test (every 1 minute, 3 and 6 minutes, subject prefix `[Muwafaqa test] `) and production (every 15 minutes, 2880 and 5760 minutes). A unit test over the two generated definitions shows they differ in nothing else. The 15 minutes of production is a **placeholder**.
+- **Connection references:** the Outlook reference was created by the owner in the solution on 2026-10-26 (logical name `mwf_sharedoffice365_reminders`); it is a **parameter** of the generator (`--outlook-ref`), never a GUID. The Dataverse reference is the one v2 uses.
+- **Server side versus client side:** the filtering of contracts and steps is an OData `$filter`; the exact time test, the remind-or-escalate decision, the re-read, the claim and the cap are Power Automate expressions. **These expressions are not covered by the unit tests of `pickCandidates` and `capActions`**; they are covered by the manual cases R1 to R6 of the flow document. The generator tests (35) check structure and constants only, with an injected defect for each check.
+- **Order is approximate:** contracts are visited by `modifiedon` ascending and steps by step order, which approximates "oldest waiting first"; `capActions` (exact order) is not what the flow does.
+- **Why contracts first, then steps:** a single query over all Waiting steps would reach orphan steps (an old round, a contract no longer Pending) first and, with a limit, could starve the live ones. Starting from the Pending contracts and their current round makes orphans unreachable. The cost is one read per contract and a limit of 50 contracts.
 
 ## Hard cap per run, and the flow stays OFF (owner decision of 2026-10-26: N = 5, hard-coded)
 
