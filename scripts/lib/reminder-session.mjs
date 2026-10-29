@@ -86,7 +86,7 @@ export function planLines(windowId) {
     add('r4b', ['setup order: create, submit, the contract is set to Rejected, and LAST (after that transition) step 1 is made Waiting; read back, the setup FAILS unless it is Waiting and the contract is Rejected.',
       'what the flow sees when it scans it: the contract is Rejected (inactive), so the contract query (Pending Approval only) never lists it; the step is Approve, Waiting, round 1, older than 3 minutes, both columns empty.',
       'expected: no mail, both columns stay empty. Counted as PASS only if the control of the window fired.']);
-    L.push(''); L.push('Also checked in this window: no run of the flow ends Failed (the legacy Pending contract with an empty approval round must not break a run), and that legacy contract is unchanged.');
+    L.push(''); L.push('R4c the legacy Pending contract (nothing is created): its approval round is empty. Expected: no run of the flow ends Failed (it must not break a run), no mail, and the contract is unchanged.');
     L.push('Notices of the window: 7 reminders + 1 escalation = 8 emails at most.');
   } else {
     add('r1', ['setup: step 1 made Waiting right after the submission (S0).',
@@ -149,7 +149,7 @@ export function verdict({ windowId, contracts, steps, runs, flow, legacy }) {
   add('runs', failedRuns.length === 0 && runs.some((r) => r.status === 'Succeeded') ? 'PASS' : 'FAIL', 'every finished run of the flow succeeded (none Failed, none Cancelled) and at least one ran',
     `${runs.length} run(s): ${JSON.stringify(runs.reduce((a, r) => { a[r.status] = (a[r.status] || 0) + 1; return a; }, {}))}`);
   if (legacy) add('legacy', legacy.found && legacy.round == null && legacy.status === STATUS.Pending && (legacy.modifiedonBefore == null || legacy.modifiedon === legacy.modifiedonBefore) ? 'PASS' : 'FAIL',
-    'the legacy Pending contract (empty approval round) is untouched and did not break a run', `round ${legacy.round}, modifiedon ${legacy.modifiedon}`);
+    'R4c: the legacy Pending contract (empty approval round) is untouched and did not break a run', `round ${legacy.round}, modifiedon ${legacy.modifiedon}`);
 
   // claims of the window, with their identity
   const claims = [];

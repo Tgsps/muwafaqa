@@ -228,8 +228,26 @@ if (isMain) {
     }
     for (const l of seen) console.log(`INFO  ${l}`);
     if (!DRY) printHandoff(snap);
-    console.log(`\nREADY at ${nowIso()} (UTC). NEXT: the owner turns the flow ON now (no other UI activity), then: node scripts/test-flow-reminders.mjs --mode=await --window=${WIN} --env=... --auth=az --confirm-mutates-environment`);
+    if (!DRY && failed === 0) await readyReport(w);
+    else console.log(`\nNEXT (not READY): fix the lines above, or clean up. NEXT: --mode=cleanup --window=${WIN}`);
     return failed === 0;
+  }
+
+  /** READY: S0 in UTC and UTC+3 and the times at which the notices are expected (read from the rows that were just seeded). */
+  async function readyReport(w) {
+    const contracts = await contractsOf(w.prefix); const steps = await stepsOfAll(contracts);
+    const fmt = (ms) => `${new Date(ms).toISOString().slice(0, 19)}Z (UTC) = ${new Date(ms + 3 * 3600 * 1000).toISOString().slice(11, 19)} (UTC+3)`;
+    const created = (k) => contracts.filter((c) => c.mwf_name.includes(`-${k.toUpperCase()}`)).flatMap((c) => steps.filter((s) => s._mwf_contract_value === c.mwf_contractid && s.mwf_approvalround === 1 && s.mwf_steporder === 1).map((s) => Date.parse(s.createdon)));
+    const all = steps.map((s) => Date.parse(s.createdon));
+    const r5 = created('r5'); const r3 = created('r3');
+    console.log('\nREADY');
+    console.log(`S0 = the submissions: first ${fmt(Math.min(...all))}, last ${fmt(Math.max(...all))}`);
+    console.log(`R5 reminders (7) become due between ${fmt(Math.min(...r5) + 3 * 60000)} and ${fmt(Math.max(...r5) + 3 * 60000)}; they are claimed by the first scan after that (the scans run every minute), at most 5 per run.`);
+    console.log(`R3 escalation becomes due at ${fmt(Math.min(...r3) + 6 * 60000)}; claimed by the first scan after that.`);
+    console.log('R4a, R4b and R4c: no notice at any time. If the flow is turned ON after a due time, the notice comes at the first scan after the ON (the time limits of the verdict move with it).');
+    console.log(`Expected: 7 reminders + 1 escalation = 8 emails, all to the owner's mailbox. The flow is ON for about ${w.onMinutes} minutes.`);
+    console.log("\n>>> Turn on 'Muwafaqa - Approval Reminders' now (the owner; no other UI activity: do not open the flow in the designer, do not save it). <<<");
+    console.log(`NEXT: node scripts/test-flow-reminders.mjs --mode=await --window=${WIN} --env=... --auth=az --confirm-mutates-environment`);
   }
 
   // ------------------------------------------------------------------------------------------------ await
