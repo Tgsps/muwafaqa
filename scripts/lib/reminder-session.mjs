@@ -100,18 +100,64 @@ export function planLines(windowId) {
   return L;
 }
 
-// ---------------------------------------------------------------------------------------------------------------- claims per run
-/** claims: [{atMs, key}]; runs: [{startMs, endMs}]. A claim belongs to the run that started last before it. Returns the counts, in the order of the runs, and the claims outside every run. */
-export function claimsPerRun(runs, claims) {
-  const sorted = [...runs].sort((a, b) => a.startMs - b.startMs);
-  const counts = sorted.map(() => 0); let outside = 0;
+// ---------------------------------------------------------------------------------------------------------------- claims and runs
+const clock = (ms) => new Date(ms).toISOString().slice(11, 19) + 'Z';
+const kindOf = (claim) => String(claim.key ?? '').split(':')[1] ?? 'claim';
+
+/**
+ * Attributes each claim to the run whose [startMs, endMs] interval CONTAINS the claim time. The runs of the flow overlap (a run can last longer than the
+ * interval of the trigger), so the nearest start is not a safe rule. A claim inside SEVERAL runs is AMBIGUOUS (it is not given to one of them); a claim inside none
+ * is UNATTRIBUTED. A run without an end time (still running) is open ended. No slack is applied.
+ * claims: [{atMs, key}]; runs: [{startMs, endMs}].
+ * @returns {{runs:object[], inside:number[], attributed:object[], ambiguous:object[], unattributed:object[], overlaps:number[][], overlapping:boolean}}
+ *   inside[i]: how many claims lie inside the interval of run i, AMBIGUOUS ones included (the conservative count of that run window)
+ */
+export function claimAttribution(runs, claims) {
+  const sorted = [...runs].filter((r) => r.startMs != null).sort((x, y) => x.startMs - y.startMs);
+  const endOf = (r) => (r.endMs == null ? Infinity : r.endMs);
+  const overlaps = sorted.map((r, i) => sorted.map((o, j) => (j !== i && r.startMs <= endOf(o) && o.startMs <= endOf(r) ? j : -1)).filter((j) => j >= 0));
+  const inside = sorted.map(() => 0); const attributed = []; const ambiguous = []; const unattributed = [];
   for (const c of claims) {
-    let idx = -1;
-    for (let i = 0; i < sorted.length; i++) if (sorted[i].startMs - 2000 <= c.atMs) idx = i; else break;
-    if (idx < 0 || (sorted[idx].endMs != null && c.atMs > sorted[idx].endMs + 15000)) { outside++; continue; }
-    counts[idx]++;
+    const hit = []; sorted.forEach((r, i) => { if (r.startMs <= c.atMs && c.atMs <= endOf(r)) hit.push(i); });
+    for (const i of hit) inside[i]++;
+    if (hit.length === 1) attributed.push({ ...c, run: hit[0] });
+    else if (hit.length > 1) ambiguous.push({ ...c, runs: hit });
+    else unattributed.push(c);
   }
-  return { counts, outside, runs: sorted };
+  return { runs: sorted, inside, attributed, ambiguous, unattributed, overlaps, overlapping: overlaps.some((x) => x.length > 0) };
+}
+
+/**
+ * The cap checks, pure. dues: for each run in the order of claimAttribution().runs, how many steps were due at its start.
+ *  cap.max     FAIL if any run window contains more than CAP claims. With overlapping runs a window can contain the claims of a concurrent run, so this is
+ *              CONSERVATIVE (it can raise a false alarm, it cannot hide a run that claimed more than CAP, because a claim is made inside its run).
+ *  cap.exact   only for runs that overlap no other run: a run that had CAP or more steps due must have claimed exactly CAP. Overlapping runs are NOT evaluated (said in the detail).
+ *  claims.attribution  OBS when a claim is ambiguous ("ambiguous: runs X, Y") or unattributed.
+ *  cap.overlap OBS when runs overlap: says that the cap check is weaker.
+ */
+export function capVerdict({ runs, claims, dues }) {
+  const a = claimAttribution(runs, claims); const out = [];
+  const add = (id, status, name, detail = '') => out.push({ id, status, name, detail });
+  const label = (i) => `run ${i} (${clock(a.runs[i].startMs)})`;
+  const over = a.inside.map((n, i) => (n > CAP ? i : -1)).filter((i) => i >= 0);
+  const weak = over.filter((i) => a.overlaps[i].length > 0);
+  add('cap.max', over.length === 0 ? 'PASS' : 'FAIL', `no run window contains more than ${CAP} claims (every claim inside the interval of a run counts for that run, ambiguous ones for each run that contains them)`,
+    `claims inside each run window ${JSON.stringify(a.inside)}${over.length ? `; over the cap: ${over.map(label).join(', ')}` : ''}${weak.length ? '; an offending window overlaps another run, so it may hold claims of the concurrent run (possible false alarm, not proof of a violation)' : ''}`);
+  const exactBad = []; const notEvaluated = [];
+  a.runs.forEach((r, i) => { const due = dues?.[i] ?? 0; if (due < CAP) return; if (a.overlaps[i].length) { notEvaluated.push(i); return; } if (a.inside[i] !== CAP) exactBad.push(i); });
+  add('cap.exact', exactBad.length === 0 ? 'PASS' : 'FAIL', `a run that overlaps no other run and had ${CAP} or more steps due claimed exactly ${CAP}`,
+    `due at the start ${JSON.stringify(dues)}${notEvaluated.length ? `; NOT evaluated for the overlapping run(s) ${notEvaluated.map(label).join(', ')}` : ''}${exactBad.length ? `; wrong: ${exactBad.map(label).join(', ')}` : ''}`);
+  const notes = [
+    ...a.ambiguous.map((c) => `ambiguous: runs ${c.runs.join(', ')} (${kindOf(c)} at ${clock(c.atMs)}; run starts ${c.runs.map((i) => clock(a.runs[i].startMs)).join(', ')})`),
+    ...a.unattributed.map((c) => `unattributed: ${kindOf(c)} at ${clock(c.atMs)} lies inside no run`),
+  ];
+  add('claims.attribution', notes.length ? 'OBS' : 'PASS', 'every claim lies inside exactly one run interval', notes.length ? notes.join(' | ') : `${a.attributed.length} claim(s), each inside one run`);
+  if (a.overlapping) {
+    const pairs = []; a.overlaps.forEach((l, i) => l.forEach((j) => { if (j > i) pairs.push(`${i}&${j}`); }));
+    add('cap.overlap', 'OBS', 'OVERLAP: runs overlap, so the cap check is WEAKER: it bounds the claims inside each run window but cannot show which run made an ambiguous claim, can raise a false alarm, and the exact-cap check is not evaluated for overlapping runs',
+      `overlapping run pairs ${pairs.join(', ')}`);
+  }
+  return out;
 }
 
 /** How many steps are due at the start of a run, by the same rules as pickCandidates, with the columns as they were at that time (a claim written later is not visible). */
@@ -157,13 +203,9 @@ export function verdict({ windowId, contracts, steps, runs, flow, legacy }) {
     if (real(s.mwf_remindedon)) claims.push({ atMs: ms(s.mwf_remindedon), key: `${s.mwf_approvalstepid}:remind` });
     if (real(s.mwf_escalatedon)) claims.push({ atMs: ms(s.mwf_escalatedon), key: `${s.mwf_approvalstepid}:escalate` });
   }
-  const finished = runs.filter((r) => r.startMs != null);
-  const per = claimsPerRun(finished, claims);
-  const dues = per.runs.map((r) => dueAtRunStart({ steps, contracts, startMs: r.startMs }));
-  add('cap.max', per.counts.every((n) => n <= CAP) && per.outside === 0 ? 'PASS' : 'FAIL', `no run claims more than ${CAP} notices, and every claim belongs to a run`,
-    `claims per run ${JSON.stringify(per.counts)}, outside every run ${per.outside}`);
-  const capExact = per.counts.every((n, i) => dues[i] < CAP || n === CAP);
-  add('cap.exact', capExact ? 'PASS' : 'FAIL', `a run that had ${CAP} or more steps due claimed exactly ${CAP}`, `due at the start ${JSON.stringify(dues)}`);
+  const sortedRuns = [...runs].filter((r) => r.startMs != null).sort((x, y) => x.startMs - y.startMs);
+  const dues = sortedRuns.map((r) => dueAtRunStart({ steps, contracts, startMs: r.startMs }));
+  out.push(...capVerdict({ runs: sortedRuns, claims, dues }));
 
   let control = false;
   if (windowId === 1) {
