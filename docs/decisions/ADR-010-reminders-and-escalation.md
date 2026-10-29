@@ -1,6 +1,6 @@
 # ADR-010: Reminders and escalation of pending approvals
 
-- **Status:** **Proposed.** The design direction was approved by the owner on 2026-10-26 (separate scheduled flow, derived waiting time, two columns, claim-first, informational escalation). **Only the two columns exist** (created on 2026-10-26, see "Implementation note"); **no flow row exists**; the definition of the flow is generated and checked **offline** (see "Flow definition"). The notification channel is Office 365 Outlook (owner, 2026-10-26; the mailbox exists), and its connection reference does not exist yet.
+- **Status:** **Proposed.** The design direction was approved by the owner on 2026-10-26 (separate scheduled flow, derived waiting time, two columns, claim-first, informational escalation). **Only the two columns exist** (created on 2026-10-26, see "Implementation note"); the flow (test variant) exists, is OFF except during tests, and ran in the two test windows of 2026-10-29 (see "Test evidence"); the definition is generated and checked offline (see "Flow definition"). The notification channel is Office 365 Outlook (owner, 2026-10-26; the mailbox exists), and its connection reference was created by the owner (2026-10-26).
 - **Date:** 2026-10-26
 - **Related:** [ADR-007](ADR-007-approval-chain.md) (chain, flow v2), [ADR-004](ADR-004-contract-state-guard.md) (guard), [ADR-008](ADR-008-security-roles.md) (roles), [ADR-009](ADR-009-auditing.md) (auditing), `scripts/lib/reminder-candidates.mjs`, `scripts/lib/reminder-schema.mjs`, `scripts/add-reminder-columns.mjs` (run once on 2026-10-26).
 - Tags: (from Learn), (script), (unit), (assumption), (not tested).
@@ -77,6 +77,49 @@ Method: the builder is run with the **test** timers (3 and 6 minutes), the scan 
 - **Proves:** the filters, the derived time, the columns written once, no duplicate in sequential scans, the decision path of v2 untouched.
 - **Does not prove:** a real 48 h or 96 h wait (only the arithmetic, by unit tests); behavior over days; the race between the send and an answer; two overlapping runs; delivery to anyone other than the owner; a second approver; that the escalation target is right; that the derived time equals the true start of a step after the first: the gap between the previous answer and the real start was **not measured** (it is expected to be seconds).
 
+## Test evidence (test session of 2026-10-29, test variant, v2 simulated by seeded rows)
+
+Sources: the session script `scripts/test-flow-reminders.mjs` (the verdict, read only) and the owner's reading of the mailbox. The owner turned the flow on and off; the script never did. Each window began and ended with the baseline unchanged (11 contracts, 110 matrix rows, 5 assignments, 0 steps, counters 0), and its test rows were deleted afterwards.
+
+### Window 1 (R3, R4a, R4b, R4c, R5)
+
+- **Verdict (script):** 14 PASS, 0 FAIL, 1 OBS (the simulation sentence). The positive control, R5, fired.
+- **Runs (`flowruns`):** 9 listed, all Succeeded.
+- **Claims per run:** the verdict printed [5,2,0,0,0,1,0,0,0], made with the first attribution rule (the run that started last before the claim, with 2 s of slack), which gave the R3 escalation to the wrong run. With attribution by **containment** (the rule now in the code, applied to the same real timings in unit tests; **not re-run as a new verdict**) the claims per run are [5,2,0,0,1,0,0,0,0]: the R3 escalation belongs to run 4 (08:36:11Z to 08:37:35Z).
+- **R5:** 7 of 7 steps reminded exactly once; 5 in the first run (08:32:12Z to 08:32:34Z), then 2 (08:33:50Z and 08:33:59Z). The cap of 5 per run held.
+- **R3:** the escalation was claimed at 08:37:09Z and was due at 08:35:27Z: **1 min 42 s late**. This is consistent with the order in which the contracts are visited (the R3 contract after the seven R5 contracts) and with the run that began at 08:36:11Z lasting 85 s; it is **not proven at action level**.
+- **R4a, R4b:** no notice, both columns empty (counted as PASS because the control fired); the seeded shapes still held at verdict time. **R4c** (the legacy contract with an empty approval round): no run failed and the contract was unchanged.
+
+### Window 2 (R1, R2, R6)
+
+- **Verdict (script, containment attribution):** 17 PASS, 0 FAIL, 3 OBS (the two audit values and the simulation sentence). The control, R1, fired. 11 runs, all Succeeded; no overlap was flagged. Claims per run [0,0,1,0,0,2,0,0,1,0,0] (4 claims, each inside one run).
+- The flow was turned ON at 09:03:59Z (the last change of the flow row), before the limit S0 + 2:30 (09:05:26Z), so the timing checks of R1 and R6 were real, not inconclusive.
+- **R1:** reminder at 09:06:16Z (20 s after it was due, 09:05:56Z), escalation at 09:09:17Z (21 s after it was due, 09:08:56Z).
+- **R2:** written Approved with `decidedon` 09:04:03Z; no notice.
+- **R6:** step 1 Approved with `decidedon` D = 09:05:50Z, step 2 Waiting; the reminder at 09:09:25Z = **215 s after D** (counted from `decidedon`, not from `createdon`); the escalation at 09:12:23Z = 393 s after D.
+
+### Mailbox (the owner, by eye; not read by a script)
+
+- 12 messages in total. Window 1: 7 reminders for 7 distinct contracts (no duplicates) and 1 escalation. Window 2: 4 (R1 reminder and escalation, R6 reminder and escalation); none for the Approved contract (R2).
+- The escalation has a single recipient (the contract owner).
+- The "Open the contract" link of a reminder opened the correct Pending Approval record (TEST-TMP-REM2-R1) while it existed; after the cleanup it shows "Record Is Unavailable", as expected.
+
+### Observed, not explained
+
+- Two expected scans are missing from the list of runs, around 08:40:12Z and 08:42:13Z (window 1). The table lists finished runs only and lags; the cause was not verified.
+- Run durations were 16.6 to 84.8 s on a 1-minute interval; overlaps were seen only in window 1.
+
+### Not proven
+
+- **The integration with v2** (v2 simulated by seeded rows: no real approval request, no real answer, no real `Mark_step_Waiting`).
+- **The action-level run history** (Send reminder email, Increment noticesSent) has not yet been viewed by the owner.
+- **Duplicate notices under overlapping runs**: none were seen in the step columns or in the mailbox, but the condition was not provoked.
+- Behavior with 50 or more Pending Approval contracts.
+- **The production variant** (interval 15 minutes and the 2880 / 5760 minute values) was never run.
+- The 30-day limit of a run.
+- A concurrency setting was neither applied nor verified.
+- Who should really receive escalations (A1 is an assumption) and the real reminder hours (placeholders).
+
 ## Open questions
 
 1. Channel: Outlook or an informational approval (needs the owner's answer, and a check that the account has a mailbox).
@@ -91,12 +134,12 @@ Method: the builder is run with the **test** timers (3 and 6 minutes), the scan 
 
 ## Flow definition (generated offline, 2026-10-26)
 
-`scripts/build-flow-reminders.mjs` generates the definition of the flow **"Muwafaqa - Approval Reminders"** (spec, manual cases and the list of what is not verified: [flow-approval-reminders.md](../flow-approval-reminders.md)). Its creation mode (dry run by default; the only write is ONE POST of a row that carries no state, so the row is OFF) was run once on 2026-10-26 for the **test** variant: the row exists, OFF, in the solution, and was later found ON and failing, then replaced and OFF again; its expressions have never run successfully (details in the flow document). No code path turns a flow on. The flow is designed with two variants (test and production); **only the TEST variant exists in the environment and in `src/`** (created OFF on 2026-10-26); the production variant is generated and checked offline only.
+`scripts/build-flow-reminders.mjs` generates the definition of the flow **"Muwafaqa - Approval Reminders"** (spec, manual cases and the list of what is not verified: [flow-approval-reminders.md](../flow-approval-reminders.md)). Its creation mode (dry run by default; the only write is ONE POST of a row that carries no state, so the row is OFF) was run once on 2026-10-26 for the **test** variant: the row exists, OFF, in the solution, and was later found ON and failing, then replaced and OFF again; it then ran in the two test windows of 2026-10-29 (see "Test evidence"; details in the flow document). No code path turns a flow on. The flow is designed with two variants (test and production); **only the TEST variant exists in the environment and in `src/`** (created OFF on 2026-10-26); the production variant is generated and checked offline only.
 
 - **Shape:** a Recurrence trigger; the Pending Approval contracts (server side, 50 at most); per contract, the Waiting Approve steps of its **current round** that may need a notice (server side, with a time cut that is a necessary condition, so nothing due is lost); per step, the derived waiting time, the decision, the recipient, a re-read, the claim, the counter, then the email. **42 actions, nesting depth 7** (limits 500 and 8); separate from v2.
 - **Variants:** test (every 1 minute, 3 and 6 minutes, subject prefix `[Muwafaqa test] `) and production (every 15 minutes, 2880 and 5760 minutes). A unit test over the two generated definitions shows they differ in nothing else. The 15 minutes of production is a **placeholder**.
 - **Connection references:** the Outlook reference was created by the owner in the solution on 2026-10-26 (logical name `mwf_sharedoffice365_reminders`); it is a **parameter** of the generator (`--outlook-ref`), never a GUID. The Dataverse reference is the one v2 uses.
-- **Server side versus client side:** the filtering of contracts and steps is an OData `$filter`; the exact time test, the remind-or-escalate decision, the re-read, the claim and the cap are Power Automate expressions. **These expressions are not covered by the unit tests of `pickCandidates` and `capActions`**; they are covered by the manual cases R1 to R6 of the flow document. The generator tests (49); the test session is `scripts/test-flow-reminders.mjs` (v2 simulated by seeded rows; no window has been run), see the flow document, section 4 check structure and constants only, with an injected defect for each check.
+- **Server side versus client side:** the filtering of contracts and steps is an OData `$filter`; the exact time test, the remind-or-escalate decision, the re-read, the claim and the cap are Power Automate expressions. **These expressions are not covered by the unit tests of `pickCandidates` and `capActions`**; they are covered by the manual cases R1 to R6 of the flow document. The generator tests (49); the test session is `scripts/test-flow-reminders.mjs` (v2 simulated by seeded rows; windows 1 and 2 were run on 2026-10-29, see "Test evidence"), see the flow document, section 4 check structure and constants only, with an injected defect for each check.
 - **Order is approximate:** contracts are visited by `modifiedon` ascending and steps by step order, which approximates "oldest waiting first"; `capActions` (exact order) is not what the flow does.
 - **Why contracts first, then steps:** a single query over all Waiting steps would reach orphan steps (an old round, a contract no longer Pending) first and, with a limit, could starve the live ones. Starting from the Pending contracts and their current round makes orphans unreachable. The cost is one read per contract and a limit of 50 contracts.
 

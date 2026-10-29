@@ -96,7 +96,7 @@ The development environment is an unmanaged Developer environment. Per Microsoft
 
 Nothing in this list exists yet.
 
-- Reminders and escalation of pending approvals (design **proposed** in [ADR-010](docs/decisions/ADR-010-reminders-and-escalation.md); the two columns exist since 2026-10-26; the flow is designed with two variants, and **only the TEST variant exists in the environment and in `src/`**, created OFF on 2026-10-26, found ON and failing on 2026-10-28 (Publish in the designer most likely turned it on), replaced and OFF again on 2026-10-29; its expressions have never run successfully and the email has never been sent).
+- Reminders and escalation of pending approvals (design **proposed** in [ADR-010](docs/decisions/ADR-010-reminders-and-escalation.md); the two columns exist since 2026-10-26; the flow is designed with two variants, and **only the TEST variant exists in the environment and in `src/`**, created OFF on 2026-10-26, found ON and failing on 2026-10-28 (Publish in the designer most likely turned it on), replaced and OFF again on 2026-10-29; two test windows were run on 2026-10-29 with v2 simulated by seeded rows: verdicts 14 PASS / 0 FAIL / 1 OBS and 17 PASS / 0 FAIL / 3 OBS, 12 messages counted in the mailbox by the owner; not proven: the v2 integration, the production variant, duplicates under overlapping runs, the action-level run history; see [flow-approval-reminders.md](docs/flow-approval-reminders.md), section 8).
 - Delegation with a cap.
 - Obligations per contract.
 - Renewal and expiry alerts.
