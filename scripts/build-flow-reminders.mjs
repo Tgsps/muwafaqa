@@ -18,9 +18,14 @@
  *                  solution for the right connectors (read only), re-runs the structural check, then POSTs ONE row (never retried; if the network fails it reads
  *                  whether the row exists and prints that) and reads it back: category, OFF, solution membership, structure, and that no other flow changed.
  *   --mode=verify  read only. Needs --env. Re-reads the row: exists once, OFF, in the solution, the stored structure, the stored connection reference names.
+ *   --mode=replace ONLY for the test variant and ONLY for the flow named exactly "Muwafaqa - Approval Reminders": ONE DELETE of the existing row, then ONE POST of the new one (the
+ *                  same body as create: no state, so OFF). Dry run by default (offline). Before ANY write (all read only): 3 consecutive reads; the solution is unmanaged; exactly one row has
+ *                  this name (case-sensitive), it is a modern flow, it is OFF, it is a component of the solution; EVERY flow row is OFF; the baseline counts are as expected (11 contracts, 110
+ *                  active matrix rows, 5 active assignments, 0 steps); the two connection references exist in the solution for their connectors; the structural check passes. Neither
+ *                  write is retried; if the DELETE fails nothing else is done; if the POST fails the script says loudly that the old row is GONE. It never turns anything on.
  *   (There is no cleanup mode: a half-created row, if one ever appears, is reported and removed by the owner or by a separately approved step.)
  *
- *   --variant=test|production|both   for build and check, default both. test: recurrence every 1 minute, timers 3 and 6 minutes, subject prefix "[Muwafaqa test] ".
+ *   --variant=test|production|both   for build and check, default both (replace accepts test only). test: recurrence every 1 minute, timers 3 and 6 minutes, subject prefix "[Muwafaqa test] ".
  *                                    production: recurrence every 15 minutes (a PLACEHOLDER, not decided), timers 2880 and 5760 minutes (48 h and 96 h,
  *                                    placeholders). Nothing else differs; a unit test enforces it. For create exactly one variant must be named.
  *   --outlook-ref=<logical name>     the logical name of the Office 365 Outlook connection reference. Default: mwf_sharedoffice365_reminders (created by the owner in the
@@ -37,6 +42,8 @@
  *   node scripts/build-flow-reminders.mjs --mode=check
  *   node scripts/build-flow-reminders.mjs --mode=create --variant=test                       (dry run, offline)
  *   node scripts/build-flow-reminders.mjs --mode=create --variant=test --env=https://<org>.crm4.dynamics.com --confirm-mutates-environment
+ *   node scripts/build-flow-reminders.mjs --mode=replace --variant=test                       (dry run, offline)
+ *   node scripts/build-flow-reminders.mjs --mode=replace --variant=test --env=https://<org>.crm4.dynamics.com --confirm-mutates-environment
  */
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -441,6 +448,50 @@ export function requestSummary(variant, { outlookRef = DEFAULT_OUTLOOK_REF, data
   ];
 }
 
+// ------------------------------------------------------------------------------------------------ replace (pure parts)
+/** The state of the environment expected before a replace (the baseline of the owner's sessions). The counters are read by the session, not by this script. */
+export const REPLACE_BASELINE = Object.freeze({ contracts: 11, matrix: 110, assignments: 5, steps: 0 });
+
+/**
+ * The guards of --mode=replace. Pure: the script reads the rows and passes them in. Nothing is written unless `ok` is true.
+ * @param {{rows: object[], inSolution: boolean, flows: object[], counts: object, expected?: object}} input
+ *   rows: the workflows rows found by name; flows: EVERY category 5 row; counts: {contracts, matrix, assignments, steps}
+ * @returns {{ok: boolean, reasons: string[]}}  reasons lists every guard that failed
+ */
+export function replaceGuards({ rows, inSolution, flows, counts, expected = REPLACE_BASELINE }) {
+  const reasons = [];
+  const list = Array.isArray(rows) ? rows : [];
+  if (list.length !== 1) reasons.push(`${list.length} row(s) with this name: exactly one is required`);
+  else {
+    const r = list[0];
+    if (r.name !== FLOW_NAME) reasons.push(`the name of the row is not exactly "${FLOW_NAME}"`);
+    if (r.category !== 5) reasons.push('the row is not a modern cloud flow (category 5)');
+    if (r.statecode !== 0) reasons.push(`the flow is not OFF (statecode ${r.statecode}): it is never deleted while it is on`);
+    if (inSolution !== true) reasons.push('the row is not a component of the solution');
+  }
+  const on = (flows || []).filter((f) => f.statecode !== 0);
+  if (on.length) reasons.push(`${on.length} flow row(s) of the environment are not OFF: nothing is replaced while any flow is on`);
+  for (const k of Object.keys(expected)) if (counts?.[k] !== expected[k]) reasons.push(`baseline: ${k} is ${counts?.[k]}, expected ${expected[k]}`);
+  return { ok: reasons.length === 0, reasons };
+}
+
+/** The dry-run summary of --mode=replace. */
+export function replaceSummary(variant, { outlookRef = DEFAULT_OUTLOOK_REF, dataverseRef = DEFAULT_DATAVERSE_REF, solution = SOLUTION_DEFAULT } = {}) {
+  if (variant?.name !== 'test') throw new Error('replace is only for the test variant');
+  const base = requestSummary(variant, { outlookRef, dataverseRef, solution });
+  const keep = base.filter((l) => /^(NAME|CATEGORY|STATE|VARIANT|BINDS|SIZE|CHECKS)/.test(l));
+  return [
+    'DRY RUN: nothing is sent, no sign-in, no environment is read.',
+    'REQUEST   ONE DELETE of the existing flow row named "' + FLOW_NAME + '", then ONE POST workflows (header MSCRM.SolutionUniqueName: ' + solution + '). Neither is retried.',
+    ...keep,
+    'GUARDS    (all read only, before ANY write) 3 consecutive successful reads; the solution is unmanaged; exactly ONE row has this exact name; it is category 5; it is OFF (statecode 0); it is a component of the solution;',
+    '          EVERY flow row of the environment is OFF; baseline ' + Object.entries(REPLACE_BASELINE).map(([k, v]) => k + ' ' + v).join(', ') + '; the two connection references exist in the solution for their connectors; the structural check passes.',
+    'IF A GUARD FAILS  nothing is written. IF THE DELETE FAILS  nothing else is done. IF THE POST FAILS  the old row is GONE and the script says so (no retry, no other form).',
+    'AFTER     read back: exactly one row, OFF, category 5, in the solution, stored structure and reference names; no other flow changed or ON; the baseline counts again.',
+    'NEVER     turn on, turn off or run any flow; only the flow of this exact name is deleted; no other write.',
+  ];
+}
+
 // ------------------------------------------------------------------------------------------------ modes
 function printResults(variant, results) {
   console.log(`--- variant ${variant.name}`);
@@ -459,9 +510,11 @@ if (isMain) {
   const argOf = (n) => (process.argv.find((a) => a.startsWith(`--${n}=`)) || '').slice(n.length + 3);
   const has = (f) => process.argv.includes(f);
   const MODE = argOf('mode');
-  if (!['build', 'check', 'create', 'verify'].includes(MODE)) { console.error('Missing or invalid --mode=build|check|create|verify. Nothing was run.'); process.exit(2); }
-  const which = argOf('variant') || (MODE === 'create' ? '' : 'both');
-  if (!['test', 'production', 'both'].includes(which) || (MODE === 'create' && which === 'both') || (MODE === 'create' && !which)) { console.error(MODE === 'create' ? 'create needs --variant=test or --variant=production. Nothing was run.' : 'Invalid --variant=test|production|both. Nothing was run.'); process.exit(2); }
+  if (!['build', 'check', 'create', 'verify', 'replace'].includes(MODE)) { console.error('Missing or invalid --mode=build|check|create|verify|replace. Nothing was run.'); process.exit(2); }
+  const writes = MODE === 'create' || MODE === 'replace';
+  const which = argOf('variant') || (writes ? '' : 'both');
+  if (!['test', 'production', 'both'].includes(which) || (writes && which === 'both') || (writes && !which)) { console.error(writes ? `${MODE} needs --variant=test${MODE === 'create' ? ' or --variant=production' : ''}. Nothing was run.` : 'Invalid --variant=test|production|both. Nothing was run.'); process.exit(2); }
+  if (MODE === 'replace' && which !== 'test') { console.error('replace is only for the test variant. Nothing was run.'); process.exit(2); }
   const refs = { outlookRef: argOf('outlook-ref') || DEFAULT_OUTLOOK_REF, dataverseRef: argOf('dataverse-ref') || DEFAULT_DATAVERSE_REF };
   try { assertLogicalName(refs.outlookRef); assertLogicalName(refs.dataverseRef); } catch (e) { console.error(`${e.message}. Nothing was run.`); process.exit(2); }
   const SOLUTION = argOf('solution') || SOLUTION_DEFAULT;
@@ -484,10 +537,10 @@ if (isMain) {
     process.exit(bad ? 1 : 0);
   }
 
-  // ---- create: dry run unless confirmed (and --dry-run always wins). The dry run is offline.
-  if (MODE === 'create' && (!has('--confirm-mutates-environment') || has('--dry-run'))) {
-    console.log(requestSummary(VARIANTS[which], { ...refs, solution: SOLUTION }).join('\n'));
-    console.log('\nNothing was sent. To create the row (OFF) add --env=https://<org>.crm4.dynamics.com and --confirm-mutates-environment (the owner\'s Azure CLI sign-in is used).');
+  // ---- create and replace: dry run unless confirmed (and --dry-run always wins). The dry run is offline.
+  if (writes && (!has('--confirm-mutates-environment') || has('--dry-run'))) {
+    console.log((MODE === 'replace' ? replaceSummary : requestSummary)(VARIANTS[which], { ...refs, solution: SOLUTION }).join('\n'));
+    console.log(`\nNothing was sent. To ${MODE === 'replace' ? 'replace' : 'create'} the row (OFF) add --env=https://<org>.crm4.dynamics.com and --confirm-mutates-environment (the owner\'s Azure CLI sign-in is used).`);
     process.exit(0);
   }
 
@@ -536,54 +589,101 @@ if (isMain) {
         process.exit(failedChecks ? 1 : 0);
       }
 
-      // create
-      const before = await flowRows();
-      console.log(`INFO  flow rows before: ${before.length}; ON: ${before.filter((r) => r.statecode === 1).length}`);
-      if ((await rowOf()).length) throw new Stop(`"${FLOW_NAME}" already exists. Nothing was created (this script never modifies an existing flow).`);
-      const allRefs = (await must('GET', 'connectionreferences?$select=connectionreferenceid,connectionreferencelogicalname,connectorid,connectionid&$top=5000')).j.value;
-      const members = new Set((await must('GET', `solutioncomponents?$filter=_solutionid_value eq ${solId}&$select=objectid&$top=5000`)).j.value.map((x) => String(x.objectid).toLowerCase()));
-      for (const [connector, logical] of [['shared_commondataserviceforapps', refs.dataverseRef], ['shared_office365', refs.outlookRef]]) {
-        const hit = allRefs.filter((r) => r.connectionreferencelogicalname === logical);
-        check(`the connection reference ${logical} exists once`, hit.length === 1, `${hit.length} found`);
-        if (hit.length === 1) {
-          check(`${logical} is for the connector ${connector}`, String(hit[0].connectorid).endsWith('/' + connector));
-          check(`${logical} is a component of the solution ${SOLUTION}`, members.has(String(hit[0].connectionreferenceid).toLowerCase()));
-          check(`${logical} has a connection set (the value is not printed)`, !!hit[0].connectionid);
-        }
-      }
-      if (failedChecks) throw new Stop('The connection references are not as expected. Nothing was created.');
-      const cd = buildClientdata(variant, refs);
-      const chk = checkClientdata(cd, variant, refs);
-      if (chk.results.some((r) => !r.pass)) throw new Stop('The structural check failed. Nothing was created. Run --mode=check.');
-      const payload = JSON.stringify(cd).split('<ORG_HOST>').join(host);
+      const count = async (set, id, filter) => (await must('GET', `${set}?$select=${id}&$count=true&$top=1${filter ? `&$filter=${q(filter)}` : ''}`)).j['@odata.count'];
+      const readCounts = async () => ({
+        contracts: await count('mwf_contracts', 'mwf_contractid'),
+        matrix: await count('mwf_approvalmatrixes', 'mwf_approvalmatrixid', 'statecode eq 0'),
+        assignments: await count('mwf_approverassignments', 'mwf_approverassignmentid', 'statecode eq 0'),
+        steps: await count('mwf_approvalsteps', 'mwf_approvalstepid'),
+      });
 
-      let created = null;
+      // the connection references and the structural check: read only, run BEFORE any write
+      const preflight = async () => {
+        const allRefs = (await must('GET', 'connectionreferences?$select=connectionreferenceid,connectionreferencelogicalname,connectorid,connectionid&$top=5000')).j.value;
+        const members = new Set((await must('GET', `solutioncomponents?$filter=_solutionid_value eq ${solId}&$select=objectid&$top=5000`)).j.value.map((x) => String(x.objectid).toLowerCase()));
+        for (const [connector, logical] of [['shared_commondataserviceforapps', refs.dataverseRef], ['shared_office365', refs.outlookRef]]) {
+          const hit = allRefs.filter((r) => r.connectionreferencelogicalname === logical);
+          check(`the connection reference ${logical} exists once`, hit.length === 1, `${hit.length} found`);
+          if (hit.length === 1) {
+            check(`${logical} is for the connector ${connector}`, String(hit[0].connectorid).endsWith('/' + connector));
+            check(`${logical} is a component of the solution ${SOLUTION}`, members.has(String(hit[0].connectionreferenceid).toLowerCase()));
+            check(`${logical} has a connection set (the value is not printed)`, !!hit[0].connectionid);
+          }
+        }
+        if (failedChecks) throw new Stop('The connection references are not as expected. Nothing was written.');
+        const cd = buildClientdata(variant, refs);
+        const chk = checkClientdata(cd, variant, refs);
+        if (chk.results.some((r) => !r.pass)) throw new Stop('The structural check failed. Nothing was written. Run --mode=check.');
+        return { chk, payload: JSON.stringify(cd).split('<ORG_HOST>').join(host) };
+      };
+
+      // THE ONE POST, then the read back. `before` = every flow row before the first write.
+      const postAndVerify = async ({ chk, payload }, before, afterFailure) => {
+        let created = null;
+        try {
+          created = await call('POST', 'workflows', createBody(variant, payload), { 'MSCRM.SolutionUniqueName': SOLUTION });
+        } catch (e) {
+          console.error(`POST outcome UNKNOWN: ${noGuid(e.message).slice(0, 200)}`);
+          const after = await rowOf().catch(() => null);
+          console.error(after ? `State read after the error: ${after.length} row(s) named "${FLOW_NAME}". Nothing was deleted or retried. ${afterFailure}` : `State could not be read after the error either. Check by hand. Nothing was deleted or retried. ${afterFailure}`);
+          process.exit(5);
+        }
+        if (!created.ok) throw new Stop(`POST workflows failed HTTP ${created.status}\n${noGuid(created.j?.error?.message || created.text).slice(0, 700)}\nNothing else was done. ${afterFailure}`);
+        check('POST accepted (one row)', true, `HTTP ${created.status}`);
+
+        const rows = await rowOf();
+        check('the flow exists once', rows.length === 1, `${rows.length}`);
+        const row = rows[0];
+        check('category is 5 (modern flow) and the flow is OFF (statecode 0, Draft)', row.category === 5 && row.statecode === 0, `category ${row.category}, statecode ${row.statecode}, statuscode ${row.statuscode}`);
+        check('the flow is a component of the solution', await inSolution(row.workflowid));
+        const back = JSON.parse(row.clientdata);
+        const stored = JSON.parse(JSON.stringify(back).split(host).join('<ORG_HOST>'));
+        const sc = checkClientdata(stored, variant, refs);
+        const badS = sc.results.filter((r) => !r.pass);
+        check('the structural check passes on the definition as stored by Dataverse', badS.length === 0, badS.map((r) => r.name).join('; ').slice(0, 300));
+        check('the stored definition has the same action names as the one sent', JSON.stringify(walk(back.properties.definition.actions).map((x) => x.name)) === JSON.stringify(chk.list.map((x) => x.name)));
+        check('the stored connection references are the two given', back.properties.connectionReferences.shared_office365.connection.connectionReferenceLogicalName === refs.outlookRef && back.properties.connectionReferences.shared_commondataserviceforapps.connection.connectionReferenceLogicalName === refs.dataverseRef);
+        const afterAll = await flowRows();
+        const was = new Map(before.map((r) => [r.name + '|' + r.modifiedon, r.statecode]));
+        check('every other flow row is unchanged (same modifiedon and state) and none is ON that was not ON before', afterAll.filter((r) => r.name !== FLOW_NAME).every((r) => was.get(r.name + '|' + r.modifiedon) === r.statecode) && afterAll.filter((r) => r.statecode === 1).length === before.filter((r) => r.statecode === 1).length, `${afterAll.length - 1} other row(s)`);
+      };
+
+      if (MODE === 'create') {
+        const before = await flowRows();
+        console.log(`INFO  flow rows before: ${before.length}; ON: ${before.filter((r) => r.statecode === 1).length}`);
+        if ((await rowOf()).length) throw new Stop(`"${FLOW_NAME}" already exists. Nothing was created (create never modifies an existing flow; the replace mode does, on purpose).`);
+        const pf = await preflight();
+        await postAndVerify(pf, before, '');
+        console.log(`\nSUMMARY: ${failedChecks} failed check(s). The flow was NOT turned on and no run was started. The owner turns it on, only for a test.`);
+        process.exit(failedChecks ? 1 : 0);
+      }
+
+      // replace: guards first, all read only
+      const before = await flowRows();
+      const counts = await readCounts();
+      const existing = await rowOf();
+      console.log(`INFO  flow rows before: ${before.length}; ON: ${before.filter((r) => r.statecode === 1).length}; baseline counts: ${JSON.stringify(counts)}`);
+      const guards = replaceGuards({ rows: existing, inSolution: existing.length === 1 ? await inSolution(existing[0].workflowid) : false, flows: before, counts });
+      for (const r of guards.reasons) console.log(`FAIL  guard: ${r}`);
+      if (!guards.ok) throw new Stop('A guard failed. Nothing was written.');
+      console.log('PASS  every guard of the replace holds (one row, exact name, category 5, OFF, in the solution, all flows OFF, baseline as expected)');
+      const pf = await preflight();   // the references and the structural check, still before any write
+
+      // ONE DELETE (the only delete of this script): the row that the guards identified, by its id
+      let del = null;
       try {
-        created = await call('POST', 'workflows', createBody(variant, payload), { 'MSCRM.SolutionUniqueName': SOLUTION });
+        del = await call('DELETE', `workflows(${existing[0].workflowid})`);
       } catch (e) {
-        console.error(`POST outcome UNKNOWN: ${noGuid(e.message).slice(0, 200)}`);
+        console.error(`DELETE outcome UNKNOWN: ${noGuid(e.message).slice(0, 200)}`);
         const after = await rowOf().catch(() => null);
-        console.error(after ? `State read after the error: ${after.length} row(s) named "${FLOW_NAME}". Nothing was deleted or retried.` : 'State could not be read after the error either. Check by hand. Nothing was deleted or retried.');
+        console.error(after ? `State read after the error: ${after.length} row(s) named "${FLOW_NAME}". Nothing was retried and NO POST was made.` : 'State could not be read after the error either. Check by hand. Nothing was retried and NO POST was made.');
         process.exit(5);
       }
-      if (!created.ok) throw new Stop(`POST workflows failed HTTP ${created.status}\n${noGuid(created.j?.error?.message || created.text).slice(0, 700)}\nNothing else was done.`);
-      check('POST accepted (one row)', true, `HTTP ${created.status}`);
-
-      const rows = await rowOf();
-      check('the flow exists once', rows.length === 1, `${rows.length}`);
-      const row = rows[0];
-      check('category is 5 (modern flow) and the flow is OFF (statecode 0, Draft)', row.category === 5 && row.statecode === 0, `category ${row.category}, statecode ${row.statecode}, statuscode ${row.statuscode}`);
-      check('the flow is a component of the solution', await inSolution(row.workflowid));
-      const back = JSON.parse(row.clientdata);
-      const stored = JSON.parse(JSON.stringify(back).split(host).join('<ORG_HOST>'));
-      const sc = checkClientdata(stored, variant, refs);
-      const badS = sc.results.filter((r) => !r.pass);
-      check('the structural check passes on the definition as stored by Dataverse', badS.length === 0, badS.map((r) => r.name).join('; ').slice(0, 300));
-      check('the stored definition has the same action names as the one sent', JSON.stringify(walk(back.properties.definition.actions).map((x) => x.name)) === JSON.stringify(chk.list.map((x) => x.name)));
-      check('the stored connection references are the two given', back.properties.connectionReferences.shared_office365.connection.connectionReferenceLogicalName === refs.outlookRef && back.properties.connectionReferences.shared_commondataserviceforapps.connection.connectionReferenceLogicalName === refs.dataverseRef);
-      const afterAll = await flowRows();
-      const was = new Map(before.map((r) => [r.name + '|' + r.modifiedon, r.statecode]));
-      check('every other flow row is unchanged (same modifiedon and state) and none is ON that was not ON before', afterAll.filter((r) => r.name !== FLOW_NAME).every((r) => was.get(r.name + '|' + r.modifiedon) === r.statecode) && afterAll.filter((r) => r.statecode === 1).length === before.filter((r) => r.statecode === 1).length, `${afterAll.length - 1} other row(s)`);
+      if (!del.ok) throw new Stop(`DELETE of the flow row failed HTTP ${del.status}\n${noGuid(del.j?.error?.message || del.text).slice(0, 500)}\nNothing else was done: no POST was made, the old row was not removed.`);
+      check('DELETE accepted (the old row is gone)', true, `HTTP ${del.status}`);
+      await postAndVerify(pf, before, 'THE OLD ROW WAS DELETED and the new row was NOT confirmed: read the state with --mode=verify; nothing was retried.');
+      const after = await readCounts();
+      check('the baseline counts are unchanged after the replace', JSON.stringify(after) === JSON.stringify(counts), JSON.stringify(after));
       console.log(`\nSUMMARY: ${failedChecks} failed check(s). The flow was NOT turned on and no run was started. The owner turns it on, only for a test.`);
       process.exit(failedChecks ? 1 : 0);
     } catch (e) {

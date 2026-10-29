@@ -57,7 +57,7 @@ Every number below comes from the documents linked next to it; the test scripts 
 | Area | Result | Run with |
 |---|---|---|
 | Plug-in unit tests (`dotnet test`) | 346 passed, 0 failed | no environment needed |
-| Script unit tests (`node --test`) | 309 tests: 308 pass, 1 skipped on purpose (it compares a constant with a file that no longer exists), 0 fail | no environment needed |
+| Script unit tests (`node --test`) | 318 tests: 317 pass, 1 skipped on purpose (it compares a constant with a file that no longer exists), 0 fail | no environment needed |
 | Contract form script (UX only, not security; [docs/contract-form-js.md](docs/contract-form-js.md)) | 16 unit tests of the logic against a fake form object. **Manual test by me on the real model-driven app, 2026-10-26, with the System Administrator account: PASS after a fix (the first attempt left four of five columns editable); one limitation, not fixed: after Activate / Deactivate the form keeps the old locks until Refresh. Not tested: other browsers, the card and quick forms, a non-admin user** | my account (a System Administrator), by hand in the real app |
 | State guard, server | 76 PASS, 0 FAIL, 4 OBS (last run 2026-10-25, after flow v1 was deleted; [ADR-007](docs/decisions/ADR-007-approval-chain.md), regression section; design in [ADR-004](docs/decisions/ADR-004-contract-state-guard.md)) | my account (a System Administrator) through the Web API |
 | Contract number, server | 18 PASS, 0 FAIL in the full run (last run 2026-10-25, [ADR-007](docs/decisions/ADR-007-approval-chain.md), regression table); 20 parallel creates, three rounds in a row, gave unique consecutive numbers ([ADR-006](docs/decisions/ADR-006-contract-number-generator.md)) | same |
@@ -96,7 +96,7 @@ The development environment is an unmanaged Developer environment. Per Microsoft
 
 Nothing in this list exists yet.
 
-- Reminders and escalation of pending approvals (design **proposed** in [ADR-010](docs/decisions/ADR-010-reminders-and-escalation.md); the two columns exist since 2026-10-26; the flow is designed with two variants, and **only the TEST variant exists in the environment and in `src/`**, created OFF on 2026-10-26, never turned on and never run; its expressions and the Outlook parameter keys are untested).
+- Reminders and escalation of pending approvals (design **proposed** in [ADR-010](docs/decisions/ADR-010-reminders-and-escalation.md); the two columns exist since 2026-10-26; the flow is designed with two variants, and **only the TEST variant exists in the environment and in `src/`**, created OFF on 2026-10-26, found ON and failing on 2026-10-28 (Publish in the designer most likely turned it on), replaced and OFF again on 2026-10-29; its expressions have never run successfully and the email has never been sent).
 - Delegation with a cap.
 - Obligations per contract.
 - Renewal and expiry alerts.

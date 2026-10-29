@@ -8,7 +8,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
   FLOW_NAME, VARIANTS, DEFAULT_OUTLOOK_REF, DEFAULT_DATAVERSE_REF, EMAIL_KEY_STYLE,
-  buildDefinition, buildClientdata, checkClientdata, assertLogicalName, statsOf, createBody, requestSummary, FLOW_DESCRIPTION,
+  buildDefinition, buildClientdata, checkClientdata, assertLogicalName, statsOf, createBody, requestSummary, FLOW_DESCRIPTION, replaceGuards, replaceSummary, REPLACE_BASELINE,
 } from './build-flow-reminders.mjs';
 import { walk } from './build-flow-v2.mjs';
 import { MAX_NOTICES_PER_RUN } from './lib/reminder-candidates.mjs';
@@ -289,14 +289,24 @@ test('the summary uses the references given, and says the real run would refuse 
 });
 
 // ---- the script
-test('NO CODE PATH TURNS A FLOW ON: the source has no PATCH, PUT or DELETE, no state or status being set, and exactly one write: the POST of the new row', () => {
+test('NO CODE PATH TURNS A FLOW ON: no PATCH or PUT, no state or status being set, one POST of the new row, and exactly ONE delete (the replace of the flow of this exact name)', () => {
   const code = SOURCE.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-  assert.doesNotMatch(code, /'PATCH'|'PUT'|'DELETE'|"PATCH"|"PUT"|"DELETE"/);
+  assert.doesNotMatch(code, /'PATCH'|'PUT'|"PATCH"|"PUT"/);
   assert.doesNotMatch(code, /statecode\s*[:=]\s*\d|statuscode\s*[:=]\s*\d|SetState|activate|Activat|turn_on|turnOn/i);
   assert.equal((code.match(/call\('POST'/g) || []).length, 1);
   assert.match(code, /call\('POST', 'workflows', createBody\(/);
   assert.equal((code.match(/'POST'/g) || []).length, 1);
+  assert.equal((code.match(/'DELETE'/g) || []).length, 1);
+  assert.match(code, /call\('DELETE', `workflows\(\$\{existing\[0\]\.workflowid\}\)`\)/);
   assert.match(SOURCE, /NO CODE PATH THAT TURNS A FLOW ON/);
+});
+
+test('the delete is reached only after the guards and the preflight: in the source the guards, then the preflight, then the delete, then the post', () => {
+  const code = SOURCE.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const at = (s) => code.indexOf(s);
+  const order = [at('replaceGuards({'), at("throw new Stop('A guard failed. Nothing was written.')"), at('const pf = await preflight();   '), at("call('DELETE'"), at('await postAndVerify(pf, before, \'THE OLD ROW WAS DELETED')];
+  assert.ok(order.every((x) => x > 0), JSON.stringify(order));
+  assert.deepEqual([...order].sort((x, y) => x - y), order);
 });
 
 test('the creation needs the owner\'s Azure CLI sign-in only and the confirmation flag', () => {
@@ -416,4 +426,94 @@ test('the generated test definition equals the one the DESIGNER stored (src/Work
   // after the stored flow is re-created from this generator the first path disappears from the list; until then it is the one difference
   const allowed = diff.every((k) => known.includes(k));
   assert.ok(allowed, `unexpected differences: ${diff.filter((k) => !known.includes(k)).join(', ')}`);
+});
+
+// ---- replace: the guards and the summary (pure)
+const GOOD_ROW = { workflowid: 'w1', name: 'Muwafaqa - Approval Reminders', category: 5, statecode: 0, statuscode: 1 };
+const OFF_FLOWS = [{ name: 'a', statecode: 0 }, { name: 'Muwafaqa - Approval Reminders', statecode: 0 }];
+const GOOD = { rows: [GOOD_ROW], inSolution: true, flows: OFF_FLOWS, counts: { contracts: 11, matrix: 110, assignments: 5, steps: 0 } };
+
+test('replace guards: everything as expected passes with no reason', () => {
+  assert.deepEqual(replaceGuards(GOOD), { ok: true, reasons: [] });
+  assert.deepEqual(REPLACE_BASELINE, { contracts: 11, matrix: 110, assignments: 5, steps: 0 });
+});
+
+test('replace guards: REFUSES when the flow is ON (and when its state is anything but OFF)', () => {
+  for (const statecode of [1, 2, undefined, null]) {
+    const r = replaceGuards({ ...GOOD, rows: [{ ...GOOD_ROW, statecode }], flows: OFF_FLOWS });
+    assert.equal(r.ok, false, String(statecode));
+    assert.ok(r.reasons.some((x) => /not OFF/.test(x)), String(statecode));
+  }
+});
+
+test('replace guards: REFUSES with two rows, with none, and with no row list at all', () => {
+  const two = replaceGuards({ ...GOOD, rows: [GOOD_ROW, { ...GOOD_ROW, workflowid: 'w2' }] });
+  assert.equal(two.ok, false); assert.match(two.reasons[0], /2 row\(s\) with this name: exactly one/);
+  const none = replaceGuards({ ...GOOD, rows: [] });
+  assert.equal(none.ok, false); assert.match(none.reasons[0], /0 row\(s\)/);
+  assert.equal(replaceGuards({ ...GOOD, rows: undefined }).ok, false);
+});
+
+test('replace guards: REFUSES when the name differs, also in case, in spaces or by a suffix', () => {
+  for (const name of ['Muwafaqa - Approval Reminders v2', 'muwafaqa - approval reminders', 'Muwafaqa - Approval Reminders ', 'Muwafaqa - Contract Approval v2', '']) {
+    const r = replaceGuards({ ...GOOD, rows: [{ ...GOOD_ROW, name }] });
+    assert.equal(r.ok, false, JSON.stringify(name));
+    assert.ok(r.reasons.some((x) => /not exactly/.test(x)), JSON.stringify(name));
+  }
+});
+
+test('replace guards: REFUSES when the row is not a modern flow, not in the solution, or when ANY other flow is ON, or the baseline differs', () => {
+  assert.ok(replaceGuards({ ...GOOD, rows: [{ ...GOOD_ROW, category: 0 }] }).reasons.some((x) => /category 5/.test(x)));
+  assert.ok(replaceGuards({ ...GOOD, inSolution: false }).reasons.some((x) => /component of the solution/.test(x)));
+  assert.ok(replaceGuards({ ...GOOD, inSolution: undefined }).reasons.some((x) => /component of the solution/.test(x)));
+  const other = replaceGuards({ ...GOOD, flows: [...OFF_FLOWS, { name: 'Muwafaqa - Contract Approval v2', statecode: 1 }] });
+  assert.equal(other.ok, false); assert.ok(other.reasons.some((x) => /1 flow row\(s\) of the environment are not OFF/.test(x)));
+  for (const [key, value] of [['contracts', 12], ['matrix', 109], ['assignments', 4], ['steps', 1]]) {
+    const r = replaceGuards({ ...GOOD, counts: { ...GOOD.counts, [key]: value } });
+    assert.equal(r.ok, false, key); assert.ok(r.reasons.some((x) => x.includes(`baseline: ${key} is ${value}`)), key);
+  }
+  assert.equal(replaceGuards({ ...GOOD, counts: undefined }).ok, false);
+});
+
+test('replace guards: every failing guard is listed, not only the first', () => {
+  const r = replaceGuards({ rows: [{ ...GOOD_ROW, statecode: 1, name: 'other' }], inSolution: false, flows: [{ statecode: 1 }], counts: { contracts: 0, matrix: 0, assignments: 0, steps: 9 } });
+  assert.equal(r.ok, false);
+  assert.ok(r.reasons.length >= 8, JSON.stringify(r.reasons));
+});
+
+test('the replace summary: one DELETE and one POST, the exact name, the guards, OFF, and test only', () => {
+  const text = replaceSummary(VARIANTS.test).join('\n');
+  assert.match(text, /^DRY RUN: nothing is sent/);
+  assert.match(text, /ONE DELETE of the existing flow row named "Muwafaqa - Approval Reminders", then ONE POST workflows/);
+  assert.match(text, /Neither is retried/);
+  assert.match(text, /exactly ONE row has this exact name/);
+  assert.match(text, /it is OFF \(statecode 0\)/);
+  assert.match(text, /EVERY flow row of the environment is OFF/);
+  assert.match(text, /baseline contracts 11, matrix 110, assignments 5, steps 0/);
+  assert.match(text, /IF THE POST FAILS {2}the old row is GONE/);
+  assert.match(text, /STATE {5}OFF/);
+  assert.match(text, /NEVER {5}turn on, turn off or run any flow/);
+  assert.match(text, /mwf_sharedoffice365_reminders/);
+  assert.match(text, /45 of 45 structural checks pass/);
+  assert.doesNotMatch(text, /"actions"|"triggers"|runAfter/);
+  assert.throws(() => replaceSummary(VARIANTS.production), /only for the test variant/);
+});
+
+test('the command line: replace is a dry run without the confirmation flag, test only, and refuses before any sign-in', () => {
+  const run = (...args) => spawnSync(process.execPath, [SCRIPT, ...args], { encoding: 'utf8', timeout: 30000 });
+  const dry = run('--mode=replace', '--variant=test');
+  assert.equal(dry.status, 0, dry.stderr);
+  assert.match(dry.stdout, /ONE DELETE of the existing flow row/);
+  assert.match(dry.stdout, /Nothing was sent/);
+  const both = run('--mode=replace', '--variant=test', '--confirm-mutates-environment', '--dry-run', '--env=https://example.invalid');
+  assert.equal(both.status, 0, both.stderr);
+  assert.match(both.stdout, /DRY RUN/);
+  assert.equal(run('--mode=replace').status, 2);                                    // no variant
+  assert.equal(run('--mode=replace', '--variant=production').status, 2);           // test only
+  assert.match(run('--mode=replace', '--variant=production').stderr, /only for the test variant/);
+  assert.equal(run('--mode=replace', '--variant=both').status, 2);
+  const noEnv = run('--mode=replace', '--variant=test', '--confirm-mutates-environment');
+  assert.equal(noEnv.status, 2); assert.match(noEnv.stderr, /--env/);
+  const device = run('--mode=replace', '--variant=test', '--confirm-mutates-environment', '--env=https://example.invalid', '--auth=device');
+  assert.equal(device.status, 2); assert.match(device.stderr, /Only --auth=az/);
 });
