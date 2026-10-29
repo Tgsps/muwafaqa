@@ -1,6 +1,6 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<Workflow WorkflowId="{afa578f7-2dd1-f111-a05a-000d3ab4ceb3}" Name="Muwafaqa - Approval Reminders" Description="Scheduled flow of ADR-010: one reminder and one informational escalation notice for approval steps that wait too long (variant test). Created OFF by scripts/build-flow-reminders.mjs. Only the owner turns it on." xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-  <JsonFileName>/Workflows/Muwafaqa-ApprovalReminders-AFA578F7-2DD1-F111-A05A-000D3AB4CEB3.json</JsonFileName>
+<Workflow WorkflowId="{9132aebd-6bd3-f111-a05a-000d3ab4ceb3}" Name="Muwafaqa - Approval Reminders" Description="Scheduled flow of ADR-010: one reminder and one informational escalation notice for approval steps that wait too long (variant test). Created OFF by scripts/build-flow-reminders.mjs. Only the owner turns it on." xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <JsonFileName>/Workflows/Muwafaqa-ApprovalReminders-9132AEBD-6BD3-F111-A05A-000D3AB4CEB3.json</JsonFileName>
   <Type>1</Type>
   <Subprocess>0</Subprocess>
   <Category>5</Category>

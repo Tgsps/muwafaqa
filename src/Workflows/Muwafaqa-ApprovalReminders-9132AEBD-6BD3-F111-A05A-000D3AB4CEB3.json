@@ -147,7 +147,7 @@
             "parameters": {
               "entityName": "mwf_contracts",
               "$select": "mwf_contractid,mwf_name,mwf_contractnumber,mwf_approvalround,_ownerid_value",
-              "$filter": "statuscode eq 867640000",
+              "$filter": "statuscode eq 867640000 and mwf_approvalround ne null",
               "$orderby": "modifiedon asc",
               "$top": 50
             },
@@ -182,8 +182,7 @@
                   "operationId": "ListRecords",
                   "connectionName": "shared_commondataserviceforapps"
                 }
-              },
-              "runAfter": {}
+              }
             },
             "Apply_to_each_due_step": {
               "type": "Foreach",
@@ -194,14 +193,13 @@
                   "inputs": {
                     "name": "proceed",
                     "value": "@{if(less(variables('noticesSent'), 5), 'yes', '')}"
-                  },
-                  "runAfter": {}
+                  }
                 },
                 "Reset_sinceUtc": {
                   "type": "SetVariable",
                   "inputs": {
                     "name": "sinceUtc",
-                    "value": ""
+                    "value": "@string('')"
                   },
                   "runAfter": {
                     "Set_proceed": [
@@ -213,7 +211,7 @@
                   "type": "SetVariable",
                   "inputs": {
                     "name": "action",
-                    "value": ""
+                    "value": "@string('')"
                   },
                   "runAfter": {
                     "Reset_sinceUtc": [
@@ -225,7 +223,7 @@
                   "type": "SetVariable",
                   "inputs": {
                     "name": "recipientEmail",
-                    "value": ""
+                    "value": "@string('')"
                   },
                   "runAfter": {
                     "Reset_action": [
@@ -275,8 +273,7 @@
                                 "operationId": "ListRecords",
                                 "connectionName": "shared_commondataserviceforapps"
                               }
-                            },
-                            "runAfter": {}
+                            }
                           },
                           "Check_previous_step_exists": {
                             "type": "If",
@@ -425,8 +422,7 @@
                               "operationId": "ListRecords",
                               "connectionName": "shared_commondataserviceforapps"
                             }
-                          },
-                          "runAfter": {}
+                          }
                         },
                         "Check_assignment_exists": {
                           "type": "If",
@@ -451,8 +447,7 @@
                                   "operationId": "ListRecords",
                                   "connectionName": "shared_commondataserviceforapps"
                                 }
-                              },
-                              "runAfter": {}
+                              }
                             },
                             "Set_recipient_approver": {
                               "type": "SetVariable",
@@ -493,8 +488,7 @@
                                 "operationId": "ListRecords",
                                 "connectionName": "shared_commondataserviceforapps"
                               }
-                            },
-                            "runAfter": {}
+                            }
                           },
                           "Check_owner_found": {
                             "type": "If",
@@ -571,8 +565,7 @@
                           "operationId": "GetItem",
                           "connectionName": "shared_commondataserviceforapps"
                         }
-                      },
-                      "runAfter": {}
+                      }
                     },
                     "Check_step_still_due": {
                       "type": "If",
@@ -672,8 +665,7 @@
                                 }
                               }
                             }
-                          },
-                          "runAfter": {}
+                          }
                         },
                         "Increment_noticesSent": {
                           "type": "IncrementVariable",
