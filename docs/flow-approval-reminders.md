@@ -8,6 +8,7 @@ Decision and context: [ADR-010](decisions/ADR-010-reminders-and-escalation.md) (
 - **The Outlook connection reference exists** (created by the owner in the solution Muwafaqa on 2026-10-26; logical name `mwf_sharedoffice365_reminders`, connector Office 365 Outlook, the owner's existing Outlook connection). **The TEST variant of the flow was created on 2026-10-26, OFF** (`--mode=create --variant=test`, owner's Azure CLI sign-in, one POST, never retried): before it a 3-minute window (environment DNS 0 of 36, GET 0 of 36) and a read-only baseline (11 contracts, 110 matrix rows, 5 assignments, 0 steps, counters [1, 0, 0, 0, 0], all 4 flow rows OFF); the creation made 16 PASS (both references exist once, for the right connector, in the solution and with a connection set; category 5, OFF, in the solution, stored structure and action names, stored reference names, no other flow changed); `--mode=verify` 5 PASS (43 structural checks on the stored definition); the baseline afterwards was identical except for the new row (5 flow rows, all OFF). **The owner did not turn it on, but it was later found ON and failing (section 7); it has never run successfully.** The only write the script can make is ONE POST of a row that carries no state; the source has no PATCH, PUT or DELETE (a unit test holds this). The owner alone turns a flow on or off.
 - The flow is designed with two variants (test and production); **only the TEST variant exists in the environment and in `src/`** (created OFF on 2026-10-26); the production variant is generated and checked offline only.
 - The two columns the flow writes (`mwf_remindedon`, `mwf_escalatedon` on `mwf_approvalstep`) **exist** since 2026-10-26.
+- **The test session script** `scripts/test-flow-reminders.mjs` (with `scripts/lib/reminder-session.mjs`) is written and its pure parts and refusals are unit tested (27 tests); **no window has been run**. v2 is not used: v2 is simulated by seeded rows (section 4).
 - Size of the generated definition (script): **42 actions, nesting depth 7** (limits 500 and 8, Learn [limits-and-config](https://learn.microsoft.com/en-us/power-automate/limits-and-config)); the Recurrence trigger is not counted. This flow is separate from v2 (v2 stays at 50 actions, depth 6).
 
 ## 1. What the flow does
@@ -46,20 +47,51 @@ A unit test over the two generated definitions shows that nothing else differs (
 - the **order**: the flow visits contracts by `modifiedon` ascending and steps by step order. This **approximates** "oldest waiting first" (a later step of an old contract can have started recently); the exact order of `capActions` is not what the flow does;
 - the email texts, and the keys of the Send an email (V2) parameters.
 
-## 4. Manual test cases (the owner, with the test variant, v2 and this flow turned on by the owner)
+## 4. Test session R1 to R6 (the owner turns the flow ON and OFF; v2 is NOT needed)
 
-Use the existing session scripts to create the contracts and answer the requests as for v2 (fictional data only). The reminder flow needs v2 running, because v2 is what makes a step Waiting. All emails go to the owner's mailbox (the only user). Wait at least 2 scans after each time limit.
+**v2 simulated by seeded rows: this session does NOT prove the integration with v2 (no real approval request, no real answer, no real Mark_step_Waiting).** The steps are made Waiting (or answered) by a direct write, as v2 would write them, and v2 stays OFF the whole time. Read-only checks showed no plug-in on the step table and writable `mwf_decision`, `mwf_decidedon`, `mwf_remindedon` and `mwf_escalatedon`; `createdon` cannot be written. What the seeding skips: the real `Mark_step_Waiting` of v2, the approval requests and their emails, the real answer and its `completionDate`, the move to In Force, and any race with v2. An optional later session R7 (v2 and this flow ON, `test-flow-v2` case a, the owner answers) would cover that integration.
 
-| Case | Setup | Expected | Result |
+**Every case waits in REAL time from the submission of its contract.** The flow keeps a step only if its `createdon` is older than 3 minutes (reminder) or 6 minutes (escalation); `createdon` cannot be written, and a `decidedon` older than the `createdon` does not make a step due earlier. Only the later step of a chain (R6) counts from the `decidedon` of the step before it. Time limits: a notice is not expected earlier than its due time (minus 5 s) and not later than 3 minutes after it was due or after the flow was turned on.
+
+The session script is `scripts/test-flow-reminders.mjs` (modes plan, baseline, setup, await, verdict, cleanup; **written, no window has been run**). It never turns a flow on or off and never saves or publishes one (Publish in the designer turned the flow ON on 2026-10-28), reads the state of the reminders flow itself, and prints STILL ON until it is OFF. The verdict FAILS if the flow is still ON, and the cleanup deletes nothing while it is ON.
+
+### Window 1 (about 9 minutes ON): R5, R3, R4a, R4b. Prefix `TEST-TMP-REM1-`
+
+| Case | Data | Expected | Checked by |
 |---|---|---|---|
-| **R1** reminder, escalation, once each | one contract, one Approve step, the request is **not** answered | after about 3 min: one reminder mail; `mwf_remindedon` set once. After about 6 min: one escalation mail; `mwf_escalatedon` set once. No second mail of either kind over the next 3 scans. Then the owner answers Approve: the contract goes In Force as in v2 | not run |
-| **R2** answered before the time | the same, answered at about 1 minute | no mail, both columns stay empty | not run |
-| **R3** idempotency and re-read | after R1's reminder, run the flow by hand twice in a row (Run in the portal) | no extra mail; the columns keep their first values | not run |
-| **R4** orphans | a contract whose first chain was left Waiting and was submitted again (a new round), and a contract that is no longer Pending Approval | no mail for the old round's step and none for the non-pending contract | not run |
-| **R5** the cap | seven contracts whose steps are all past the reminder time | the first run sends 5 mails and claims 5 steps, the next run the other 2 (the count of mails per run is read from the run history) | not run |
-| **R6** (optional) a later step | a two-step chain, step 1 approved, step 2 left waiting | the reminder for step 2 comes about 3 minutes after step 1's answer, **not** 3 minutes after the submission | not run |
+| **R5** the cap (the positive control of the window) | 7 contracts, USD 5,000 (1 step), created and submitted in parallel; step 1 Waiting; `mwf_escalatedon` set to the marker 2001-01-01 so that only reminders can happen | each step gets ONE reminder at about submission + 3 min; no run claims more than 5; a run that had 5 or more steps due claims exactly 5 (usually 5, then 2) | script: columns, claims per run, run statuses; the owner: the mailbox (7 reminders), the run history |
+| **R3** escalation only, idempotency | 1 contract, 1 step Waiting, `mwf_remindedon` set to the marker | ONE escalation at about submission + 6 min; `mwf_remindedon` unchanged; nothing more in the next scans | script; the owner: 1 escalation mail |
+| **R4a** a Waiting step of an OLD round | 1 contract, USD 25,000 (2 steps): step 1 answered, withdrawn to Draft, submitted again (round 2); **last write**: step 2 of ROUND 1 made Waiting, read back | no mail; both columns stay empty. When the flow scans it: the contract is Pending in round 2, the step is Waiting, round 1, older than 3 minutes (it would be due if the round were current); the step query filters on round 2 | script (the shape is checked again at verdict time) |
+| **R4b** a Waiting step of a contract that is not Pending | 1 contract, USD 5,000: submitted, set to Rejected; **last write**: its step made Waiting, read back | no mail; both columns stay empty. The contract query never lists a Rejected contract | script |
 
-Not provable with one user and short timers: a real 48/96 h wait, two overlapping runs, a second approver, delivery to anyone but the owner, the race between a send and an answer.
+The legacy Pending contract (empty approval round) must not break any run: no run may end Failed. Window 1 sends 7 reminders and 1 escalation: **8 emails**, all to the owner's mailbox.
+
+### Window 2 (about 11 minutes ON): R1, R2, R6. Prefix `TEST-TMP-REM2-`
+
+| Case | Data | Expected | Checked by |
+|---|---|---|---|
+| **R1** reminder, escalation, once each (the positive control) | 1 contract, USD 5,000, step 1 Waiting from the submission S0 | ONE reminder in [S0+3, S0+6] min and ONE escalation in [S0+6, S0+9] min, then nothing more | script; the owner: 2 mails |
+| **R2** answered before the time | the same; at S0+60 s the await step writes the answer (Approved, `decidedon` now) | no mail at any time; both columns empty | script |
+| **R6** a later step | 1 contract, USD 25,000; at S0+150 s the await step writes step 1 Approved (`decidedon` = D) and step 2 Waiting | NO reminder before D + 3 min (the key check: the time counts from the answer, not from the submission); reminder in [D+3, D+6]; escalation in [D+6, D+9] | script; the owner: 2 mails |
+
+Window 2 sends 4 emails.
+
+### Rules of the verdict
+
+- A "no notice" result (R2, R4a, R4b) counts as PASS **only if the positive control of the same window fired** (R5 in window 1, R1 in window 2). Otherwise it is printed as INCONCLUSIVE and the control itself FAILS.
+- The seeded shape must still hold at verdict time (the old-round step still Waiting in round 1, the Rejected contract, the answered step): silence must not come from a step that changed.
+- The verdict prints, at its start and at its end: **v2 simulated by seeded rows: this session does NOT prove the integration with v2 (no real approval request, no real answer, no real Mark_step_Waiting).**
+- Not provable with one user and short timers: a real 48/96 h wait, two overlapping runs, a second approver, delivery to anyone but the owner, the race between a send and an answer, and the email actually being delivered (the mailbox is read by the owner, not by the script).
+
+### Order of the owner's actions (per window)
+
+1. The script: `--mode=baseline`, then `--mode=setup --window=N` (no UI activity). It prints READY.
+2. The owner turns the reminders flow **ON** (and does nothing else in the UI; no designer, no Publish).
+3. The script: `--mode=await --window=N` (reads only, plus the timed seeds of window 2). It prints DONE and TURN THE FLOW OFF NOW.
+4. The owner turns the flow **OFF**; the script prints STILL ON until it is.
+5. The script: `--mode=verdict --window=N`, then `--mode=cleanup --window=N` with the counters hand-off printed by the setup.
+
+**Design property, not tested:** the cap counts all notices of a run and contracts are visited oldest first, so escalations of older contracts can use the cap before the reminders of newer ones, which then wait for the next scan. R5 isolates reminders (the escalation marker) and does not test this.
 
 ## 5. Not verified (read before the first turn-on)
 
