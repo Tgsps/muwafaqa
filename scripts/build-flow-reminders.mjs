@@ -77,12 +77,20 @@ const initVar = (name, type, value) => ({ type: 'InitializeVariable', inputs: { 
 const ifThen = (expression, actions, elseActions = {}) => ({ type: 'If', expression, actions, else: { actions: elseActions } });
 const eq = (a, b) => ({ equals: [a, b] });
 const v = (n) => `@variables('${n}')`;
-/** Gives every action of the ordered list a runAfter on the previous one (Succeeded). */
-function chain(list) {
+/**
+ * Gives every action of the ordered list a runAfter on the previous one (Succeeded). The FIRST action of a nested scope has no runAfter key at all, as the
+ * designer stores it (it removed the empty ones on 2026-10-28); only the first action of the whole flow keeps `runAfter: {}`.
+ */
+function chain(list, { top = false } = {}) {
   const out = {}; let prev = null;
-  for (const [name, action] of list) { out[name] = { ...action, runAfter: prev ? { [prev]: ['Succeeded'] } : {} }; prev = name; }
+  for (const [name, action] of list) {
+    out[name] = prev ? { ...action, runAfter: { [prev]: ['Succeeded'] } } : (top ? { ...action, runAfter: {} } : { ...action });
+    prev = name;
+  }
   return out;
 }
+/** The value of a Set variable that resets a string. The designer REJECTS an empty literal ("'Value' is required", found 2026-10-28) and stores this expression. */
+const EMPTY = "@string('')";
 const updateStep = (extra) => cds('UpdateOnlyRecord', { entityName: 'mwf_approvalsteps', recordId: `@${STEP}?['mwf_approvalstepid']`, ...extra });
 const cut = (minutes) => `@{formatDateTime(addMinutes(${NOW}, -${minutes}), 'yyyy-MM-ddTHH:mm:ssZ')}`;
 
@@ -184,9 +192,9 @@ export function buildDefinition(variant = VARIANTS.test) {
 
   const stepLoopActions = chain([
     ['Set_proceed', setVar('proceed', `@{if(less(variables('noticesSent'), ${MAX_NOTICES_PER_RUN}), 'yes', '')}`)],   // the hard cap of one run (owner decision 2026-10-26)
-    ['Reset_sinceUtc', setVar('sinceUtc', '')],
-    ['Reset_action', setVar('action', '')],
-    ['Reset_recipientEmail', setVar('recipientEmail', '')],
+    ['Reset_sinceUtc', setVar('sinceUtc', EMPTY)],
+    ['Reset_action', setVar('action', EMPTY)],
+    ['Reset_recipientEmail', setVar('recipientEmail', EMPTY)],
     ['Gate_waiting_since', sinceGroup],
     ['Gate_decide', decideGroup],
     ['Gate_recipient', recipientGroup],
@@ -216,12 +224,13 @@ export function buildDefinition(variant = VARIANTS.test) {
     ['Get_pending_contracts', cds('ListRecords', {
       entityName: 'mwf_contracts',
       $select: 'mwf_contractid,mwf_name,mwf_contractnumber,mwf_approvalround,_ownerid_value',
-      $filter: `statuscode eq ${STATUS_PENDING_APPROVAL}`,
+      // a contract whose round is null was never submitted through the plug-in (a legacy row): its steps filter would be "mwf_approvalround eq " (a syntax error, found live on 2026-10-28), so it is never scanned
+      $filter: `statuscode eq ${STATUS_PENDING_APPROVAL} and mwf_approvalround ne null`,
       $orderby: 'modifiedon asc',
       $top: 50,
     })],
     [LOOP_C, { type: 'Foreach', foreach: "@outputs('Get_pending_contracts')?['body/value']", actions: contractLoopActions, runtimeConfiguration: { concurrency: { repetitions: 1 } } }],
-  ]);
+  ], { top: true });
   return {
     $schema: 'https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#',
     contentVersion: '1.0.0.0',
@@ -322,6 +331,8 @@ export function checkClientdata(cd, variant = VARIANTS.test, { outlookRef = DEFA
   ok('the variables exist with the expected types (noticesSent integer 0; runStartedAt, proceed, sinceUtc, action, recipientEmail string)',
     declared.get('noticesSent')?.type === 'integer' && inits.find((x) => x.name === 'Init_noticesSent')?.action.inputs.variables[0].value === 0
     && ['runStartedAt', 'proceed', 'sinceUtc', 'action', 'recipientEmail'].every((n) => declared.get(n)?.type === 'string'));
+  const emptySets = list.filter((x) => x.action.type === 'SetVariable' && (typeof x.action.inputs.value !== 'string' || x.action.inputs.value.trim() === '') && typeof x.action.inputs.value !== 'number').map((x) => x.name);
+  ok('no Set variable action has an empty or missing literal as its value (the designer rejects it: "Value is required"; found 2026-10-28)', emptySets.length === 0, emptySets.join(', '));
   const setNames = list.filter((x) => ['SetVariable', 'IncrementVariable'].includes(x.action.type)).map((x) => ({ at: x.name, index: x.index, name: x.action.inputs.name }));
   const undefinedUse = [...variableUse, ...setNames].filter((u) => !declared.has(u.name) || declared.get(u.name).index > u.index);
   ok('every variable that is read or set was initialized earlier at the top level', undefinedUse.length === 0, undefinedUse.map((u) => `${u.at}:${u.name}`).join(', '));
@@ -334,7 +345,8 @@ export function checkClientdata(cd, variant = VARIANTS.test, { outlookRef = DEFA
   ok('the flow has no Terminate action and no Until (nothing ends or loops forever; a failed action fails the run visibly)', !list.some((x) => ['Terminate', 'Until'].includes(x.action.type)));
 
   const pc = byName.Get_pending_contracts?.action.inputs.parameters;
-  ok('the contract query is server side: Pending Approval only, oldest first, at most 50', pc?.$filter === `statuscode eq ${STATUS_PENDING_APPROVAL}` && pc?.$orderby === 'modifiedon asc' && pc?.$top === 50);
+  ok('the contract query is server side: Pending Approval only, oldest first, at most 50', pc?.$filter?.startsWith(`statuscode eq ${STATUS_PENDING_APPROVAL}`) && pc?.$orderby === 'modifiedon asc' && pc?.$top === 50);
+  ok('the contract query leaves out contracts whose approval round is empty (their step filter would be a syntax error: found live on 2026-10-28)', pc?.$filter === `statuscode eq ${STATUS_PENDING_APPROVAL} and mwf_approvalround ne null`);
   const sq = byName.Get_due_steps?.action.inputs.parameters;
   const f = sq?.$filter || '';
   const frags = ['_mwf_contract_value eq', 'mwf_approvalround eq', `mwf_decision eq ${DECISION.Waiting}`, `mwf_actiontype eq ${ACTION_TYPE.Approve}`, 'mwf_remindedon eq null', 'mwf_remindedon ne null', 'mwf_escalatedon eq null', 'createdon lt'];

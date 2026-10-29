@@ -269,7 +269,7 @@ test('the dry-run summary: name, OFF, both connection references, one POST, size
     assert.match(text, /BINDS {5}shared_commondataserviceforapps -> connection reference new_sharedcommondataserviceforapps_43184/);
     assert.match(text, /BINDS {5}shared_office365 \(Office 365 Outlook\) -> connection reference mwf_sharedoffice365_reminders/);
     assert.match(text, /42 actions, nesting depth 7/);
-    assert.match(text, /43 of 43 structural checks pass/);
+    assert.match(text, /45 of 45 structural checks pass/);
     assert.match(text, /NEVER {5}turn on, turn off, update, delete or run any flow/);
     assert.match(text, new RegExp(`recurrence every ${variant.intervalMinutes} minute`));
     assert.match(text, new RegExp(`reminder after ${variant.timers.remindAfterMinutes} min, escalation after ${variant.timers.escalateAfterMinutes} min; cap 5`));
@@ -321,8 +321,8 @@ test('the command line: check passes for both variants, build prints the numbers
   assert.equal(named.status, 0, named.stderr);
   const explicit = run('--mode=check', '--outlook-ref=mwf_sharedoffice365_reminders');
   assert.equal(explicit.status, 0, explicit.stderr);
-  assert.match(explicit.stdout, /SUMMARY \(test\): 43 passed, 0 failed/);
-  assert.match(explicit.stdout, /SUMMARY \(production\): 43 passed, 0 failed/);
+  assert.match(explicit.stdout, /SUMMARY \(test\): 45 passed, 0 failed/);
+  assert.match(explicit.stdout, /SUMMARY \(production\): 45 passed, 0 failed/);
 });
 
 test('the command line: create is a DRY RUN without the confirmation flag (offline, no --env needed), and --dry-run always wins', () => {
@@ -357,4 +357,63 @@ test('the command line: refusals, all before any sign-in (exit 2)', () => {
   assert.equal(guid.status, 2);
   assert.match(guid.stderr, /not a valid connection reference/);
   assert.equal(run('--mode=check', '--variant=other').status, 2);
+});
+
+// ---- the two findings of the designer review and of the first live runs (2026-10-28)
+test('FINDING (designer): no Set variable action carries an empty literal; the three resets use string(\'\') as the designer stored them', () => {
+  const cd = cdOf();
+  const sets = walk(defOf(cd).actions).filter((x) => x.action.type === 'SetVariable');
+  assert.ok(sets.length >= 8);
+  for (const s of sets) { const val = s.action.inputs.value; assert.equal(typeof val, 'string', s.name); assert.notEqual(val.trim(), '', `${s.name} has an empty literal`); }
+  for (const n of ['Reset_sinceUtc', 'Reset_action', 'Reset_recipientEmail']) assert.equal(find(cd, n).action.inputs.value, "@string('')", n);
+});
+
+test('FINDING (designer): the check FAILS on the old definition, where the three resets had an empty literal (this is what the designer rejected)', () => {
+  const old = clone(cdOf());
+  for (const n of ['Reset_sinceUtc', 'Reset_action', 'Reset_recipientEmail']) find(old, n).action.inputs.value = '';
+  const names = failed(checkClientdata(old, VARIANTS.test));
+  assert.equal(names.length, 1);
+  assert.match(names[0], /^no Set variable action has an empty or missing literal/);
+  assert.ok(failed(checkClientdata(cdOf(), VARIANTS.test)).length === 0);
+  for (const v of [' ', undefined, null]) { const x = clone(cdOf()); find(x, 'Reset_action').action.inputs.value = v; assert.ok(failed(checkClientdata(x, VARIANTS.test)).some((m) => m.startsWith('no Set variable action has an empty')), String(v)); }
+});
+
+test('FINDING (live runs): the contract query leaves out contracts with an empty approval round, and the check fails without that condition', () => {
+  assert.equal(find(cdOf(), 'Get_pending_contracts').action.inputs.parameters.$filter, 'statuscode eq 867640000 and mwf_approvalround ne null');
+  const old = clone(cdOf()); find(old, 'Get_pending_contracts').action.inputs.parameters.$filter = 'statuscode eq 867640000';
+  const names = failed(checkClientdata(old, VARIANTS.test));
+  assert.equal(names.length, 1);
+  assert.match(names[0], /^the contract query leaves out contracts whose approval round is empty/);
+});
+
+test('the first action of a nested scope has no runAfter key (as the designer stores it); only the first action of the flow keeps an empty one', () => {
+  const list = walk(defOf(cdOf()).actions);
+  const firstOf = (x) => Object.keys(x.siblings)[0] === x.name;
+  const chainedFirsts = list.filter((x) => firstOf(x) && x.scope.length > 0 && Object.keys(x.siblings).length > 1);
+  assert.ok(chainedFirsts.length >= 6);
+  for (const x of chainedFirsts) assert.equal('runAfter' in x.action, false, x.name);
+  assert.deepEqual(list[0].action.runAfter, {});
+});
+
+test('the generated test definition equals the one the DESIGNER stored (src/Workflows), except three known paths', (t) => {
+  const dir = fileURLToPath(new URL('../src/Workflows/', import.meta.url));
+  const file = fs.readdirSync(dir).find((f) => /^Muwafaqa-ApprovalReminders-.*\.json$/.test(f));
+  if (!file) return t.skip('the flow is not in src/Workflows');
+  const stored = JSON.parse(fs.readFileSync(dir + file, 'utf8').replace(/^\uFEFF/, ''));
+  const flat = (o, p = '', out = {}) => {
+    if (Array.isArray(o)) { if (!o.length) out[p] = '[]'; o.forEach((x, i) => flat(x, `${p}[${i}]`, out)); }
+    else if (o && typeof o === 'object') { const k = Object.keys(o); if (!k.length) out[p] = '{}'; k.forEach((x) => flat(o[x], p ? `${p}.${x}` : x, out)); }
+    else out[p] = o;
+    return out;
+  };
+  const gen = flat(cdOf(VARIANTS.test)); const des = flat(stored);
+  const diff = [...new Set([...Object.keys(gen), ...Object.keys(des)])].filter((k) => JSON.stringify(gen[k]) !== JSON.stringify(des[k])).sort();
+  const known = [
+    'properties.definition.actions.Get_pending_contracts.inputs.parameters.$filter',   // the generator is AHEAD: it leaves out contracts with an empty round (the stored flow does not yet)
+    'properties.definition.description',                                               // the designer copies the flow description into the definition
+    'properties.templateName',                                                         // the designer adds an empty template name
+  ].sort();
+  // after the stored flow is re-created from this generator the first path disappears from the list; until then it is the one difference
+  const allowed = diff.every((k) => known.includes(k));
+  assert.ok(allowed, `unexpected differences: ${diff.filter((k) => !known.includes(k)).join(', ')}`);
 });

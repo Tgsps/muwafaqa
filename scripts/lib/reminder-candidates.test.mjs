@@ -225,3 +225,10 @@ test('cap: there is no default; an unset, zero, negative, fractional or text cap
   for (const bad of [undefined, null, 0, -1, 1.5, '5', NaN, Infinity]) assert.throws(() => capActions([act('a', 1)], bad), /explicit whole number/, String(bad));
   assert.equal(MAX_NOTICES_PER_RUN, 5);   // decided by the owner on 2026-10-26
 });
+
+test('a contract that was never submitted through the plug-in (round null, a legacy row) is never reminded: skipped as a stale round', () => {
+  const s = step(1);
+  const r = run([s], 100, [contract(C1, { mwf_approvalround: null })]);
+  assert.deepEqual(r.actions, []);
+  assert.equal(r.skipped[0].reason, 'stale-round');
+});
