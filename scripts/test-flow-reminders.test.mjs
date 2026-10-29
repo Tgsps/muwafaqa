@@ -95,3 +95,19 @@ test('the script has the flow-state, cleanup and sign-in rules: az only, confirm
   assert.doesNotMatch(CODE, /deviceToken|console\.log\([^)]*(token|password|secret)/i);
   assert.match(SOURCE, /NO WINDOW HAS BEEN RUN/);
 });
+
+test('window 2 requirements: READY prints the number and the name of R1, R2 and R6; the writes of R2 and R6 are printed with their UTC values and read back; --on-at; the late-ON rule; the link-check pause', () => {
+  assert.match(CODE, /function readyReport2\(/);
+  assert.match(CODE, /number \$\{of\(k\)\.mwf_contractnumber\}   name "\$\{of\(k\)\.mwf_name\}"/);
+  assert.match(CODE, /SEEDED NOW: R1 step 1 mwf_decision/);
+  assert.match(CODE, /R2 WILL BE WRITTEN by the await step/);
+  assert.match(CODE, /R6 WILL BE WRITTEN by the await step/);
+  assert.match(CODE, /TURN THE FLOW ON NO LATER THAN/);
+  assert.match(CODE, /WRITE R2 /); assert.match(CODE, /WRITE R6 /); assert.match(CODE, /READBACK R6 /);
+  assert.match(CODE, /ON-AT \$\{onRow\.modifiedon\}/);
+  assert.match(CODE, /argOf\('on-at'\)/);
+  assert.match(CODE, /READ BACK: R1 has 1 step, Waiting/); assert.match(CODE, /READ BACK: R6 has 2 steps, both Pending/);
+  assert.match(CODE, /LINK CHECK WINDOW: contracts still exist, say 'link checked' to continue/);
+  const plan = run('--mode=plan').stdout;
+  assert.match(plan, /later than S0\+2:30 the timing of R1 and R6 cannot be judged/);
+});

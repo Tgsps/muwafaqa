@@ -19,6 +19,8 @@ export const FAMILY = 'TEST-TMP-REM';
 export const MARKER = '2001-01-01T00:00:00Z';
 export const MARKER_MS = Date.parse(MARKER);
 export const EARLY_MS = 5000;            // clock skew: a notice may not come earlier than its due time by more than this
+/** If the owner turns the flow ON later than S0 + 2:30, the timing of R1 and R6 cannot be judged (INCONCLUSIVE, not FAIL). */
+export const LATE_ON_MS = 150000;
 export const LATE_MS = 3 * 60000;        // one scan every minute plus the start of the run: a notice is late after this
 export const SIMULATION_SENTENCE = 'v2 simulated by seeded rows: this session does NOT prove the integration with v2 (no real approval request, no real answer, no real Mark_step_Waiting).';
 export const STATUS = Object.freeze({ Draft: 1, Rejected: 2, Pending: STATUS_PENDING_APPROVAL, InForce: 867640001 });
@@ -94,7 +96,8 @@ export function planLines(windowId) {
     add('r2', ['setup: step 1 made Waiting; at S0+' + TIMED.r2AnswerAfterS + ' s the await step writes the answer (decision Approved, decidedon now).',
       'expected: no mail at any time, both columns stay empty. Counted as PASS only if the control of the window (R1) fired.']);
     add('r6', ['setup: nothing is seeded at first (both steps Pending). At S0+' + TIMED.r6AnswerAfterS + ' s the await step writes step 1 Approved with decidedon = now (D) and step 2 Waiting.',
-      'expected: NO reminder before D+3 min (the key check: the time counts from the answer to step 1, not from the submission); the reminder in [D+3, D+3+3] min and the escalation in [D+6, D+6+3] min. emails: 1 reminder + 1 escalation.']);
+      'expected: NO reminder before D+3 min (the key check: the time counts from the answer to step 1, not from the submission); the reminder in [D+3, D+3+3] min and the escalation in [D+6, D+6+3] min. emails: 1 reminder + 1 escalation.',
+      'If the owner turns the flow ON later than S0+2:30 the timing of R1 and R6 cannot be judged: those timing checks are INCONCLUSIVE (OBS), not FAIL; the existence of the notices is still checked.']);
     L.push(''); L.push('Notices of the window: 4 emails at most (R1: 2, R6: 2).');
   }
   return L;
@@ -231,25 +234,40 @@ export function verdict({ windowId, contracts, steps, runs, flow, legacy }) {
     add('R4b.shape', shapeB ? 'PASS' : 'FAIL', 'R4b: at verdict time the step is still Waiting (round 1) and its contract is Rejected', b ? `contract status ${b.contract.statuscode}, step ${sb ? DECISION_NAME(sb.mwf_decision) : 'missing'}` : 'contract missing');
     gate(add, 'R4b', control, none(sb), 'R4b: no notice for the step of the contract that is no longer Pending Approval (both columns empty)');
   } else {
+    const stamp = (v) => { const n = typeof v === 'number' ? v : ms(v); return n == null || !Number.isFinite(n) ? 'empty' : new Date(n).toISOString().slice(0, 19) + 'Z'; };
+    const lateOn = (s0) => s0 != null && flow?.onAtMs != null && flow.onAtMs > s0 + LATE_ON_MS;
+    const onNote = (s0) => `the flow was turned ON at ${stamp(flow.onAtMs)} (${flow?.onAtSource ?? 'estimated'}), after S0+2:30 (${stamp(s0 + LATE_ON_MS)}), so the time of the notices cannot be judged`;
     const e1 = entries('r1')[0]; const s1 = e1 ? step(e1, 1) : null;
-    const due3 = s1 ? ms(s1.createdon) + mins(TEST_TIMERS.remindAfterMinutes) : 0; const due6 = s1 ? ms(s1.createdon) + mins(TEST_TIMERS.escalateAfterMinutes) : 0;
-    const remOk = !!s1 && real(s1.mwf_remindedon) && inWindow(ms(s1.mwf_remindedon), due3);
+    const S01 = s1 ? ms(s1.createdon) : null;
+    const due3 = s1 ? S01 + mins(TEST_TIMERS.remindAfterMinutes) : 0; const due6 = s1 ? S01 + mins(TEST_TIMERS.escalateAfterMinutes) : 0;
     control = !!s1 && real(s1.mwf_remindedon);
-    add('R1.reminder', remOk ? 'PASS' : 'FAIL', 'R1 (positive control): ONE reminder, between 3 minutes after the submission (minus 5 s) and 3 minutes after it was due', s1 ? `remindedon ${s1.mwf_remindedon ?? 'empty'}` : 'step missing');
-    add('R1.escalation', !!s1 && real(s1.mwf_escalatedon) && inWindow(ms(s1.mwf_escalatedon), due6) && ms(s1.mwf_remindedon) < ms(s1.mwf_escalatedon) ? 'PASS' : 'FAIL',
-      'R1: ONE escalation, after the reminder, between 6 minutes after the submission (minus 5 s) and 3 minutes after it was due', s1 ? `escalatedon ${s1.mwf_escalatedon ?? 'empty'}` : 'step missing');
+    add('R1.reminder', control ? 'PASS' : 'FAIL', 'R1 (positive control): ONE reminder was claimed', s1 ? `remindedon ${stamp(s1.mwf_remindedon)}` : 'step missing');
+    add('R1.escalation', !!s1 && real(s1.mwf_escalatedon) && ms(s1.mwf_remindedon) < ms(s1.mwf_escalatedon) ? 'PASS' : 'FAIL', 'R1: ONE escalation was claimed, after the reminder', s1 ? `escalatedon ${stamp(s1.mwf_escalatedon)}` : 'step missing');
+    const r1Timing = !!s1 && inWindow(ms(s1.mwf_remindedon), due3) && inWindow(ms(s1.mwf_escalatedon), due6);
+    if (s1 && lateOn(S01)) add('R1.timing', 'OBS', `INCONCLUSIVE: R1 timing: ${onNote(S01)}`, `S0 ${stamp(S01)}, due ${stamp(due3)} and ${stamp(due6)}`);
+    else add('R1.timing', r1Timing ? 'PASS' : 'FAIL', 'R1: the reminder came between 3 minutes after the submission (minus 5 s) and 3 minutes after it was due, the escalation likewise at 6 minutes', s1 ? `S0 ${stamp(S01)}, due ${stamp(due3)} / ${stamp(due6)}, claimed ${stamp(s1.mwf_remindedon)} / ${stamp(s1.mwf_escalatedon)}` : 'step missing');
     const e2 = entries('r2')[0]; const s2 = e2 ? step(e2, 1) : null;
     add('R2.shape', !!s2 && s2.mwf_decision === DECISION.Approved && ms(s2.mwf_decidedon) != null ? 'PASS' : 'FAIL', 'R2: the seeded answer was written (the step is Approved with a decidedon)', s2 ? DECISION_NAME(s2.mwf_decision) : 'step missing');
     gate(add, 'R2', control, none(s2), 'R2: no notice for the step answered before the time (both columns empty)');
+    if (s2) add('R2.values', 'OBS', 'R2 audit: the values on the step at verdict time', `decision ${DECISION_NAME(s2.mwf_decision)} (${s2.mwf_decision}), decidedon ${stamp(s2.mwf_decidedon)}, createdon ${stamp(s2.createdon)}, remindedon ${stamp(s2.mwf_remindedon)}, escalatedon ${stamp(s2.mwf_escalatedon)}`);
     const e6 = entries('r6')[0]; const t1 = e6 ? step(e6, 1) : null; const t2 = e6 ? step(e6, 2) : null;
-    const D = t1 ? ms(t1.mwf_decidedon) : null;
+    const D = t1 ? ms(t1.mwf_decidedon) : null; const S06 = t1 ? ms(t1.createdon) : null;
     const shape6 = !!t1 && !!t2 && t1.mwf_decision === DECISION.Approved && D != null && t2.mwf_decision === DECISION.Waiting;
     add('R6.shape', shape6 ? 'PASS' : 'FAIL', 'R6: step 1 is Approved with a decidedon D and step 2 is Waiting', t1 && t2 ? `${DECISION_NAME(t1.mwf_decision)} / ${DECISION_NAME(t2.mwf_decision)}` : 'steps missing');
     const rem6 = t2 ? ms(t2.mwf_remindedon) : null; const esc6 = t2 ? ms(t2.mwf_escalatedon) : null;
-    add('R6.not-from-createdon', shape6 && rem6 != null && rem6 >= D + mins(TEST_TIMERS.remindAfterMinutes) - EARLY_MS ? 'PASS' : 'FAIL',
-      'R6 (the key check): the reminder came at least 3 minutes after D, the answer to step 1, NOT 3 minutes after the submission', rem6 != null && D != null ? `reminder ${Math.round((rem6 - D) / 1000)} s after D` : 'no reminder');
-    add('R6.reminder', shape6 && rem6 != null && inWindow(rem6, D + mins(TEST_TIMERS.remindAfterMinutes)) ? 'PASS' : 'FAIL', 'R6: ONE reminder, not later than 3 minutes after it was due', '');
-    add('R6.escalation', shape6 && esc6 != null && rem6 != null && rem6 < esc6 && inWindow(esc6, D + mins(TEST_TIMERS.escalateAfterMinutes)) ? 'PASS' : 'FAIL', 'R6: ONE escalation, between D + 6 minutes (minus 5 s) and 3 minutes after it was due', esc6 != null && D != null ? `escalation ${Math.round((esc6 - D) / 1000)} s after D` : 'no escalation');
+    add('R6.reminder', shape6 && rem6 != null && real(t2.mwf_remindedon) ? 'PASS' : 'FAIL', 'R6: ONE reminder was claimed on step 2', t2 ? `remindedon ${stamp(t2.mwf_remindedon)}` : 'step missing');
+    add('R6.escalation', shape6 && esc6 != null && rem6 != null && rem6 < esc6 && real(t2.mwf_escalatedon) ? 'PASS' : 'FAIL', 'R6: ONE escalation was claimed on step 2, after the reminder', t2 ? `escalatedon ${stamp(t2.mwf_escalatedon)}` : 'step missing');
+    const keyDetail = rem6 != null && D != null ? `D ${stamp(t1.mwf_decidedon)}, reminder ${stamp(t2.mwf_remindedon)} = ${Math.round((rem6 - D) / 1000)} s after D (the threshold is 180 s minus 5 s)` : 'no reminder';
+    if (shape6 && lateOn(S06)) {
+      add('R6.not-from-createdon', 'OBS', `INCONCLUSIVE: R6 key check: ${onNote(S06)}`, keyDetail);
+      add('R6.timing', 'OBS', `INCONCLUSIVE: R6 timing windows: ${onNote(S06)}`, keyDetail);
+    } else {
+      add('R6.not-from-createdon', shape6 && rem6 != null && rem6 >= D + mins(TEST_TIMERS.remindAfterMinutes) - EARLY_MS ? 'PASS' : 'FAIL',
+        'R6 (the key check): the reminder came at least 3 minutes after D, the answer to step 1, NOT 3 minutes after the submission', keyDetail);
+      add('R6.timing', shape6 && rem6 != null && esc6 != null && inWindow(rem6, D + mins(TEST_TIMERS.remindAfterMinutes)) && inWindow(esc6, D + mins(TEST_TIMERS.escalateAfterMinutes)) ? 'PASS' : 'FAIL',
+        'R6: the reminder not later than 3 minutes after D + 3 minutes, the escalation between D + 6 minutes (minus 5 s) and 3 minutes after it was due', `escalation ${esc6 != null && D != null ? Math.round((esc6 - D) / 1000) + ' s after D' : 'none'}`);
+    }
+    if (t1 && t2) add('R6.values', 'OBS', 'R6 audit: the values on the two steps at verdict time', `step 1 ${DECISION_NAME(t1.mwf_decision)} decidedon D = ${stamp(t1.mwf_decidedon)}; step 2 ${DECISION_NAME(t2.mwf_decision)}, createdon ${stamp(t2.createdon)}, remindedon ${stamp(t2.mwf_remindedon)}, escalatedon ${stamp(t2.mwf_escalatedon)}; due by the rule: ${D != null ? stamp(D + mins(3)) + ' / ' + stamp(D + mins(6)) : 'n/a'}`);
   }
   add('control', control ? 'PASS' : 'FAIL', `the positive control of window ${windowId} (${w.control.toUpperCase()}) fired in this window`, control ? 'a notice was claimed' : 'NO notice was claimed: the "no notice" results of this window are INCONCLUSIVE');
   add('simulation', 'OBS', SIMULATION_SENTENCE, '');

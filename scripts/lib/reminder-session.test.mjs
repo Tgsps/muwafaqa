@@ -118,9 +118,9 @@ test('R3: reminded again (the marker was overwritten), escalated too early, or n
 
 test('R1: a reminder before 3 minutes, or one more than 3 minutes late, an escalation before the reminder FAIL', () => {
   const early = clone(mk(2)); stepOf(early, subjectsOf('r1')[0], 1).mwf_remindedon = iso(T0 + m(2, 30));
-  assert.ok(failing(verdict(early)).includes('R1.reminder'));
+  assert.ok(failing(verdict(early)).includes('R1.timing'));
   const late = clone(mk(2)); stepOf(late, subjectsOf('r1')[0], 1).mwf_remindedon = iso(T0 + m(7));
-  assert.ok(failing(verdict(late)).includes('R1.reminder'));
+  assert.ok(failing(verdict(late)).includes('R1.timing'));
   const order = clone(mk(2)); const s = stepOf(order, subjectsOf('r1')[0], 1); s.mwf_escalatedon = iso(T0 + m(3, 5));
   assert.ok(failing(verdict(order)).includes('R1.escalation'));
   const none = clone(mk(2)); stepOf(none, subjectsOf('r1')[0], 1).mwf_escalatedon = null;
@@ -312,4 +312,49 @@ test('the verdict uses the new attribution: runs that overlap give an OBS and ma
   const ideal = verdict(mk(1));
   assert.equal(by(ideal, 'claims.attribution').status, 'PASS'); assert.equal(by(ideal, 'cap.overlap'), undefined);
   assert.ok(!ideal.some((x) => /[0-9a-f]{8}-[0-9a-f]{4}/i.test(x.detail + x.name)), 'no id in the output');
+});
+
+// ---- window 2: the flow turned ON late, and the audit values
+import { LATE_ON_MS } from './reminder-session.mjs';
+
+test('the late-ON limit is S0 + 2:30', () => { assert.equal(LATE_ON_MS, 150000); });
+
+test('the flow turned ON LATER than S0+2:30: the timing of R1 and R6 is INCONCLUSIVE (OBS), not FAIL, and says why; the notices must still exist', () => {
+  const o = clone(mk(2)); o.flow = { on: false, onAtMs: T0 + m(3, 10), onAtSource: 'reported' };
+  // the first scan after the ON finds everything due: the reminders and escalations come at once (they are late for R1; for R6 the reminder is no longer distinguishable)
+  stepOf(o, subjectsOf('r1')[0], 1).mwf_remindedon = iso(T0 + m(4, 10)); stepOf(o, subjectsOf('r1')[0], 1).mwf_escalatedon = iso(T0 + m(8, 20));
+  stepOf(o, subjectsOf('r6')[0], 2).mwf_remindedon = iso(T0 + m(5, 40)); stepOf(o, subjectsOf('r6')[0], 2).mwf_escalatedon = iso(T0 + m(8, 50));
+  const r = verdict(o);
+  assert.deepEqual(failing(r), []);
+  for (const id of ['R1.timing', 'R6.timing', 'R6.not-from-createdon']) { assert.equal(by(r, id).status, 'OBS', id); assert.match(by(r, id).name, /^INCONCLUSIVE/, id); assert.match(by(r, id).name, /turned ON at 2026-11-01T10:03:10Z \(reported\), after S0\+2:30 \(2026-11-01T10:02:30Z\)/, id); }
+  assert.equal(by(r, 'R1.reminder').status, 'PASS'); assert.equal(by(r, 'R6.reminder').status, 'PASS');
+  // the notices must still exist: a missing reminder FAILS even when the ON was late
+  const miss = clone(o); stepOf(miss, subjectsOf('r1')[0], 1).mwf_remindedon = null; stepOf(miss, subjectsOf('r1')[0], 1).mwf_escalatedon = null;
+  assert.ok(failing(verdict(miss)).includes('R1.reminder'));
+  const miss6 = clone(o); stepOf(miss6, subjectsOf('r6')[0], 2).mwf_remindedon = null;
+  assert.ok(failing(verdict(miss6)).includes('R6.reminder'));
+});
+
+test('the flow turned ON in time (at or before S0+2:30): the timing checks are real (PASS or FAIL), also when the ON time is only estimated', () => {
+  const okAt = (onAtMs, source) => { const o = clone(mk(2)); o.flow = { on: false, onAtMs, onAtSource: source }; return verdict(o); };
+  for (const [at, source] of [[T0 + m(1, 40), 'reported'], [T0 + m(2, 30), 'reported'], [T0 + m(2, 0), 'estimated']]) {
+    const r = okAt(at, source);
+    assert.deepEqual(failing(r), []);
+    for (const id of ['R1.timing', 'R6.timing', 'R6.not-from-createdon']) assert.equal(by(r, id).status, 'PASS', `${id} at ${at}`);
+  }
+  const late1 = clone(mk(2)); late1.flow = { on: false, onAtMs: T0 + m(2, 0), onAtSource: 'estimated' }; stepOf(late1, subjectsOf('r6')[0], 2).mwf_remindedon = iso(T0 + m(3, 20));
+  assert.ok(failing(verdict(late1)).includes('R6.not-from-createdon'));   // the ON was in time, so a reminder counted from the submission FAILS
+  const x = clone(mk(2)); x.flow = { on: false, onAtMs: T0 + m(2, 31), onAtSource: 'reported' };
+  assert.equal(by(verdict(x), 'R1.timing').status, 'OBS');   // one second after the limit
+});
+
+test('the audit values for R2 and R6 carry the UTC timestamps of the seeded and written values (no id)', () => {
+  const r = verdict(mk(2));
+  const r2 = by(r, 'R2.values'); const r6 = by(r, 'R6.values');
+  assert.equal(r2.status, 'OBS'); assert.equal(r6.status, 'OBS');
+  assert.match(r2.detail, /decision Approved \(867640002\), decidedon 2026-11-01T10:01:00Z, createdon 2026-11-01T10:00:00Z, remindedon empty, escalatedon empty/);
+  assert.match(r6.detail, /step 1 Approved decidedon D = 2026-11-01T10:02:30Z; step 2 Waiting, createdon 2026-11-01T10:00:00Z, remindedon 2026-11-01T10:06:10Z, escalatedon 2026-11-01T10:09:10Z; due by the rule: 2026-11-01T10:05:30Z \/ 2026-11-01T10:08:30Z/);
+  assert.match(by(r, 'R6.not-from-createdon').detail, /reminder 2026-11-01T10:06:10Z = 220 s after D/);
+  assert.ok(!r.some((x) => /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}/i.test(x.detail + x.name)));
+  assert.equal(verdict(mk(1)).some((x) => x.id === 'R2.values'), false);
 });

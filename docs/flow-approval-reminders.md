@@ -80,6 +80,9 @@ Window 2 sends 4 emails.
 
 - A "no notice" result (R2, R4a, R4b) counts as PASS **only if the positive control of the same window fired** (R5 in window 1, R1 in window 2). Otherwise it is printed as INCONCLUSIVE and the control itself FAILS.
 - The seeded shape must still hold at verdict time (the old-round step still Waiting in round 1, the Rejected contract, the answered step): silence must not come from a step that changed.
+- **Window 2, the flow turned ON late:** if the owner turns the flow ON later than S0 + 2:30 (the exact ON time is the `modifiedon` of the flow row, printed by the await step and passed to the verdict with `--on-at`), the timing checks of R1 and R6 are INCONCLUSIVE (OBS) and say why; the existence of the notices is still checked, and the other checks are not affected.
+- Claims are attributed to the runs of the flow by CONTAINMENT in the start and end time of each run; a claim inside several overlapping runs is reported as ambiguous, one inside no run as unattributed (both OBS), and with overlap the cap check is reported as weaker (ADR-010, "Known risk: overlapping runs").
+- After the verdict of window 2 the session stops with `LINK CHECK WINDOW: contracts still exist, say 'link checked' to continue`: the owner matches the contract numbers and names printed at READY with the emails, then the cleanup runs.
 - The verdict prints, at its start and at its end: **v2 simulated by seeded rows: this session does NOT prove the integration with v2 (no real approval request, no real answer, no real Mark_step_Waiting).**
 - Not provable with one user and short timers: a real 48/96 h wait, two overlapping runs, a second approver, delivery to anyone but the owner, the race between a send and an answer, and the email actually being delivered (the mailbox is read by the owner, not by the script).
 

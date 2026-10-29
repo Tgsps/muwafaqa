@@ -225,6 +225,16 @@ if (isMain) {
       const r2 = await newContract(subjectsOf('r2')[0], CASES.r2.value); await submit(r2); await patchStep((await builtSteps(r2, 1))[0].mwf_approvalstepid, SEED.waiting());
       const r6 = await newContract(subjectsOf('r6')[0], CASES.r6.value); await submit(r6); await builtSteps(r6, 2);
       seen.push('R1: step 1 Waiting; R2: step 1 Waiting (answered by the await step at +60 s); R6: both steps Pending (the await step writes step 1 Approved and step 2 Waiting at +150 s)');
+      if (!DRY) {
+        const cs = await contractsOf(w.prefix); const byName = (n) => cs.find((c) => c.mwf_name === n);
+        const st = async (n) => (await stepsOf(byName(n).mwf_contractid)).filter((s) => s.mwf_approvalround === 1);
+        const a1 = await st(subjectsOf('r1')[0]); const a2 = await st(subjectsOf('r2')[0]); const a6 = await st(subjectsOf('r6')[0]);
+        check('R1.seed', 'READ BACK: R1 has 1 step, Waiting, round 1, both notice columns empty', a1.length === 1 && a1[0].mwf_decision === DECISION.Waiting && !a1[0].mwf_remindedon && !a1[0].mwf_escalatedon, `${a1.length} step(s), decision ${a1[0]?.mwf_decision}`);
+        check('R2.seed', 'READ BACK: R2 has 1 step, Waiting, round 1, both notice columns empty', a2.length === 1 && a2[0].mwf_decision === DECISION.Waiting && !a2[0].mwf_remindedon && !a2[0].mwf_escalatedon, `${a2.length} step(s), decision ${a2[0]?.mwf_decision}`);
+        check('R6.seed', 'READ BACK: R6 has 2 steps, both Pending (nothing seeded yet), round 1, no decidedon, both notice columns empty', a6.length === 2 && a6.every((s) => s.mwf_decision === DECISION.Pending && !s.mwf_decidedon && !s.mwf_remindedon && !s.mwf_escalatedon), `${a6.length} step(s)`);
+        check('contracts', 'READ BACK: the three contracts are Pending Approval in round 1', ['r1', 'r2', 'r6'].every((k) => byName(subjectsOf(k)[0])?.statuscode === STATUS.Pending && byName(subjectsOf(k)[0])?.mwf_approvalround === 1));
+        if (failed) throw new Stop('A seed was not in place after the setup. The flow is OFF. Run --mode=cleanup --window=2.');
+      }
     }
     for (const l of seen) console.log(`INFO  ${l}`);
     if (!DRY) printHandoff(snap);
@@ -233,12 +243,33 @@ if (isMain) {
     return failed === 0;
   }
 
+  /** READY of window 2: the contracts (number and display name, to match the emails), S0, the seeded values, the writes the await step will make, and the expected times. */
+  function readyReport2(contracts, steps, fmt, w) {
+    const of = (k) => contracts.find((c) => c.mwf_name === subjectsOf(k)[0]);
+    const s0 = (k) => Math.min(...steps.filter((s) => s._mwf_contract_value === of(k).mwf_contractid).map((s) => Date.parse(s.createdon)));
+    const S = { r1: s0('r1'), r2: s0('r2'), r6: s0('r6') };
+    console.log('\nREADY');
+    console.log('The contracts of window 2 (match them to the emails; the Subject of the email is "Reminder: approval waiting for contract <name>"):');
+    for (const k of ['r1', 'r2', 'r6']) console.log(`  ${k.toUpperCase()}  number ${of(k).mwf_contractnumber}   name "${of(k).mwf_name}"`);
+    console.log(`S0 (createdon of the first step): R1 ${fmt(S.r1)}; R2 ${fmt(S.r2)}; R6 ${fmt(S.r6)}`);
+    console.log(`SEEDED NOW: R1 step 1 mwf_decision = ${DECISION.Waiting} (Waiting); R2 step 1 mwf_decision = ${DECISION.Waiting} (Waiting); R6 steps 1 and 2 mwf_decision = ${DECISION.Pending} (Pending). No notice column is set anywhere.`);
+    console.log(`R1: reminder due ${fmt(S.r1 + 3 * 60000)}, escalation due ${fmt(S.r1 + 6 * 60000)}; each is claimed by the first scan after it (a scan every minute).`);
+    console.log(`R2 WILL BE WRITTEN by the await step at about ${fmt(S.r2 + TIMED.r2AnswerAfterS * 1000)}: step 1 mwf_decision = ${DECISION.Approved} (Approved) and mwf_decidedon = the time of that write (UTC; printed when it happens). Expected: no notice, ever.`);
+    console.log(`R6 WILL BE WRITTEN by the await step at about ${fmt(S.r6 + TIMED.r6AnswerAfterS * 1000)}: step 1 mwf_decision = ${DECISION.Approved} (Approved) with mwf_decidedon = D, the time of that write; step 2 mwf_decision = ${DECISION.Waiting} (Waiting). Expected: NO reminder before D + 3 min (about ${fmt(S.r6 + TIMED.r6AnswerAfterS * 1000 + 3 * 60000)}), the reminder in [D+3, D+6] min, the escalation in [D+6, D+9] min (about ${fmt(S.r6 + TIMED.r6AnswerAfterS * 1000 + 6 * 60000)} or later).`);
+    const limit = Math.min(S.r1, S.r6) + 150000;
+    console.log(`TURN THE FLOW ON NO LATER THAN ${fmt(limit)} (S0 + 2:30). If it is turned on later, the TIMING of R1 and R6 is reported INCONCLUSIVE (the existence of the notices is still checked).`);
+    console.log(`Expected: R1 1 reminder + 1 escalation, R2 none, R6 1 reminder + 1 escalation = 4 emails, all to the owner's mailbox. The flow is ON for about ${w.onMinutes} minutes.`);
+    console.log("\n>>> Turn on 'Muwafaqa - Approval Reminders' now (the owner; no other UI activity: do not open the flow in the designer, do not save it). <<<");
+    console.log(`NEXT: node scripts/test-flow-reminders.mjs --mode=await --window=${WIN} --env=... --auth=az --confirm-mutates-environment`);
+  }
+
   /** READY: S0 in UTC and UTC+3 and the times at which the notices are expected (read from the rows that were just seeded). */
   async function readyReport(w) {
     const contracts = await contractsOf(w.prefix); const steps = await stepsOfAll(contracts);
     const fmt = (ms) => `${new Date(ms).toISOString().slice(0, 19)}Z (UTC) = ${new Date(ms + 3 * 3600 * 1000).toISOString().slice(11, 19)} (UTC+3)`;
     const created = (k) => contracts.filter((c) => c.mwf_name.includes(`-${k.toUpperCase()}`)).flatMap((c) => steps.filter((s) => s._mwf_contract_value === c.mwf_contractid && s.mwf_approvalround === 1 && s.mwf_steporder === 1).map((s) => Date.parse(s.createdon)));
     const all = steps.map((s) => Date.parse(s.createdon));
+    if (WIN === 2) { readyReport2(contracts, steps, fmt, w); return; }
     const r5 = created('r5'); const r3 = created('r3');
     console.log('\nREADY');
     console.log(`S0 = the submissions: first ${fmt(Math.min(...all))}, last ${fmt(Math.max(...all))}`);
@@ -261,7 +292,9 @@ if (isMain) {
       if (waited >= 600) { console.log('The flow was not turned ON within 10 minutes. Nothing was changed. Exit 10.'); process.exit(10); }
       await sleep(10000); waited += 10;
     }
-    console.log(`INFO  the flow is ON at ${nowIso()} (UTC)`);
+    const onRow = await reminderFlow();
+    console.log(`INFO  the flow is ON, detected at ${nowIso()} (UTC)`);
+    console.log(`ON-AT ${onRow.modifiedon} (UTC): the time the flow row was last changed = turned ON (exact); the verdict takes it with --on-at=${onRow.modifiedon}`);
     const done = { r2: false, r6: false }; const printed = new Set(); let lastClaimAt = Date.now(); const start = Date.now();
     for (;;) {
       const contracts = await contractsOf(w.prefix); const steps = await stepsOfAll(contracts);
@@ -270,11 +303,16 @@ if (isMain) {
       if (WIN === 2) {   // the timed seeds
         const c2 = contracts.find((c) => c.mwf_name === subjectsOf('r2')[0]); const c6 = contracts.find((c) => c.mwf_name === subjectsOf('r6')[0]);
         if (!done.r2 && c2 && Date.now() >= created(c2.mwf_name) + TIMED.r2AnswerAfterS * 1000) {
-          const s = steps.find((x) => x._mwf_contract_value === c2.mwf_contractid && x.mwf_steporder === 1); await patchStep(s.mwf_approvalstepid, SEED.approvedAt(nowIso())); done.r2 = true; console.log(`INFO  R2: the answer was written at ${nowIso()} (UTC)`);
+          const s = steps.find((x) => x._mwf_contract_value === c2.mwf_contractid && x.mwf_steporder === 1); const val = nowIso(); await patchStep(s.mwf_approvalstepid, SEED.approvedAt(val)); done.r2 = true;
+          const back = (await stepsOf(c2.mwf_contractid)).find((x) => x.mwf_steporder === 1);
+          console.log(`WRITE R2  ${c2.mwf_contractnumber} "${c2.mwf_name}" step 1: mwf_decision = ${DECISION.Approved} (Approved), mwf_decidedon = ${val} (UTC) written at ${nowIso()}; read back: decision ${back?.mwf_decision}, decidedon ${back?.mwf_decidedon}`);
         }
         if (!done.r6 && c6 && Date.now() >= created(c6.mwf_name) + TIMED.r6AnswerAfterS * 1000) {
           const s1 = steps.find((x) => x._mwf_contract_value === c6.mwf_contractid && x.mwf_steporder === 1); const s2 = steps.find((x) => x._mwf_contract_value === c6.mwf_contractid && x.mwf_steporder === 2);
-          const D = nowIso(); await patchStep(s1.mwf_approvalstepid, SEED.approvedAt(D)); await patchStep(s2.mwf_approvalstepid, SEED.waiting()); done.r6 = true; console.log(`INFO  R6: step 1 answered (D) at ${D} (UTC) and step 2 made Waiting`);
+          const D = nowIso(); await patchStep(s1.mwf_approvalstepid, SEED.approvedAt(D)); const wroteStep2At = nowIso(); await patchStep(s2.mwf_approvalstepid, SEED.waiting()); done.r6 = true;
+          const back = await stepsOf(c6.mwf_contractid); const b1 = back.find((x) => x.mwf_steporder === 1); const b2 = back.find((x) => x.mwf_steporder === 2);
+          console.log(`WRITE R6  ${c6.mwf_contractnumber} "${c6.mwf_name}" step 1: mwf_decision = ${DECISION.Approved} (Approved), mwf_decidedon = D = ${D} (UTC); step 2: mwf_decision = ${DECISION.Waiting} (Waiting) written at ${wroteStep2At} (UTC)`);
+          console.log(`READBACK R6  step 1 decision ${b1?.mwf_decision} decidedon ${b1?.mwf_decidedon}; step 2 decision ${b2?.mwf_decision}. The reminder must NOT be claimed before ${new Date(Date.parse(D) + 180000).toISOString().slice(0, 19)}Z (D + 3 min)`);
         }
       }
       for (const s of steps) {
@@ -308,15 +346,19 @@ if (isMain) {
     const rr = await S.call('GET', `flowruns?$filter=${q(`workflowid eq ${fl.workflowid} and starttime ge ${new Date(earliest - 60000).toISOString()}`)}&$orderby=starttime&$select=status,starttime,endtime&$top=500`);
     if (!rr.ok) throw new Stop(`flowruns not readable: HTTP ${rr.status}`);
     const runs = (rr.j.value || []).map((r) => ({ startMs: Date.parse(r.starttime), endMs: r.endtime ? Date.parse(r.endtime) : null, status: r.status }));
-    const onAtMs = runs.length ? Math.min(...runs.map((r) => r.startMs)) - 60000 : null;
+    const reportedOn = argOf('on-at') ? Date.parse(argOf('on-at')) : NaN;
+    const onAtMs = Number.isFinite(reportedOn) ? reportedOn : (runs.length ? Math.min(...runs.map((r) => r.startMs)) - 60000 : null);
+    const onAtSource = Number.isFinite(reportedOn) ? 'reported' : 'estimated from the first run';
     const leg = (await get(`mwf_contracts?$select=mwf_name,mwf_approvalround,statuscode,modifiedon&$filter=${q(`statuscode eq ${STATUS.Pending} and mwf_approvalround eq null`)}`)).value[0];
     const legacy = leg ? { found: true, round: leg.mwf_approvalround, status: leg.statuscode, modifiedon: leg.modifiedon, modifiedonBefore: argOf('legacy-modifiedon') || null } : { found: false };
-    const results = verdict({ windowId: WIN, contracts, steps, runs, flow: { on: !off || fl.statecode === 1, onAtMs }, legacy });
+    const results = verdict({ windowId: WIN, contracts, steps, runs, flow: { on: !off || fl.statecode === 1, onAtMs, onAtSource }, legacy });
+    for (const c of [...contracts].sort((a, b) => String(a.mwf_name).localeCompare(String(b.mwf_name)))) console.log(`CONTRACT  ${c.mwf_contractnumber}  "${c.mwf_name}"  status ${c.statuscode}  round ${c.mwf_approvalround}`);
     for (const r of results) out(r.id, r.status, r.name, r.detail);
     const s = summarize(results);
     console.log(`\nVERDICT window ${WIN}: ${s.pass} PASS, ${s.fail} FAIL, ${s.obs} OBS.`);
     console.log(SIMULATION_SENTENCE);
     console.log('By your eye (not read by this script): the mailbox (the number and the text of the mails, all to your own address) and the run history (Send an email succeeded; the number of Increment_noticesSent iterations per run).');
+    console.log("\nLINK CHECK WINDOW: contracts still exist, say 'link checked' to continue");
     return s.fail === 0;
   }
 
