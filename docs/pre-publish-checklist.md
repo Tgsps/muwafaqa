@@ -1,6 +1,8 @@
-# Before making the repo public
+# Before the repository is published, and before every push
 
-Items that must be done before the repository is published. **Items 1 to 3 were done on 2026-10-25** (history rewritten, whole-history scan run). Nothing has been pushed anywhere: the repository has no remote.
+**State (read from the repository on 2026-11-03).** The repository has a remote, `origin`, on github.com, and `main` has been pushed to it. The local record of `origin/main` (`git reflog show origin/main`) holds 12 pushes, dated 2026-10-25 (two), 2026-10-26 (seven), 2026-10-29 (two) and 2026-11-03 (one); it does not go back further than that, and it does not hold pushes made from another clone. **The first recorded push is dated 2026-10-25 10:27 (UTC+3), after the commit that records the second history rewrite (2026-10-25 10:09).** An anonymous request to the repository page answered HTTP 200 on 2026-11-03, so the repository was publicly readable at that moment; that check says nothing about any earlier time and does not say when it became public.
+
+Items 1 to 3 were done on 2026-10-25 (history rewritten, whole-history scan run), before the first recorded push. This document is kept as the record of those items and as the checklist for the pushes that follow (item 5).
 
 ## 1. The environment host existed in earlier commits (DONE 2026-10-25)
 
@@ -22,3 +24,21 @@ The checks used on staged files (email-like values outside OData annotations, to
 ## 4. Placeholders in the exported flow
 
 The flow in `src/` (v2; flow v1 and its approver placeholder were retired on 2026-10-24) has one placeholder, `<ORG_HOST>`. A reader who imports it must fill it in. This is intended and is explained in `docs/plugin-registration-log.md` and `docs/rebuild-runbook.md`.
+
+## 5. Before every push (the procedure; nothing here claims how earlier pushes were checked)
+
+Run over **every commit that is ahead of `origin/main`**: the patches (added lines), the commit messages, and the author and committer fields. Count per category and list the commits covered. **Push only if every count is 0**, normally (no `--force`, no `--no-verify`); otherwise stop and report without pushing.
+
+| Category | What counts as a hit |
+|---|---|
+| E-mail | Any e-mail address (reserved example domains are built at run time in tests, so none appears as a literal), and the university address in particular. An OData annotation key such as a lookup bind (a name, an at sign, then `odata.bind`) is not an address and is excluded from the count, by name |
+| Registration number | A university registration number of the owner (a run of digits), in any file |
+| Account owner | The display name of the account owner in a file (the author field carries the noreply identity only) |
+| Profile picture | The account's profile picture or any link to the image host of the platform |
+| Environment | The environment name or any real host. The generic placeholder `https://<org>.crm4.dynamics.com` in usage comments is acceptable; anything that is not generic is not |
+| Tokens | A JWT-like or `Bearer` literal |
+| Session | Any link or id of an assistant session, in a file or in a commit message |
+| Trailers | Any trailer other than the one `Co-Authored-By` line that names the assistant model (the owner's rule; its address is not written here) |
+| Identity | One author and committer identity, a GitHub noreply address |
+
+GUIDs are allowed only inside `src/`; outside it, any GUID in an added line is listed and judged (made-up values in unit tests are expected). The local pre-commit hook (item 3) stops most of this at commit time but is not versioned and is not a substitute for the scan.
