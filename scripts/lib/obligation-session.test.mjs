@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   FAMILY, FLOW_NAME, CASES, CASE_ORDER, PARAMS, ARM_LIMIT_MS, FIRST_SCAN_MS, MIN_MARGIN_S, ON_MINUTES, CONTRACT_TYPE, Stop,
-  seedPlan, margins, keyFor, planLines, verdict, claimableAtRunStart, caseOfName, nameOf, createSession,
+  seedPlan, margins, keyFor, planLines, verdict, claimableAtRunStart, caseOfName, nameOf, createSession, describeFailure, maskText,
 } from './obligation-session.mjs';
 import { TYPE_DUE_SOON, TYPE_OVERDUE } from '../build-flow-obligation-alerts.mjs';
 import { OBLIGATION_STATUS } from './obligation-schema.mjs';
@@ -186,6 +186,40 @@ test('claimableAtRunStart counts only Open, unclaimed seeds inside the window; t
   assert.equal(claimableAtRunStart({ seeds: w.seeds, rows: w.rows.filter((r) => r.createdMs < w.flow.onAtMs + 60000), startMs: w.flow.onAtMs + 65000 }), 2);
 });
 
+// ---------------------------------------------------------------------------------------------------------------- the REAL metadata (read from the environment on 2026-11-03/04)
+const META = JSON.parse(read('./fixtures/obligation-session-metadata.json'));
+const TABLE_OF_SET = Object.fromEntries(Object.entries(META.tables).map(([logical, t]) => [t.entitySet, logical]));
+const ISO_SEC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
+const SYSTEM_SET = new Set(['SystemRequired']);
+/**
+ * What the environment would say about a POST body, judged ONLY by the fixture (not by the mock's own assumptions): every property must be a column of the table or a navigation
+ * property written as <NavigationProperty>@odata.bind (case-sensitive, pointing at the entity set the relationship references), types and Choice values must fit, and every
+ * ApplicationRequired column must be present. Returns the problems (empty = accepted).
+ */
+function metadataProblems(path, body) {
+  const set = path.split('?')[0]; const logical = TABLE_OF_SET[set]; if (!logical) return [`unknown entity set ${set}`];
+  const table = META.tables[logical]; const lookups = META.lookups[logical] ?? {}; const out = []; const present = new Set();
+  for (const [k, v] of Object.entries(body ?? {})) {
+    if (k.endsWith('@odata.bind')) {
+      const nav = k.slice(0, -'@odata.bind'.length); const l = Object.values(lookups).find((x) => x.navigationProperty === nav);
+      if (!l) { out.push(`An undeclared property '${nav}' ... only navigation properties of ${logical} are allowed (${Object.values(lookups).map((x) => x.navigationProperty).join(', ')}); the name is case-sensitive`); continue; }
+      const target = META.tables[l.referencedEntity]?.entitySet ?? (l.referencedEntity === 'transactioncurrency' ? 'transactioncurrencies' : null);
+      if (!new RegExp(`^/${target}\\([0-9a-fA-F-]{36}\\)$`).test(String(v))) out.push(`${k} must point at /${target}(<id>), got ${maskText(v)}`);
+      present.add(l.referencingAttribute); continue;
+    }
+    const col = table.columns[k]; if (!col) { out.push(`'${k}' is not a column of ${logical}`); continue; }
+    if (SYSTEM_SET.has(col.required)) { out.push(`'${k}' is set by the system`); continue; }
+    present.add(k);
+    if (col.type === 'String' && typeof v !== 'string') out.push(`'${k}' must be a string`);
+    if (col.type === 'Picklist') { const opts = Object.values(META.choices[`${logical}.${k}`]?.options ?? {}); if (!opts.includes(v)) out.push(`'${k}' = ${v} is not one of its Choice values (${opts.join(', ')})`); }
+    if (col.type === 'Money' && typeof v !== 'number') out.push(`'${k}' must be a number`);
+    if (col.type === 'DateTime' && !ISO_SEC.test(String(v))) out.push(`'${k}' must be an ISO UTC date-time to the second, got ${v}`);
+    if (k === 'mwf_alertkey' && String(v).length > META.string['mwf_alertlog.mwf_alertkey'].max) out.push('mwf_alertkey is longer than its maximum length');
+  }
+  for (const [k, col] of Object.entries(table.columns)) if (col.required === 'ApplicationRequired' && !present.has(k)) out.push(`required column '${k}' is missing`);
+  return out;
+}
+
 // ---------------------------------------------------------------------------------------------------------------- a mocked, stateful environment
 function fakeEnv(o = {}) {
   const env = { t: Date.UTC(2027, 5, 15, 12, 0, 0), log: [], me: gid(9000), keyStatus: 'Active', contractsBase: 11, counter: { id: gid(8000), prefix: 'MNT', last: 0 }, ids: 100,
@@ -201,9 +235,10 @@ function fakeEnv(o = {}) {
     const p = decode(path);
     if (method === 'POST') {
       if (env.failPost?.(path, body)) return { ok: false, status: 500, j: { error: { message: 'boom' } }, text: '' };
+      const bad = metadataProblems(path, body); if (bad.length) return { ok: false, status: 400, j: { error: { code: '0x0', message: bad.join('; ') } }, text: '' };
       if (path === 'mwf_counterparties') { const id = nid(); env.counterparties.set(id, { name: body.mwf_name }); return { ok: true, status: 204, j: null, text: '', id }; }
       if (path.startsWith('mwf_contracts')) { const id = nid(); env.counter.last++; env.contracts.set(id, { name: body.mwf_name, status: 1, owner: env.me, number: `MNT-${String(env.counter.last).padStart(4, '0')}` }); return { ok: true, status: 201, j: { mwf_contractid: id }, text: '', id }; }
-      if (path.startsWith('mwf_obligations')) { const id = nid(); const c = /\(([^)]+)\)/.exec(body['mwf_contract@odata.bind'])[1]; env.obligations.set(id, { name: body.mwf_name, status: body.mwf_status, due: body.mwf_duedate, created: iso(env.t), modified: iso(env.t), contract: c }); return { ok: true, status: 201, j: { mwf_obligationid: id }, text: '', id }; }
+      if (path.startsWith('mwf_obligations')) { const id = nid(); const c = /\(([^)]+)\)/.exec(body['mwf_Contract@odata.bind'])[1]; env.obligations.set(id, { name: body.mwf_name, status: body.mwf_status, due: body.mwf_duedate, created: iso(env.t), modified: iso(env.t), contract: c }); return { ok: true, status: 201, j: { mwf_obligationid: id }, text: '', id }; }
       if (path === 'mwf_alertlogs') {
         if ([...env.alertlogs.values()].some((r) => r.key === body.mwf_alertkey && body.mwf_alertkey)) return { ok: false, status: 412, j: { error: { code: '0x80060892', message: 'dup' } }, text: '' };
         const id = nid(); env.alertlogs.set(id, { key: body.mwf_alertkey, name: body.mwf_name, created: iso(env.t) }); return { ok: true, status: 204, j: null, text: '', id };
@@ -303,7 +338,7 @@ test('setup writes ONLY contracts, counterparties, obligations and alert log row
   assert.ok(w.every((c) => c.method === 'POST' && /^(mwf_counterparties|mwf_contracts|mwf_obligations|mwf_alertlogs)(\?|$)/.test(c.path)), JSON.stringify(w.map((c) => c.path)));
   assert.ok(!env.log.some((c) => /workflows/.test(c.path) && c.method !== 'GET'));
   assert.ok(env.gates >= w.length);   // a gate before every write
-  assert.ok(w.filter((c) => c.path.startsWith('mwf_obligations')).every((c) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(c.body.mwf_duedate) && c.body['mwf_contract@odata.bind']));
+  assert.ok(w.filter((c) => c.path.startsWith('mwf_obligations')).every((c) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(c.body.mwf_duedate) && c.body['mwf_Contract@odata.bind']));
 });
 
 test('setup stops BEFORE writing when the baseline is not clean or a flow is ON, and after a failed write it says to run the cleanup', async () => {
@@ -444,4 +479,63 @@ test('the code never writes to the table of flows, never reads a mailbox, never 
   assert.doesNotMatch(lib.replace(/Plug|\[\^\)]/g, ''), /WRITE_TABLES[^;]*workflows/);
   assert.match(read('./obligation-session.mjs'), /NO WINDOW HAS BEEN RUN/);
   assert.match(read('./obligation-session.mjs'), /never reads a mailbox|never reads (a|your) mailbox|never read a mailbox|does NOT read|never reads it in any way/i);
+});
+
+// ---------------------------------------------------------------------------------------------------------------- the written names against the REAL metadata
+test('the fixture is the real metadata: the obligation lookup is mwf_Contract (capital C), and it holds no host, no address and no id', () => {
+  assert.equal(META.lookups.mwf_obligation.mwf_contract.navigationProperty, 'mwf_Contract');
+  assert.equal(META.lookups.mwf_obligation.mwf_contract.relationship, 'mwf_contract_obligation');
+  const text = read('./fixtures/obligation-session-metadata.json').replaceAll('@odata.bind', '');   // the only @ in the file is the name of the bind property
+  assert.doesNotMatch(text, /dynamics\.com|https?:|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|@[A-Za-z0-9-]+\.[a-z]{2,}/i);
+});
+
+test('the validator judges by the fixture: the old lowercase bind is REJECTED, the real name is accepted, and a wrong column, Choice value, date format or missing required column is rejected', () => {
+  const good = { mwf_name: 'x', mwf_party: 867640000, mwf_duedate: '2027-01-01T10:00:00Z', mwf_status: 867640000, 'mwf_Contract@odata.bind': `/mwf_contracts(${gid(1)})` };
+  assert.deepEqual(metadataProblems('mwf_obligations?$select=mwf_obligationid', good), []);
+  const old = { ...good }; delete old['mwf_Contract@odata.bind']; old['mwf_contract@odata.bind'] = good['mwf_Contract@odata.bind'];
+  assert.match(metadataProblems('mwf_obligations', old).join(' '), /undeclared property 'mwf_contract'/);
+  assert.match(metadataProblems('mwf_obligations', { ...good, mwf_status: 1 }).join(' '), /mwf_status/);
+  assert.match(metadataProblems('mwf_obligations', { ...good, mwf_duedate: '2027-01-01' }).join(' '), /mwf_duedate/);
+  assert.match(metadataProblems('mwf_obligations', { ...good, mwf_nope: 1 }).join(' '), /not a column/);
+  assert.match(metadataProblems('mwf_obligations', { ...good, 'mwf_Contract@odata.bind': `/mwf_counterparties(${gid(1)})` }).join(' '), /must point at/);
+  const noBind = { ...good }; delete noBind['mwf_Contract@odata.bind'];
+  assert.match(metadataProblems('mwf_obligations', noBind).join(' '), /required column 'mwf_contract'/);
+});
+
+test('setup writes ONLY names and values the real metadata accepts: every POST (counterparty, contract, 13 obligations, alert log row) is valid against the fixture, and every @odata.bind name is a navigation property of the fixture', async () => {
+  const env = fakeEnv(); await env.session(approved).setup();
+  const posts = env.writes(); assert.equal(posts.length, 16);
+  for (const w of posts) assert.deepEqual(metadataProblems(w.path, w.body), [], w.path);
+  const binds = [...new Set(posts.flatMap((w) => Object.keys(w.body).filter((k) => k.endsWith('@odata.bind')).map((k) => w.path.split('?')[0] + ' ' + k)))].sort();
+  assert.deepEqual(binds, ['mwf_contracts mwf_counterpartyid@odata.bind', 'mwf_contracts transactioncurrencyid@odata.bind', 'mwf_obligations mwf_Contract@odata.bind']);
+  for (const b of binds) { const [set, key] = b.split(' '); const nav = key.slice(0, -'@odata.bind'.length); assert.ok(Object.values(META.lookups[TABLE_OF_SET[set]]).some((l) => l.navigationProperty === nav), b); }
+});
+
+test('regression of the failed setup: with the old lowercase bind the environment answers 400, the session stops, and the message carries the HTTP status, the error code and the message, with every id masked', async () => {
+  const env = fakeEnv({ renameBind: true });
+  const orig = env.call; env.call = (m, pth, body, h) => { if (m === 'POST' && pth.startsWith('mwf_obligations') && body['mwf_Contract@odata.bind']) { body = { ...body, 'mwf_contract@odata.bind': body['mwf_Contract@odata.bind'] }; delete body['mwf_Contract@odata.bind']; } return orig(m, pth, body, h); };
+  let msg = ''; await assert.rejects(() => env.session(approved).setup(), (e) => { msg = e.message; return e instanceof Stop; });
+  assert.match(msg, /obligation .* create failed: HTTP 400, error code 0x0, message .*undeclared property 'mwf_contract'/);
+  assert.doesNotMatch(msg, /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+  assert.match(msg, /Run cleanup \(nothing is cleaned up by guess\)/);
+});
+
+test('describeFailure and maskText: status, code and message are printed; GUIDs, URLs and Dataverse hosts never are; a long message is cut; a body without JSON falls back to the text', () => {
+  const g = '12345678-1234-4234-8234-123456789abc';
+  const host = ['orgx', 'crm4', 'dynamics', 'com'].join('.');   // built at run time: no host-like literal in the repository
+  const m = describeFailure({ status: 400, j: { error: { code: '0x80048d19', message: `bad ${g} at https://${host}/api/data/v9.2/x and ${host}` } } });
+  assert.equal(m, 'HTTP 400, error code 0x80048d19, message bad <id> at <url> and <host>');
+  assert.equal(describeFailure({ status: 503, j: null, text: `gateway ${g}` }), 'HTTP 503, error code none, message gateway <id>');
+  assert.equal(describeFailure({ status: 500, j: null, text: '' }), 'HTTP 500, error code none, message none');
+  assert.ok(describeFailure({ status: 400, j: { error: { code: 'x', message: 'a'.repeat(900) } } }).length < 470);
+});
+
+test('every failed write of setup reports status, code and message (counterparty, contract, alert log row), a failed GET too, and the obligations report ALL failures counted, not only the first', async () => {
+  const mk = (pred) => fakeEnv({ failPost: (p) => pred(p) });
+  for (const [pred, re] of [[(p) => p === 'mwf_counterparties', /counterparty create failed: HTTP 500, error code none, message boom/], [(p) => p.startsWith('mwf_contracts'), /contract create failed: HTTP 500, error code none, message boom/], [(p) => p === 'mwf_alertlogs', /pre-inserted alert log row failed: HTTP 500, error code none, message boom/]]) {
+    await assert.rejects(() => mk(pred).session(approved).setup(), (e) => re.test(e.message));
+  }
+  await assert.rejects(() => mk((p) => p.startsWith('mwf_obligations')).session(approved).setup(), (e) => /13 of 13 obligation create\(s\) failed, 0 were created\. First failure: obligation .* create failed: HTTP 500/.test(e.message));
+  const env = fakeEnv(); const orig = env.call; env.call = (m, pth, ...r) => (m === 'GET' && pth.startsWith('transactioncurrencies') ? { ok: false, status: 403, j: { error: { code: '0x80040220', message: 'no privilege' } }, text: '' } : orig(m, pth, ...r));
+  await assert.rejects(() => env.session(approved).setup(), (e) => /GET transactioncurrencies.* failed: HTTP 403, error code 0x80040220, message no privilege/.test(e.message));
 });

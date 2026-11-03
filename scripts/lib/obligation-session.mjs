@@ -230,6 +230,14 @@ export function verdict({ seeds, rows, strayRows = [], runs, flow, contract, key
 
 // ---------------------------------------------------------------------------------------------------------------- the session (I/O through the injected environment)
 export class Stop extends Error {}
+const GUID_ANY = /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g;
+/** A text with every GUID, URL and Dataverse host masked. The host of the environment is never printed. */
+export const maskText = (x) => String(x ?? '').replace(/https?:\/\/[^\s"')]+/g, '<url>').replace(/[A-Za-z0-9-]+\.crm\d*\.dynamics\.com/g, '<host>').replace(GUID_ANY, '<id>');
+/** What a failed request says: the HTTP status, the error code and the message of the body (masked, cut at 400 characters). */
+export function describeFailure(r) {
+  const code = r?.j?.error?.code; const message = r?.j?.error?.message ?? (typeof r?.text === 'string' && r.text ? r.text : '');
+  return `HTTP ${r?.status}, error code ${code ?? 'none'}, message ${maskText(message).slice(0, 400) || 'none'}`;
+}
 const WRITE_TABLES = /^(mwf_contracts|mwf_counterparties|mwf_obligations|mwf_alertlogs)(\(|\?|$)/;
 const q = encodeURIComponent;
 
@@ -243,7 +251,7 @@ export function createSession(d) {
   const results = []; let failed = 0;
   const outLine = (id, status, name, detail = '') => { if (status === 'FAIL') failed++; results.push({ id, status }); log(`${status.padEnd(4)}  ${String(id).padEnd(14)} ${name}${detail ? `  [${detail}]` : ''}`); };
   const check = (id, name, ok, detail) => outLine(id, ok ? 'PASS' : 'FAIL', name, detail);
-  const get = async (path) => { const r = await d.call('GET', path); if (!r.ok) throw new Stop(`GET ${path.slice(0, 80)} failed HTTP ${r.status}`); return r.j; };
+  const get = async (path) => { const r = await d.call('GET', path); if (!r.ok) throw new Stop(`GET ${maskText(path).slice(0, 80)} failed: ${describeFailure(r)}`); return r.j; };
   const nowIso = () => isoSec(d.now());
   async function write(method, path, body, headers) {
     if (!WRITE_TABLES.test(path)) throw new Stop(`refused: this session writes only contracts, counterparties, obligations and alert log rows (asked for ${method} ${path.slice(0, 40)}); never the table of flows`);
@@ -305,20 +313,23 @@ export function createSession(d) {
     log(`INFO  counter row to be consumed: contract type ${CONTRACT_TYPE}, prefix ${ctr.prefix}, last number ${ctr.last}; one number will be used (restored at cleanup with --counters-approved)`);
     const cpOpt = (await get("EntityDefinitions(LogicalName='mwf_counterparty')/Attributes(LogicalName='mwf_counterpartytype')/Microsoft.Dynamics.CRM.PicklistAttributeMetadata?$select=LogicalName&$expand=OptionSet($select=Options)")).OptionSet.Options[0].Value;
     const cp = await write('POST', 'mwf_counterparties', { mwf_name: `${FAMILY}-COUNTERPARTY (delete me)`, mwf_counterpartytype: cpOpt });
-    if (!cp.ok) throw new Stop(`counterparty create failed HTTP ${cp.status}`);
+    if (!cp.ok) throw new Stop(`counterparty create failed: ${describeFailure(cp)}. Nothing else was written by this setup; run cleanup if a row exists.`);
     const con = await write('POST', 'mwf_contracts?$select=mwf_contractid', { mwf_name: `${FAMILY}-CONTRACT`, mwf_contracttype: CONTRACT_TYPE, mwf_direction: 867640001, mwf_value: 5000, 'mwf_counterpartyid@odata.bind': `/mwf_counterparties(${cp.id})`, 'transactioncurrencyid@odata.bind': `/transactioncurrencies(${usd[0].transactioncurrencyid})` }, { Prefer: 'return=representation' });
-    if (!con.ok) throw new Stop(`contract create failed HTTP ${con.status}. If a number was consumed, restore it with cleanup --counters-approved --counters-before=${ctr.prefix}:${ctr.last} --counters-consumed=${ctr.prefix}:1.`);
+    if (!con.ok) throw new Stop(`contract create failed: ${describeFailure(con)}. If a number was consumed, restore it with cleanup --counters-approved --counters-before=${ctr.prefix}:${ctr.last} --counters-consumed=${ctr.prefix}:1.`);
     const contractId = con.j?.mwf_contractid || con.id;
     const baseMs = d.now(); const seeds = seedPlan(baseMs);
     log(`INFO  BASE ${clock(baseMs)} (UTC): due dates are relative to this moment; setup started`);
-    const made = await Promise.all(seeds.map(async (s) => {
-      const r = await write('POST', 'mwf_obligations?$select=mwf_obligationid', { mwf_name: s.name, mwf_party: PARTY['First Party'], mwf_duedate: s.dueIso, mwf_status: s.statusValue, 'mwf_contract@odata.bind': `/mwf_contracts(${contractId})` }, { Prefer: 'return=representation' });
-      if (!r.ok) throw new Stop(`obligation ${s.name} create failed HTTP ${r.status}. Run cleanup.`);
+    const settled = await Promise.allSettled(seeds.map(async (s) => {
+      const r = await write('POST', 'mwf_obligations?$select=mwf_obligationid', { mwf_name: s.name, mwf_party: PARTY['First Party'], mwf_duedate: s.dueIso, mwf_status: s.statusValue, 'mwf_Contract@odata.bind': `/mwf_contracts(${contractId})` }, { Prefer: 'return=representation' });
+      if (!r.ok) throw new Stop(`obligation ${s.name} create failed: ${describeFailure(r)}`);
       return { ...s, id: r.j?.mwf_obligationid || r.id };
     }));
+    const bad = settled.filter((x) => x.status === 'rejected');
+    if (bad.length) throw new Stop(`${bad.length} of ${seeds.length} obligation create(s) failed, ${seeds.length - bad.length} were created. First failure: ${bad[0].reason?.message ?? bad[0].reason}. Run cleanup (nothing is cleaned up by guess).`);
+    const made = settled.map((x) => x.value);
     const pre = made.find((s) => s.caseId === 'preinserted'); const preKey = keyFor(pre.id, TYPE_OVERDUE, pre.dueIso);
     const ins = await write('POST', 'mwf_alertlogs', { mwf_name: preKey, mwf_alertkey: preKey });
-    if (!ins.ok) throw new Stop(`the pre-inserted alert log row failed HTTP ${ins.status}. Run cleanup.`);
+    if (!ins.ok) throw new Stop(`the pre-inserted alert log row failed: ${describeFailure(ins)}. Run cleanup.`);
     if (!flags.dry) {
       const back = await obligationsRead(); const byName = Object.fromEntries(back.map((o) => [o.mwf_name, o]));
       const wrong = seeds.filter((s) => !byName[s.name] || byName[s.name].mwf_status !== s.statusValue || Date.parse(byName[s.name].mwf_duedate) !== s.dueMs);

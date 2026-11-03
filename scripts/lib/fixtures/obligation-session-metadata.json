@@ -1,0 +1,278 @@
+{
+ "_note": "Read from the environment's OWN metadata (Web API EntityDefinitions) on 2026-11-03/04, after a setup of the obligation alerts session failed with HTTP 400. Schema names, navigation properties, Choice values and required levels only: no host, no id, no data. The unit tests of the session check every written column and every @odata.bind name against this file, not against the mock's own assumptions.",
+ "tables": {
+  "mwf_counterparty": {
+   "entitySet": "mwf_counterparties",
+   "schemaName": "mwf_Counterparty",
+   "primaryId": "mwf_counterpartyid",
+   "primaryName": "mwf_name",
+   "ownership": "OrganizationOwned",
+   "columns": {
+    "mwf_commercialregistration": {
+     "type": "String",
+     "required": "None"
+    },
+    "mwf_contactname": {
+     "type": "String",
+     "required": "None"
+    },
+    "mwf_counterpartyid": {
+     "type": "Uniqueidentifier",
+     "required": "SystemRequired"
+    },
+    "mwf_counterpartytype": {
+     "type": "Picklist",
+     "required": "ApplicationRequired"
+    },
+    "mwf_email": {
+     "type": "String",
+     "required": "None"
+    },
+    "mwf_name": {
+     "type": "String",
+     "required": "ApplicationRequired"
+    }
+   }
+  },
+  "mwf_contract": {
+   "entitySet": "mwf_contracts",
+   "schemaName": "mwf_Contract",
+   "primaryId": "mwf_contractid",
+   "primaryName": "mwf_name",
+   "ownership": "UserOwned",
+   "columns": {
+    "mwf_approvalround": {
+     "type": "Integer",
+     "required": "None"
+    },
+    "mwf_contractid": {
+     "type": "Uniqueidentifier",
+     "required": "SystemRequired"
+    },
+    "mwf_contractnumber": {
+     "type": "String",
+     "required": "None"
+    },
+    "mwf_contracttype": {
+     "type": "Picklist",
+     "required": "ApplicationRequired"
+    },
+    "mwf_counterpartyid": {
+     "type": "Lookup",
+     "required": "ApplicationRequired"
+    },
+    "mwf_direction": {
+     "type": "Picklist",
+     "required": "ApplicationRequired"
+    },
+    "mwf_effectivedate": {
+     "type": "DateTime",
+     "required": "Recommended"
+    },
+    "mwf_expirydate": {
+     "type": "DateTime",
+     "required": "Recommended"
+    },
+    "mwf_name": {
+     "type": "String",
+     "required": "ApplicationRequired"
+    },
+    "mwf_signeddate": {
+     "type": "DateTime",
+     "required": "None"
+    },
+    "mwf_value": {
+     "type": "Money",
+     "required": "ApplicationRequired"
+    },
+    "mwf_valueusdfrozen": {
+     "type": "Decimal",
+     "required": "None"
+    },
+    "ownerid": {
+     "type": "Owner",
+     "required": "SystemRequired"
+    },
+    "owneridtype": {
+     "type": "EntityName",
+     "required": "SystemRequired"
+    },
+    "transactioncurrencyid": {
+     "type": "Lookup",
+     "required": "None"
+    }
+   }
+  },
+  "mwf_obligation": {
+   "entitySet": "mwf_obligations",
+   "schemaName": "mwf_Obligation",
+   "primaryId": "mwf_obligationid",
+   "primaryName": "mwf_name",
+   "ownership": "UserOwned",
+   "columns": {
+    "mwf_contract": {
+     "type": "Lookup",
+     "required": "ApplicationRequired"
+    },
+    "mwf_duedate": {
+     "type": "DateTime",
+     "required": "ApplicationRequired"
+    },
+    "mwf_name": {
+     "type": "String",
+     "required": "None"
+    },
+    "mwf_obligationid": {
+     "type": "Uniqueidentifier",
+     "required": "SystemRequired"
+    },
+    "mwf_party": {
+     "type": "Picklist",
+     "required": "ApplicationRequired"
+    },
+    "mwf_status": {
+     "type": "Picklist",
+     "required": "ApplicationRequired"
+    },
+    "ownerid": {
+     "type": "Owner",
+     "required": "SystemRequired"
+    },
+    "owneridtype": {
+     "type": "EntityName",
+     "required": "SystemRequired"
+    }
+   }
+  },
+  "mwf_alertlog": {
+   "entitySet": "mwf_alertlogs",
+   "schemaName": "mwf_AlertLog",
+   "primaryId": "mwf_alertlogid",
+   "primaryName": "mwf_name",
+   "ownership": "OrganizationOwned",
+   "columns": {
+    "mwf_alertkey": {
+     "type": "String",
+     "required": "ApplicationRequired"
+    },
+    "mwf_alertlogid": {
+     "type": "Uniqueidentifier",
+     "required": "SystemRequired"
+    },
+    "mwf_name": {
+     "type": "String",
+     "required": "None"
+    }
+   }
+  }
+ },
+ "lookups": {
+  "mwf_obligation": {
+   "mwf_contract": {
+    "relationship": "mwf_contract_obligation",
+    "referencingAttribute": "mwf_contract",
+    "navigationProperty": "mwf_Contract",
+    "referencedEntity": "mwf_contract"
+   }
+  },
+  "mwf_contract": {
+   "mwf_counterpartyid": {
+    "relationship": "mwf_counterparty_mwf_contract",
+    "referencingAttribute": "mwf_counterpartyid",
+    "navigationProperty": "mwf_counterpartyid",
+    "referencedEntity": "mwf_counterparty"
+   },
+   "transactioncurrencyid": {
+    "relationship": "TransactionCurrency_mwf_Contract",
+    "referencingAttribute": "transactioncurrencyid",
+    "navigationProperty": "transactioncurrencyid",
+    "referencedEntity": "transactioncurrency"
+   }
+  },
+  "mwf_approvalstep": {
+   "mwf_contract": {
+    "relationship": "mwf_contract_approvalstep",
+    "referencingAttribute": "mwf_contract",
+    "navigationProperty": "mwf_Contract",
+    "referencedEntity": "mwf_contract"
+   }
+  }
+ },
+ "choices": {
+  "mwf_counterparty.mwf_counterpartytype": {
+   "schemaName": "mwf_counterpartytype",
+   "required": "ApplicationRequired",
+   "isGlobal": false,
+   "options": {
+    "Supplier": 867640000,
+    "Customer": 867640001,
+    "Contractor": 867640002,
+    "Partner": 867640003,
+    "Other": 867640004
+   }
+  },
+  "mwf_contract.mwf_contracttype": {
+   "schemaName": "mwf_contracttype",
+   "required": "ApplicationRequired",
+   "isGlobal": false,
+   "options": {
+    "Maintenance": 867640000,
+    "Procurement": 867640001,
+    "Insurance": 867640002,
+    "Sales": 867640003,
+    "Services": 867640004
+   }
+  },
+  "mwf_contract.mwf_direction": {
+   "schemaName": "mwf_direction",
+   "required": "ApplicationRequired",
+   "isGlobal": false,
+   "options": {
+    "Income": 867640000,
+    "Expense": 867640001
+   }
+  },
+  "mwf_obligation.mwf_party": {
+   "schemaName": "mwf_Party",
+   "required": "ApplicationRequired",
+   "isGlobal": false,
+   "options": {
+    "First Party": 867640000,
+    "Second Party": 867640001
+   }
+  },
+  "mwf_obligation.mwf_status": {
+   "schemaName": "mwf_Status",
+   "required": "ApplicationRequired",
+   "isGlobal": false,
+   "options": {
+    "Open": 867640000,
+    "Done": 867640001,
+    "Disputed": 867640002
+   }
+  }
+ },
+ "dateTime": {
+  "mwf_obligation.mwf_duedate": {
+   "schema": "mwf_DueDate",
+   "req": "ApplicationRequired",
+   "format": "DateAndTime",
+   "behavior": "UserLocal"
+  }
+ },
+ "string": {
+  "mwf_alertlog.mwf_alertkey": {
+   "schema": "mwf_AlertKey",
+   "req": "ApplicationRequired",
+   "max": 100,
+   "format": "Text"
+  }
+ },
+ "money": {
+  "mwf_contract.mwf_value": {
+   "schema": "mwf_value",
+   "type": "Money",
+   "req": "ApplicationRequired"
+  }
+ }
+}
