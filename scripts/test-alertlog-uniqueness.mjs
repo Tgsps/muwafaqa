@@ -59,7 +59,13 @@ if (!has('--confirm-mutates-environment')) {
     const r = await runUniquenessTest({ call, stable: () => requireStableConnection(S.call), n: N, log: (l) => console.log(noGuid(l)) });
     if (r.refused) { console.error(`\n${noGuid(r.refused)}`); process.exit(3); }
     const m = r.measured;
-    console.log(`\nMEASURED: duplicate-key rejection HTTP ${m.duplicateStatus}, code ${m.duplicateCode || 'none'} (record both in ADR-011).`);
+    console.log(`\nMEASURED: first insert HTTP ${m.firstInsertStatus}.`);
+    console.log(`MEASURED: duplicate-key rejection HTTP ${m.duplicateStatus}, code ${m.duplicateCode || 'none'} (record both in ADR-011).`);
+    console.log(`RAW duplicate message: ${noGuid(m.duplicateMessage || '')}`);
+    console.log(`RAW duplicate body: ${noGuid(m.duplicateBody || '')}`);
+    for (const [label, list] of [['empty', m.empty], ['null', m.nullKey]]) list.forEach((x, i) => console.log(`RAW ${label} key insert ${i + 1}: HTTP ${x.status}, ok ${x.ok}, row created ${x.created}, code ${x.code || 'none'}, body ${noGuid(x.body || '')}`));
+    m.concurrent.forEach((x, i) => console.log(`RAW concurrent ${i + 1} of ${m.concurrent.length}: HTTP ${x.status}, ok ${x.ok}, code ${x.code || 'none'}${x.ok ? '' : `, body ${noGuid(x.body || '')}`}`));
+    console.log(`CREATED ROWS (ids masked in this log): ${m.createdRows.map((x) => x.name).join(', ') || 'none'}`);
     console.log(`MEASURED: empty key ${m.empty.map((x) => (x.ok ? `accepted ${x.status}` : `rejected ${x.status}/${x.code || 'none'}`)).join(', ')}; null key ${m.nullKey.map((x) => (x.ok ? `accepted ${x.status}` : `rejected ${x.status}/${x.code || 'none'}`)).join(', ')}.`);
     console.log(`MEASURED: concurrent ${m.concurrent.map((x) => (x.ok ? `ok ${x.status}` : `${x.status}/${x.code || 'none'}`)).join(' ')}.`);
     console.log(`MEASURED: audit records of the test rows ${m.audit ? (m.audit.rows === null ? `not readable (${m.audit.error})` : `${m.audit.rows} ${JSON.stringify(m.audit.byOperation)}`) : 'not looked at'} (observation only).`);

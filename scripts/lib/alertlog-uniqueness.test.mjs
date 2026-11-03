@@ -59,7 +59,7 @@ function fake(opts = {}) {
       const ids = decodeURIComponent(/\$filter=([^&]*)/.exec(path)[1]).split(' or ').map((x) => x.replace('_objectid_value eq ', ''));
       return ok({ value: (o.auditRows ? o.auditRows(ids) : []).map((r, i) => ({ auditid: `a${i}`, ...r })) });
     }
-    if (method === 'GET' && path.startsWith('mwf_alertlogs?')) return ok({ value: filterRows(path).map(([id, r]) => ({ mwf_alertlogid: id, mwf_alertkey: r.mwf_alertkey })) });
+    if (method === 'GET' && path.startsWith('mwf_alertlogs?')) return ok({ value: filterRows(path).map(([id, r]) => ({ mwf_alertlogid: id, mwf_alertkey: r.mwf_alertkey, mwf_name: r.mwf_name })) });
     if (method === 'DELETE') { if (o.failDelete) return err(500, '0x80040E00'); const id = /\(([^)]*)\)/.exec(path)[1]; return rows.delete(id) ? ok(null, 204) : err(404, '0x80040217'); }
     throw new Error(`unexpected call ${method} ${path}`);
   };
@@ -164,10 +164,26 @@ test('cleanup runs when the connection gate throws before the first write', asyn
   assert.equal(by(r, 'stop').status, 'FAIL'); assert.equal(f.posts(), 0); assert.equal(by(r, '5').status, 'PASS');
 });
 
-test('a row whose answer was lost (no id) is still found and deleted by the prefix sweep', async () => {
+test('cleanup deletes ONLY ids this run saw in a creation answer: a row whose answer was lost (no id) is NOT deleted by guess, it is reported with its name and step 5 FAILS', async () => {
   const f = fake({ lostAnswer: 1 }); const r = await go(f);
-  assert.equal(f.rows.size, 0); assert.equal(r.cleanup.leftover, 0);
-  assert.ok(r.cleanup.deleted >= 1);
+  assert.equal(f.rows.size, 1); assert.equal(r.cleanup.leftover, 1);
+  assert.equal(r.cleanup.leftoverRows.length, 1); assert.match(r.cleanup.leftoverRows[0].name, /^TEST-TMP-ALERT-/);
+  assert.equal(by(r, '5').status, 'FAIL'); assert.match(by(r, '5').detail, /names: TEST-TMP-ALERT-/);
+  const deletes = f.log.filter((c) => c.method === 'DELETE'); assert.equal(deletes.length, r.cleanup.deleted);
+  assert.ok(!deletes.some((c) => c.path.includes(r.cleanup.leftoverRows[0].id)), 'the lost-answer row was not deleted');
+});
+
+test('cleanup never deletes a row the run did not create, even with the TEST-TMP-ALERT prefix, and refuses to start when such a row exists', async () => {
+  const f = fake({ preexisting: ['TEST-TMP-ALERT-OLD-RENEWAL-T90-20270101'] }); const r = await go(f);
+  assert.match(r.refused, /exist before the run/); assert.equal(f.rows.size, 1); assert.equal(f.log.filter((c) => c.method === 'DELETE').length, 0);
+});
+
+test('the raw answers are kept: the message and the body of the duplicate rejection, and for empty, null and concurrent inserts the status, the code, the body and whether a row was created', async () => {
+  const f = fake(); const r = await go(f);
+  assert.match(r.measured.duplicateMessage, /already exists/); assert.match(r.measured.duplicateBody, /0x80060892/); assert.equal(r.measured.firstInsertStatus, 204);
+  assert.equal(r.measured.empty[0].created, true); assert.equal(r.measured.empty[0].ok, true); assert.equal(r.measured.empty[1].created, false); assert.match(r.measured.empty[1].body, /0x80060892/);
+  assert.ok(r.measured.concurrent.filter((x) => !x.ok).every((x) => x.body.includes('0x80060892') && x.message.length > 0));
+  assert.equal(r.measured.createdRows.length >= 3, true); assert.ok(r.measured.createdRows.every((x) => x.name.startsWith('TEST-TMP-ALERT-')));
 });
 
 test('a delete that fails is reported: leftover above 0 and step 5 FAILS', async () => {
