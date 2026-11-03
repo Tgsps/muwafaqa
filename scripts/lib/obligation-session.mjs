@@ -1,7 +1,8 @@
 /**
  * The test session of the flow "Muwafaqa - Obligation Alerts" (test variant): pure parts (the cases, the seeds with their due dates and margins, the plan, the
- * verdict) and the modes that read and write through an injected `call` (baseline, setup, await, verdict, cleanup). Written for review: NO WINDOW HAS BEEN RUN, the flow
- * does not exist, and every mode other than `plan` is covered only by unit tests against a mocked environment. scripts/test-flow-obligation-alerts.mjs is the command line.
+ * verdict) and the modes that read and write through an injected `call` (baseline, setup, await, verdict, cleanup). NO WINDOW HAS BEEN RUN. The flow
+ * exists (created OFF on 2026-11-03, never turned on). `plan` (offline) and `baseline` (read only, 2026-11-04, passed) have been run against the environment; setup, await, verdict and cleanup are covered only
+ * by unit tests against a mocked environment. scripts/test-flow-obligation-alerts.mjs is the command line.
  *
  * What the script MEASURES itself: alert log rows (key, creation time), obligation and contract state, flow rows (ON / OFF and when it changed), flow run records
  * (start, end, status), the key index status, counters. What only the OWNER can read, by eye: the mailbox (number, recipient, text) and the run history in the designer (the
@@ -96,7 +97,7 @@ export const keyFor = (obligationId, type, dueIso) => buildAlertKey({ sourceId: 
 // ---------------------------------------------------------------------------------------------------------------- the plan (offline)
 export function planLines() {
   const L = [];
-  L.push(`PLAN (offline, no sign-in, no network). Flow: ${FLOW_NAME} (test variant: lead ${PARAMS.leadMinutes} min, lookback ${PARAMS.lookbackMinutes} min, interval ${PARAMS.intervalMinutes} min). THE FLOW DOES NOT EXIST YET: this session cannot be run until it is built and the owner approves a window.`);
+  L.push(`PLAN (offline, no sign-in, no network). Flow: ${FLOW_NAME} (test variant: lead ${PARAMS.leadMinutes} min, lookback ${PARAMS.lookbackMinutes} min, interval ${PARAMS.intervalMinutes} min). THE FLOW EXISTS AND IS OFF (created 2026-11-03 and verified identical to the generated definition; it has never been turned on). A window still needs the owner's explicit approval, and setup and cleanup also need --counters-approved.`);
   L.push(`WINDOW  one window, the flow ON for about ${ON_MINUTES} minutes. Every row has a name starting ${FAMILY}-. The script never turns a flow on or off. The owner turns it ON no later than ${ARM_LIMIT_MS / MIN} minutes after setup prints READY, and OFF when the await step says so.`);
   L.push('SEEDS  (BASE = the moment the seeds are written; every due date is relative to the real clock, seconds precision)');
   for (const id of CASE_ORDER) {
@@ -112,7 +113,7 @@ export function planLines() {
   L.push('COUNTERS  setup creates ONE Draft contract (no approval): it consumes ONE number of the contract-number counter row of contract type ' + CONTRACT_TYPE + ' (the prefix is read from the environment at setup and printed; the reminders sessions consumed type 867640000 and restored it). setup prints --counters-before=<prefix>:<n> --counters-consumed=<prefix>:1. cleanup restores the counter with the same guards as the 29 October restore: only if the counter now equals the snapshot plus the numbers this session consumed, and never below a number that still exists on a contract; otherwise it refuses and says so. NO mode touches the counters without --counters-approved (your explicit approval for the window); without it setup and cleanup refuse before writing anything.');
   L.push('THE SCRIPT MEASURES  alert log rows (keys, creation times, counts per key), obligation and contract state (status, owner, modifiedon), the flow row (ON / OFF, when it changed), flow run records (start, end, status; claims are attributed to runs by containment, ambiguous and unattributed claims are reported), the key index status, counters.');
   L.push('ONLY THE OWNER CAN READ  the mailbox (how many emails, to whom, subject and body: the script never reads it in any way) and the run history in the designer (the real output of the failed insert of case 13, the Compose_claim_failure output, whether the connector retried, whether a handled failure marked the run Failed).');
-  L.push('MODES  plan (offline) | baseline (read only) | setup | await (read only) | verdict (read only) | cleanup. Only plan may run now.');
+  L.push('MODES  plan (offline, no network) | baseline (read only) | setup (WRITES) | await (read only) | verdict (read only) | cleanup (WRITES). plan and baseline have been run; setup and cleanup need the owner\'s explicit approval; no window has been run.');
   return L;
 }
 
@@ -257,7 +258,7 @@ export function createSession(d) {
   });
 
   const flowRows = async () => (await get(`workflows?$select=name,statecode,workflowid,modifiedon&$filter=${q('category eq 5')}&$top=200`)).value;
-  async function alertsFlow() { const rows = (await flowRows()).filter((r) => r.name === FLOW_NAME); if (rows.length !== 1) throw new Stop(`Expected exactly one flow row named "${FLOW_NAME}", found ${rows.length} (the flow is not built yet if 0).`); return rows[0]; }
+  async function alertsFlow() { const rows = (await flowRows()).filter((r) => r.name === FLOW_NAME); if (rows.length !== 1) throw new Stop(`Expected exactly one flow row named "${FLOW_NAME}", found ${rows.length} (0 means the flow was never created or was deleted).`); return rows[0]; }
   const count = async (set, id, filter) => (await get(`${set}?$select=${id}&$count=true&$top=1${filter ? `&$filter=${q(filter)}` : ''}`))['@odata.count'];
   const obligationsRead = async () => (await get(`mwf_obligations?$select=mwf_obligationid,mwf_name,mwf_status,mwf_duedate,createdon,modifiedon,_mwf_contract_value&$filter=${q(`startswith(mwf_name,'${FAMILY}-')`)}&$top=100`)).value;
   async function waitForOff(maxSeconds, every = 10) {

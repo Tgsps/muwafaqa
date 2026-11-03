@@ -17,9 +17,9 @@ test('the modes, and which of them write: only setup and cleanup (await and verd
   assert.deepEqual([...WRITES], ['setup', 'cleanup']);
 });
 
-test('plan runs offline (exit 0, no --env, no sign-in) and prints the cases, the margins and the counters it would consume; it says the flow does not exist', () => {
+test('plan runs offline (exit 0, no --env, no sign-in) and prints the cases, the margins and the counters it would consume; it says the flow exists and is Off, and that no window has been run', () => {
   const r = run('--mode=plan'); assert.equal(r.status, 0, r.stderr);
-  for (const n of ['PLAN (offline', 'THE FLOW DOES NOT EXIST YET', 'MARGINS', 'consumes ONE number', 'preinserted', 'ONLY THE OWNER CAN READ', 'Only plan may run now']) assert.ok(r.stdout.includes(n), n);
+  for (const n of ['PLAN (offline', 'THE FLOW EXISTS AND IS OFF', 'never been turned on', 'MARGINS', 'consumes ONE number', 'preinserted', 'ONLY THE OWNER CAN READ', 'plan and baseline have been run', 'no window has been run', 'setup (WRITES)', 'cleanup (WRITES)']) assert.ok(r.stdout.includes(n), n);
   assert.equal(r.stderr, '');
 });
 
@@ -60,4 +60,18 @@ test('the source: the session never turns a flow on or off, never reads a mailbo
   assert.match(SOURCE, /NO WINDOW HAS BEEN RUN/); assert.match(SOURCE, /THE OWNER ALONE TURNS FLOWS ON AND OFF/); assert.match(SOURCE, /never reads a mailbox/);
   assert.match(CODE, /argOf\('auth'\)|auth: argOf\('auth'\)/);
   assert.doesNotMatch(SOURCE, /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.[A-Za-z]{2,}/);   // no address literal
+});
+
+test('no text about the obligation alerts flow still says that it does not exist, was not built, or that create and verify were never run (it was created OFF on 2026-11-03)', () => {
+  const files = ['scripts/build-flow-obligation-alerts.mjs', 'scripts/lib/obligation-session.mjs', 'scripts/test-flow-obligation-alerts.mjs', 'scripts/lib/obligation-flow-deploy.mjs', 'scripts/README.md',
+    'docs/flow-obligation-alerts.md', 'docs/decisions/ADR-011-obligations-and-renewal-alerts.md', 'README.md'];
+  const stale = /DOES NOT EXIST YET|no flow exists|No flow exists|Only plan may run|only one that may run now|may run now|NEVER RUN|never been run|HAVE NOT BEEN RUN AGAINST|NOT RUN, the flow|written, not run|never run against an environment|before any build\.\*\*/;
+  for (const f of files) {
+    const text = fs.readFileSync(fileURLToPath(new URL('../' + f, import.meta.url)), 'utf8');
+    // the shared README files also describe other flows: only the lines about the alerts flow (ADR-011) are judged here
+    const mine = f.endsWith('README.md') ? /obligation|ADR-011|alerts flow/i : /./;
+    const hit = text.split('\n').map((l, i) => [i + 1, l]).filter(([, l]) => mine.test(l) && stale.test(l)).map(([i]) => i);
+    assert.deepEqual(hit, [], f + ' lines ' + hit.join(','));
+  }
+  const plan = run('--mode=plan').stdout; assert.doesNotMatch(plan, stale); assert.match(plan, /THE FLOW EXISTS AND IS OFF/);
 });

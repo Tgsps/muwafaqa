@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * Test session of the flow "Muwafaqa - Obligation Alerts" (test variant), ONE window (docs/flow-obligation-alerts.md, section 15).
- * WRITTEN FOR REVIEW. NO WINDOW HAS BEEN RUN, THE FLOW DOES NOT EXIST, AND ONLY `--mode=plan` MAY RUN NOW (offline, no network call).
+ * NO WINDOW HAS BEEN RUN. THE FLOW EXISTS AND IS OFF (created 2026-11-03, never turned on). `--mode=plan` is offline (no network call); `--mode=baseline` is read only (run on 2026-11-04, passed);
+ * `setup` and `cleanup` WRITE and need the owner's explicit approval for a window; `await` and `verdict` are read only.
  * The logic is in scripts/lib/obligation-session.mjs; every other mode is covered by unit tests against a mocked environment only.
  *
  * THE OWNER ALONE TURNS FLOWS ON AND OFF. This script never turns a flow on or off, never saves or publishes a flow, never writes to the table of flows, and never reads a mailbox.
@@ -19,7 +20,7 @@
  *                                  Deletes the alert log rows whose key starts with the id of an obligation this session created, the contract (the obligations go by the cascade) and the counterparty,
  *                                  restores the counter by the rule of lib/counter-snapshot.mjs, checks that nothing is left
  *
- * Usage (never run so far):
+ * Usage (plan and baseline have been run; setup, await, verdict and cleanup have not):
  *   node scripts/test-flow-obligation-alerts.mjs --mode=plan
  *   node scripts/test-flow-obligation-alerts.mjs --mode=baseline --env=https://<org>.crm4.dynamics.com --auth=az
  *   node scripts/test-flow-obligation-alerts.mjs --mode=setup --env=... --auth=az --confirm-mutates-environment --counters-approved

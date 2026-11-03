@@ -1,4 +1,4 @@
-// Tests of the session of the obligation alerts flow against a MOCKED, stateful environment. Nothing here talks to an environment, and the flow does not exist.
+// Tests of the session of the obligation alerts flow against a MOCKED, stateful environment. Nothing here talks to an environment (the flow exists and is Off, but no window has been run).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -65,7 +65,7 @@ test('the key of a seed is the key alert-key.mjs builds (also the pre-inserted o
 test('the plan: offline, lists every case with expectation and observer, both controls, the margins, the counters it will consume and how they are restored, and what only the owner can read', () => {
   const t = planLines().join('\n');
   for (const id of CASE_ORDER) assert.ok(t.includes(id), id);
-  for (const n of ['POSITIVE', 'positive controls', 'INCONCLUSIVE', 'MARGINS', 'LATE ON', 'EXPECTED ALERTS', 'COUNTERS', `contract type ${CONTRACT_TYPE}`, 'consumes ONE number', '--counters-approved', '29 October restore', 'never below a number that still exists', 'THE SCRIPT MEASURES', 'ONLY THE OWNER CAN READ', 'never reads it in any way', 'THE FLOW DOES NOT EXIST', 'Check_obligation_still_due', 'observed by']) assert.ok(t.includes(n) || t.toLowerCase().includes(n.toLowerCase()), n);
+  for (const n of ['POSITIVE', 'positive controls', 'INCONCLUSIVE', 'MARGINS', 'LATE ON', 'EXPECTED ALERTS', 'COUNTERS', `contract type ${CONTRACT_TYPE}`, 'consumes ONE number', '--counters-approved', '29 October restore', 'never below a number that still exists', 'THE SCRIPT MEASURES', 'ONLY THE OWNER CAN READ', 'never reads it in any way', 'THE FLOW EXISTS AND IS OFF', 'Check_obligation_still_due', 'observed by']) assert.ok(t.includes(n) || t.toLowerCase().includes(n.toLowerCase()), n);
   assert.doesNotMatch(t, /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}|https?:/i);
 });
 

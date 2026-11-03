@@ -113,7 +113,7 @@ test('the dry run prints the flow name, the solution header value, the state req
 });
 
 test('the dry run is OFFLINE: the command line prints it without --env or sign-in, with --solution; --dry-run wins over --confirm-mutates-environment', () => {
-  const r = run('--mode=create', `--solution=${SOL}`); assert.equal(r.status, 0, r.stderr); assert.match(r.stdout, /^DRY RUN: nothing is sent/); assert.match(r.stdout, /Nothing was sent\./); assert.match(r.stdout, /This has never been run\./);
+  const r = run('--mode=create', `--solution=${SOL}`); assert.equal(r.status, 0, r.stderr); assert.match(r.stdout, /^DRY RUN: nothing is sent/); assert.match(r.stdout, /Nothing was sent\./); assert.match(r.stdout, /The flow already exists \(created OFF on 2026-11-03\)/); assert.match(r.stdout, /stop at the guard 'no flow of this name exists'/);
   const both = run('--mode=create', `--solution=${SOL}`, '--confirm-mutates-environment', '--dry-run'); assert.equal(both.status, 0); assert.match(both.stdout, /^DRY RUN/);
 });
 

@@ -13,7 +13,8 @@
  *   --mode=verify  READ ONLY. Needs --env, --auth=az, --solution. Reports the state (must be OFF), the solution membership, the references bound, whether the stored definition equals the generated
  *                  one (every difference listed, none fixed) and the real action count and depth read from the stored definition.
  *
- * THE REAL create AND verify HAVE NOT BEEN RUN AGAINST ANY ENVIRONMENT: they are covered by unit tests against a mocked, stateful environment only (lib/obligation-flow-deploy.mjs).
+ * create WAS RUN ONCE against the environment on 2026-11-03: it created the flow OFF (one POST, HTTP 204), and verify read it back identical to the generated definition (32 actions, depth 5). Both are
+ * also covered by unit tests against a mocked, stateful environment (lib/obligation-flow-deploy.mjs). With the flow in place a second create refuses: a flow of this name exists.
  *
  * Variants (one generator, they differ ONLY in interval, lead time, lookback window and the subject prefix):
  *   test        TEST CONSTANTS, not business values: interval 1 minute, lead time 5 minutes, lookback window 30 minutes, subject prefix "[Muwafaqa test] ".
@@ -39,8 +40,8 @@
  *   node scripts/build-flow-obligation-alerts.mjs --mode=plan
  *   node scripts/build-flow-obligation-alerts.mjs --mode=plan --variant=production --interval-minutes=<n> --lead-minutes=<n> --lookback-minutes=<n>
  *   node scripts/build-flow-obligation-alerts.mjs --mode=create --solution=<unique name>                     (dry run, offline)
- *   node scripts/build-flow-obligation-alerts.mjs --mode=create --solution=<name> --env=https://<org>.crm4.dynamics.com --auth=az --confirm-mutates-environment      (NEVER RUN)
- *   node scripts/build-flow-obligation-alerts.mjs --mode=verify --solution=<name> --env=https://<org>.crm4.dynamics.com --auth=az                                 (NEVER RUN)
+ *   node scripts/build-flow-obligation-alerts.mjs --mode=create --solution=<name> --env=https://<org>.crm4.dynamics.com --auth=az --confirm-mutates-environment      (run once on 2026-11-03; it now refuses: the flow exists)
+ *   node scripts/build-flow-obligation-alerts.mjs --mode=verify --solution=<name> --env=https://<org>.crm4.dynamics.com --auth=az                                 (read only; run on 2026-11-03)
  */
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -452,7 +453,7 @@ export function planLines(variant, refs = {}) {
   L.push(`CHECKS      ${checks.length - failed} of ${checks.length} structural checks pass${failed ? ` (${failed} FAILED: run --mode=check)` : ''}`);
   L.push('NUMBERED ACTIONS (as the spec, section 4, lists them)');
   actionOutline(cd).forEach((a, i) => L.push(`  ${String(i + 1).padStart(2)}. ${'  '.repeat(a.depth)}${a.name}  [${a.operation || a.type}]`));
-  L.push('NOT IN THIS GENERATOR  create, verify, replace: no environment access of any kind. The flow does not exist.');
+  L.push('NOT IN THIS GENERATOR  a replace mode: an existing flow is never changed by this script. check and plan make no network call; create and verify need --env, --auth=az and --solution. The flow exists (created OFF on 2026-11-03, verified identical to the generated definition).');
   return L;
 }
 
@@ -488,7 +489,7 @@ async function main() {
     if (why.length) { console.error(`REFUSED (exit 2). ${why.join('; ')}. Nothing was run.`); process.exit(2); }
     if (MODE === 'create' && (!has('--confirm-mutates-environment') || has('--dry-run'))) {
       console.log(dryRunLines({ solution: SOLUTION, refs, variant: testVariant() }).join('\n'));
-      console.log("\nNothing was sent. To create the row (OFF) add --env=https://<org>.crm4.dynamics.com --auth=az and --confirm-mutates-environment (the owner's Azure CLI sign-in is used). This has never been run.");
+      console.log("\nNothing was sent. To create the row (OFF) add --env=https://<org>.crm4.dynamics.com --auth=az and --confirm-mutates-environment (the owner's Azure CLI sign-in is used). The flow already exists (created OFF on 2026-11-03): a real run would stop at the guard 'no flow of this name exists'.");
       process.exit(0);
     }
     if (argOf('auth') !== 'az') { console.error("REFUSED (exit 2). --auth=az is required (the owner's Azure CLI sign-in is the only accepted sign-in). Nothing was run."); process.exit(2); }
