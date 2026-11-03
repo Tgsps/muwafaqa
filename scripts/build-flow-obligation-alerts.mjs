@@ -1,12 +1,19 @@
 #!/usr/bin/env node
 /**
  * Generator of the scheduled flow "Muwafaqa - Obligation Alerts" (ADR-011, status Proposed; docs/flow-obligation-alerts.md). OFFLINE ONLY.
- * Modeled on scripts/build-flow-reminders.mjs, but it has exactly TWO modes and NO code path that talks to an environment:
+ * Modeled on scripts/build-flow-reminders.mjs. FOUR modes; there is NO replace mode and no code path that changes an existing flow:
  *
- *   --mode=check   offline structural checks of the generated definition; exit code 1 on any failure.
- *   --mode=plan    offline: prints the summary (parameters, window, key expression, guard, the numbered action list, the REAL action count and nesting depth).
+ *   --mode=check   OFFLINE. Structural checks of the generated definition; exit code 1 on any failure.
+ *   --mode=plan    OFFLINE. Prints the summary (parameters, window, key expression, guard, the numbered action list, the REAL action count and nesting depth).
+ *   --mode=create  TEST VARIANT ONLY (production is refused). Needs --solution=<unique name> (no default). Without --confirm-mutates-environment, or with --dry-run, it is an OFFLINE dry run
+ *                  that prints the flow name, the solution header, the state requested (OFF: the body carries no state), the connection references, the real action count and depth and
+ *                  the exact JSON path list of the request, and sends nothing. WITH --confirm-mutates-environment it needs --env and --auth=az (the owner's Azure CLI sign-in only) and
+ *                  does ONE POST (never retried) after the guards of lib/obligation-flow-deploy.mjs; it creates the flow OFF, never turns it on, never publishes, never saves an existing flow, never
+ *                  creates a connection reference, and refuses if a flow of this name exists. Verbs: GET and that one POST; never PUT, PATCH or DELETE.
+ *   --mode=verify  READ ONLY. Needs --env, --auth=az, --solution. Reports the state (must be OFF), the solution membership, the references bound, whether the stored definition equals the generated
+ *                  one (every difference listed, none fixed) and the real action count and depth read from the stored definition.
  *
- * There is no create, verify or replace mode. Nothing can be created in an environment from this file yet; the owner has not approved a build.
+ * THE REAL create AND verify HAVE NOT BEEN RUN AGAINST ANY ENVIRONMENT: they are covered by unit tests against a mocked, stateful environment only (lib/obligation-flow-deploy.mjs).
  *
  * Variants (one generator, they differ ONLY in interval, lead time, lookback window and the subject prefix):
  *   test        TEST CONSTANTS, not business values: interval 1 minute, lead time 5 minutes, lookback window 30 minutes, subject prefix "[Muwafaqa test] ".
@@ -31,6 +38,9 @@
  *   node scripts/build-flow-obligation-alerts.mjs --mode=check
  *   node scripts/build-flow-obligation-alerts.mjs --mode=plan
  *   node scripts/build-flow-obligation-alerts.mjs --mode=plan --variant=production --interval-minutes=<n> --lead-minutes=<n> --lookback-minutes=<n>
+ *   node scripts/build-flow-obligation-alerts.mjs --mode=create --solution=<unique name>                     (dry run, offline)
+ *   node scripts/build-flow-obligation-alerts.mjs --mode=create --solution=<name> --env=https://<org>.crm4.dynamics.com --auth=az --confirm-mutates-environment      (NEVER RUN)
+ *   node scripts/build-flow-obligation-alerts.mjs --mode=verify --solution=<name> --env=https://<org>.crm4.dynamics.com --auth=az                                 (NEVER RUN)
  */
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -42,6 +52,10 @@ import { OBLIGATION_STATUS } from './lib/obligation-schema.mjs';
 import { evalExpr, evalTemplate, evalCondition, parse, FlowEvalError, SUPPORTED_FUNCTIONS } from './lib/flow-expression-eval.mjs';
 
 export const FLOW_NAME = 'Muwafaqa - Obligation Alerts';
+export const SOLUTION_HEADER = 'MSCRM.SolutionUniqueName';
+export const FLOW_DESCRIPTION = 'Scheduled flow of ADR-011: one informational alert for each open obligation that is due soon or overdue (test variant). Created OFF by scripts/build-flow-obligation-alerts.mjs. Only the owner turns it on.';
+/** The body of the ONE POST. It carries NO state: a new cloud flow row is created in the Draft state (OFF), exactly as the reminders flow was. Exactly these keys; a unit test holds them. */
+export const createBody = (clientdataJson) => ({ name: FLOW_NAME, category: 5, type: 1, primaryentity: 'none', description: FLOW_DESCRIPTION, clientdata: clientdataJson });
 export const EMAIL_KEY_STYLE = 'nested';   // as build-flow-reminders.mjs: emailMessage/To, /Subject, /Body (12 messages arrived with it on 2026-10-29)
 const emailKey = (k) => (EMAIL_KEY_STYLE === 'nested' ? `emailMessage/${k}` : k);
 
@@ -452,14 +466,47 @@ function printResults(variant, results) {
 }
 
 const isMain = !!process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;   // false when a unit test imports this file
-if (isMain) {
+// The command line is a function started AFTER this module has been evaluated: the online modes import lib/obligation-flow-deploy.mjs, which imports this module, and a
+// top-level await here would wait for that import while the import waits for this module (a deadlock).
+async function main() {
   const argOf = (n) => (process.argv.find((a) => a.startsWith(`--${n}=`)) || '').slice(n.length + 3);
+  const has = (f) => process.argv.includes(f);
   const MODE = argOf('mode');
-  if (!['check', 'plan'].includes(MODE)) { console.error(`${MODE ? `--mode=${MODE} does not exist in this generator: ` : ''}only --mode=check and --mode=plan exist (offline). There is no create, verify or replace mode: nothing can be created from this file. Nothing was run.`); process.exit(2); }
+  const MODES = ['check', 'plan', 'create', 'verify'];
+  if (!MODES.includes(MODE)) { console.error(`${MODE ? `--mode=${MODE} does not exist in this generator: ` : ''}only --mode=${MODES.join('|')} exist. There is no replace mode. Nothing was run.`); process.exit(2); }
+  const online = MODE === 'create' || MODE === 'verify';
   const which = argOf('variant') || 'test';
   if (!['test', 'production', 'both'].includes(which)) { console.error('Invalid --variant=test|production|both. Nothing was run.'); process.exit(2); }
   const refs = { outlookRef: argOf('outlook-ref') || DEFAULT_OUTLOOK_REF, dataverseRef: argOf('dataverse-ref') || DEFAULT_DATAVERSE_REF };
   try { assertLogicalName(refs.outlookRef); assertLogicalName(refs.dataverseRef); } catch (e) { console.error(`${e.message}. Nothing was run.`); process.exit(2); }
+
+  if (online) {
+    const { createPreflight, dryRunLines, runCreate, runVerify, SOLUTION_NAME } = await import('./lib/obligation-flow-deploy.mjs');
+    const SOLUTION = argOf('solution');
+    const why = MODE === 'create' ? createPreflight({ variant: which, solution: SOLUTION }) : [];
+    if (MODE === 'verify') { if (which !== 'test') why.push('verify compares with the test variant; --variant must be test'); if (!SOLUTION) why.push('--solution=<unique name of the unmanaged solution> is required; there is no default'); else if (!SOLUTION_NAME.test(SOLUTION)) why.push('--solution is not a valid solution unique name'); }
+    if (why.length) { console.error(`REFUSED (exit 2). ${why.join('; ')}. Nothing was run.`); process.exit(2); }
+    if (MODE === 'create' && (!has('--confirm-mutates-environment') || has('--dry-run'))) {
+      console.log(dryRunLines({ solution: SOLUTION, refs, variant: testVariant() }).join('\n'));
+      console.log("\nNothing was sent. To create the row (OFF) add --env=https://<org>.crm4.dynamics.com --auth=az and --confirm-mutates-environment (the owner's Azure CLI sign-in is used). This has never been run.");
+      process.exit(0);
+    }
+    if (argOf('auth') !== 'az') { console.error("REFUSED (exit 2). --auth=az is required (the owner's Azure CLI sign-in is the only accepted sign-in). Nothing was run."); process.exit(2); }
+    const { parseArgs, openSession, noGuid } = await import('./lib/dv-session.mjs');
+    const { requireStableConnection } = await import('./lib/counter-snapshot.mjs');
+    const { expectContractsOrExit } = await import('./lib/expect-contracts.mjs');
+    const { env: ENV } = parseArgs(process.argv);
+    const EXPECT = expectContractsOrExit();
+    try {
+      const S = await openSession({ env: ENV, auth: 'az' });
+      await requireStableConnection(S.call);
+      const common = { call: S.call, solution: SOLUTION, host: new URL(ENV).host, refs, log: (l) => console.log(noGuid(l)) };
+      if (MODE === 'verify') { const r = await runVerify(common); process.exit(r.ok ? 0 : r.stopped ? 4 : 1); }
+      const r = await runCreate({ ...common, expectContracts: EXPECT.value, gate: () => requireStableConnection(S.call, { need: 3, maxAttempts: 6, pauseMs: 1500 }) });
+      process.exit(r.ok ? 0 : r.unknown ? 5 : r.stopped ? 4 : 1);
+    } catch (e) { console.error(`\nSTOPPED: ${noGuid(e.message)}`); process.exit(4); }
+  }
+
   const variants = [];
   try {
     if (which !== 'production') variants.push(testVariant());
@@ -472,3 +519,4 @@ if (isMain) {
   }
   process.exit(bad ? 1 : 0);
 }
+if (isMain) main();

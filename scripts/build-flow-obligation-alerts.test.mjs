@@ -222,11 +222,15 @@ test('the plan prints the parameters, the window, the cost, the key, the guard, 
   assert.doesNotMatch(t, /FAILED/);
 });
 
-test('the script has exactly two modes, check and plan: create, verify and replace are refused (exit 2) and no code of the file reaches an environment', () => {
-  for (const mode of ['create', 'verify', 'replace', 'build', '']) { const r = run(`--mode=${mode}`); assert.equal(r.status, 2, mode); assert.match(r.stderr, /only --mode=check and --mode=plan exist/); assert.match(r.stderr, /Nothing was run/); }
+test('the script has exactly four modes, check, plan, create and verify: replace, build and unknown modes are refused (exit 2); the file itself reaches an environment only through dynamic imports inside main()', () => {
+  for (const mode of ['replace', 'build', 'delete', '']) { const r = run(`--mode=${mode}`); assert.equal(r.status, 2, mode); assert.match(r.stderr, /only --mode=check\|plan\|create\|verify exist/); assert.match(r.stderr, /There is no replace mode/); assert.match(r.stderr, /Nothing was run/); }
   assert.equal(run().status, 2);
-  assert.doesNotMatch(CODE, /openSession|dv-session|fetch\(|execSync|spawn|writeFileSync|process\.env|--confirm-mutates-environment|--env=|'POST'|'PUT'|'PATCH'|'DELETE'/);
-  assert.doesNotMatch(CODE, /mode === 'create'|mode === 'replace'|mode === 'verify'/);
+  // the generator file: no verb other than through lib/obligation-flow-deploy.mjs, no write, no environment variable
+  assert.doesNotMatch(CODE, /fetch\(|execSync|spawn|writeFileSync|process\.env|'POST'|'PUT'|'PATCH'|'DELETE'/);
+  const beforeMain = CODE.slice(0, CODE.indexOf('async function main()'));
+  assert.doesNotMatch(beforeMain, /openSession|dv-session|obligation-flow-deploy|counter-snapshot/, 'nothing that reaches an environment is loaded when the module is imported');
+  assert.match(CODE, /await import\('\.\/lib\/dv-session\.mjs'\)/); assert.match(CODE, /if \(isMain\) main\(\);/);
+  assert.doesNotMatch(CODE, /mode === 'replace'/);
 });
 
 test('command line: check and plan exit 0 for the test variant; production without all three parameters is refused (exit 2) and names the missing ones; with them it passes', () => {
