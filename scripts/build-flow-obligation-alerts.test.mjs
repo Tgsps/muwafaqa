@@ -73,14 +73,14 @@ test('check passes for the test variant and for a production variant, and prints
   for (const variant of [testVariant(), productionVariant(PROD), productionVariant({ intervalMinutes: 1, leadMinutes: 1, lookbackMinutes: 1 })]) {
     const r = checkClientdata(buildClientdata(variant), variant);
     assert.deepEqual(r.results.filter((x) => !x.pass), [], variant.name);
-    assert.ok(r.results.length >= 35);
+    assert.ok(r.results.length >= 43);
   }
 });
 
 test('the REAL numbers are computed from the definition (snapshot: a change must be noticed), and are far from the limits', () => {
   const cd = buildClientdata(testVariant()); const s = statsOf(cd);
   assert.equal(s.actions, walk(cd.properties.definition.actions).length);
-  assert.deepEqual(s, { actions: 32, depth: 5 });
+  assert.deepEqual(s, { actions: 35, depth: 7 });   // 32 and 5 before the Try/catch of the claim (2026-11-04): Try_claim, Claim_succeeded, Check_claim_duplicate
   assert.ok(s.actions <= LIMITS.maxActions && s.depth <= LIMITS.maxDepth);
   assert.deepEqual(statsOf(buildClientdata(productionVariant(PROD))), s);   // same shape
   assert.equal(actionOutline(cd).length, s.actions);
@@ -89,7 +89,7 @@ test('the REAL numbers are computed from the definition (snapshot: a change must
 test('the limits are enforced: depth 9 fails, 501 actions fail, depth 8 and 500 actions pass', () => {
   const deepen = (cd, levels) => { const out = clone(cd); let holder = { actions: out.properties.definition.actions }; holder.actions.Deep_0 = { type: 'If', expression: { equals: [1, 1] }, actions: {}, else: { actions: {} }, runAfter: { Check_errors: ['Succeeded'] } }; holder = holder.actions.Deep_0; for (let i = 1; i < levels; i++) { holder.actions = { [`Deep_${i}`]: { type: 'If', expression: { equals: [1, 1] }, actions: {}, else: { actions: {} } } }; holder = holder.actions[`Deep_${i}`]; } holder.actions = { Deep_leaf: { type: 'Compose', inputs: 'x' } }; return out; };
   const base = buildClientdata(testVariant());
-  assert.equal(statsOf(base).depth, 5);
+  assert.equal(statsOf(base).depth, 7);
   const d8 = deepen(base, 7); assert.equal(statsOf(d8).depth, 8); assert.ok(!failedWith(d8, /nesting depth/));
   const d9 = deepen(base, 8); assert.equal(statsOf(d9).depth, 9); assert.ok(failedWith(d9, /nesting depth is at most 8/));
   const pad = (n) => { const out = clone(base); for (let i = 0; i < n; i++) out.properties.definition.actions[`Pad_${i}`] = { type: 'Compose', inputs: 'x', runAfter: { Check_errors: ['Succeeded'] } }; return out; };
@@ -161,9 +161,9 @@ test('MUTATIONS: each broken definition makes exactly the right check fail', () 
   const cases = [
     ['the email reachable after a failed claim', (c) => { find(c, 'Send_alert_email').action.runAfter = { Increment_noticesSent: ['Succeeded', 'Failed'] }; }, /fail closed/],
     ['the email directly after the claim with Failed', (c) => { find(c, 'Send_alert_email').action.runAfter = { Insert_claim: ['Failed'] }; }, /fail closed/],
-    ['the counter after a failed claim', (c) => { find(c, 'Increment_noticesSent').action.runAfter = { Insert_claim: ['Succeeded', 'Failed'] }; }, /cap counter/],
+    ['the counter after a failed claim (the old shape: a runAfter on the insert)', (c) => { find(c, 'Increment_noticesSent').action.runAfter = { Insert_claim: ['Succeeded', 'Failed'] }; }, /nothing has a runAfter directly on Insert_claim/],
     ['a second counter of the cap', (c) => { find(c, 'Increment_claimFailures').action.inputs.name = 'noticesSent'; }, /cap counter/],
-    ['the failure branch also sends', (c) => { find(c, 'Increment_claimFailures').action.runAfter = { Compose_claim_failure: ['Succeeded'] }; find(c, 'Compose_claim_failure').action.runAfter = { Insert_claim: ['Failed', 'Succeeded'] }; }, /failed insert/],
+    ['the failure branch also sends', (c) => { find(c, 'Check_claim_duplicate').action.else.actions.Send_in_failure = { ...clone(find(c, 'Send_alert_email').action), runAfter: { Increment_claimFailures: ['Succeeded'] } }; }, /fail closed|recipient/],
     ['the guard without the length test', (c) => { const g = find(c, 'Gate_guard').action; g.expression = { and: g.expression.and.filter((x) => !JSON.stringify(x).includes('length')) }; }, /guard sits before the insert|guard and alert-key/],
     ['the guard without the empty-key test', (c) => { const g = find(c, 'Gate_guard').action; g.expression = { and: g.expression.and.filter((x) => !JSON.stringify(x).includes('empty(variables(\'alertKey\'))')) }; }, /guard sits before the insert/],
     ['the guard allowing a wrong length', (c) => { find(c, 'Gate_guard').action.expression.and[2] = { equals: ["@length(variables('alertKey'))", 63] }; }, /guard sits before the insert|guard and alert-key/],
@@ -194,6 +194,21 @@ test('MUTATIONS: each broken definition makes exactly the right check fail', () 
     ['a loop whose concurrency is NOT pinned (no runtimeConfiguration: the default would apply)', (c) => { delete find(c, 'Apply_to_each_obligation').action.runtimeConfiguration; }, /one at a time/],
     ['a loop with a concurrency block but no repetitions', (c) => { find(c, 'Apply_to_each_obligation').action.runtimeConfiguration = { concurrency: {} }; }, /one at a time/],
     ['a loop with the concurrency written as a string', (c) => { find(c, 'Apply_to_each_obligation').action.runtimeConfiguration.concurrency.repetitions = '1'; }, /one at a time/],
+    ['an action hung directly on Insert_claim (a Skipped branch behind a failed insert would fail the run)', (c) => { find(c, 'Try_claim').action.actions.Hang_on_insert = { type: 'Compose', inputs: 'x', runAfter: { Insert_claim: ['Succeeded'] } }; }, /nothing has a runAfter directly on Insert_claim/],
+    ['a second action inside Try_claim', (c) => { find(c, 'Try_claim').action.actions.Second_in_scope = { type: 'Compose', inputs: 'x', runAfter: { Insert_claim: ['Succeeded'] } }; }, /Try_claim is a Scope that holds ONLY Insert_claim/],
+    ['the insert outside the scope (a plain action of Check_obligation_still_due)', (c) => { const g = find(c, 'Check_obligation_still_due').action; const ins = g.actions.Try_claim.actions.Insert_claim; g.actions = { Insert_claim: ins, ...g.actions }; delete g.actions.Try_claim.actions.Insert_claim; g.actions.Try_claim.actions.Pad = { type: 'Compose', inputs: 'x' }; g.actions.Try_claim.runAfter = { Insert_claim: ['Succeeded'] }; }, /nothing has a runAfter directly on Insert_claim|Try_claim is a Scope/],
+    ['Claim_succeeded only after Succeeded (it would not run behind a failed scope)', (c) => { find(c, 'Claim_succeeded').action.runAfter = { Try_claim: ['Succeeded'] }; }, /Claim_succeeded comes right after Try_claim/],
+    ['Claim_succeeded without TimedOut', (c) => { find(c, 'Claim_succeeded').action.runAfter = { Try_claim: ['Succeeded', 'Failed'] }; }, /Claim_succeeded comes right after Try_claim/],
+    ['Claim_succeeded without Failed', (c) => { find(c, 'Claim_succeeded').action.runAfter = { Try_claim: ['Succeeded', 'TimedOut'] }; }, /Claim_succeeded comes right after Try_claim/],
+    ['Claim_succeeded testing Failed instead of Succeeded', (c) => { find(c, 'Claim_succeeded').action.expression = { equals: ["@actions('Try_claim')?['status']", 'Failed'] }; }, /Claim_succeeded comes right after Try_claim/],
+    ['Claim_succeeded testing the status of Insert_claim (not the scope)', (c) => { find(c, 'Claim_succeeded').action.expression = { equals: ["@actions('Insert_claim')?['status']", 'Succeeded'] }; }, /Claim_succeeded comes right after Try_claim|every reference to another action/],
+    ['the email moved to the false branch of Claim_succeeded', (c) => { const g = find(c, 'Claim_succeeded').action; g.else.actions.Send_alert_email = { ...g.actions.Send_alert_email, runAfter: { Compose_claim_failure: ['Succeeded'] } }; delete g.actions.Send_alert_email; }, /fail closed/],
+    ['the email sent from the failed-claim classification (a duplicate would send)', (c) => { find(c, 'Check_claim_duplicate').action.actions.Send_on_duplicate = { ...clone(find(c, 'Send_alert_email').action), runAfter: {} }; }, /fail closed|a failed claim/],
+    ['the failure record read from Insert_claim directly (not from the scope)', (c) => { find(c, 'Compose_claim_failure').action.inputs.result = "@actions('Insert_claim')?['outputs']"; }, /every reference to another action|a failed claim/],
+    ['a duplicate counted as a failure (the branches swapped)', (c) => { const d = find(c, 'Check_claim_duplicate').action; d.actions = d.else.actions; d.else = { actions: {} }; }, /a failed claim/],
+    ['every claim error counted as a duplicate (no counter at all)', (c) => { find(c, 'Check_claim_duplicate').action.else = { actions: {} }; }, /a failed claim/],
+    ['the duplicate test on a wrong code', (c) => { find(c, 'Check_claim_duplicate').action.expression = { equals: ["@contains(string(outputs('Compose_claim_failure')), '412')", true] }; }, /a failed claim/],
+    ['Check_errors ignoring the claim failures (a claim error would end the run Succeeded)', (c) => { find(c, 'Check_errors').action.expression = { greater: ["@variables('errors')", 0] }; }, /Check_errors tests errors PLUS claimFailures/],
     ['a second trigger interval', (c) => { c.properties.definition.triggers.Recurrence.recurrence.interval = 7; }, /exactly one trigger/],
   ];
   for (const [label, mutate, expected] of cases) {
@@ -255,4 +270,56 @@ test('no GUID, address or host is stored in the generator file (the placeholder 
   assert.doesNotMatch(SOURCE.replace(/3f2504e0-4f89-41d3-9a0c-0305e82c3301|00000000-0000-4000-8000-000000000001/g, ''), /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
   assert.doesNotMatch(SOURCE, /[A-Za-z0-9._%+-]+@(?!example\.test)[A-Za-z0-9-]+\.[A-Za-z]{2,}/);
   assert.doesNotMatch(SOURCE.replace(/<org>\.crm4\.dynamics\.com/g, ''), /\.crm\d*\.dynamics\.com/);
+});
+
+// ---------------------------------------------------------------------------------------------------------------- the run status under the documented rule (a MODEL, not a live run)
+/**
+ * A small model of the rule of Learn (Logic Apps, "Handle workflow errors and exceptions"): an action whose runAfter is not met is Skipped; a branch that ends in a Skipped action
+ * takes the status of its predecessor; if any branch ends in failure the whole run is Failed. The model runs ONE iteration of the loop with every gate true, and the claim as the scenario says.
+ * It encodes OUR reading of that page: it shows that the definition is consistent with it, it does NOT prove how Power Automate reports a run (NOT TESTED in a live run).
+ */
+function simulate(actions, claim) {
+  const ran = []; let terminated = false;
+  const decide = (name) => ({ Claim_succeeded: claim === 'success', Check_claim_duplicate: claim === 'duplicate', Check_errors: ran.includes('Increment_claimFailures') || ran.includes('Increment_errors') })[name] ?? true;
+  const runBlock = (block) => {
+    const st = {};
+    for (const [name, a] of Object.entries(block)) {
+      const ra = Object.entries(a.runAfter || {});
+      if (!ra.every(([target, allowed]) => allowed.includes(st[target]))) { st[name] = 'Skipped'; continue; }
+      ran.push(name);
+      if (a.type === 'Scope' || a.type === 'Foreach') st[name] = runBlock(a.actions);
+      else if (a.type === 'If') st[name] = runBlock(decide(name) ? a.actions : (a.else?.actions ?? {}));
+      else if (a.type === 'Terminate') { terminated = true; st[name] = 'Succeeded'; }
+      else if (name === 'Insert_claim') st[name] = claim === 'success' ? 'Succeeded' : 'Failed';
+      else st[name] = 'Succeeded';
+    }
+    const successors = new Set(Object.values(block).flatMap((a) => Object.keys(a.runAfter || {})));
+    const eff = (n) => (st[n] === 'Skipped' ? (Object.keys(block[n].runAfter).some((x) => eff(x) === 'Failed') ? 'Failed' : 'Succeeded') : st[n]);
+    return Object.keys(block).filter((n) => !successors.has(n)).some((n) => eff(n) === 'Failed') ? 'Failed' : 'Succeeded';
+  };
+  const status = runBlock(actions); return { status: terminated ? 'Failed' : status, ran, terminated };
+}
+
+test('RUN STATUS MODEL: the old shape (a Succeeded-only branch behind the insert) ends Failed on a duplicate and skips Check_errors, as the real run history of 2026-11-04 showed', () => {
+  const old = { Loop: { type: 'Foreach', actions: {
+    Insert_claim: { type: 'CreateRecord' },
+    Increment_noticesSent: { type: 'IncrementVariable', runAfter: { Insert_claim: ['Succeeded'] } }, Send_alert_email: { type: 'SendEmailV2', runAfter: { Increment_noticesSent: ['Succeeded'] } },
+    Compose_claim_failure: { type: 'Compose', runAfter: { Insert_claim: ['Failed', 'TimedOut'] } } } },
+  Check_errors: { type: 'If', runAfter: { Loop: ['Succeeded'] }, actions: { Terminate_run_failed: { type: 'Terminate' } } } };
+  const r = simulate(old, 'duplicate');
+  assert.equal(r.status, 'Failed'); assert.ok(!r.ran.includes('Check_errors') && !r.ran.includes('Send_alert_email') && r.ran.includes('Compose_claim_failure'));
+});
+
+test('RUN STATUS MODEL: the Try/catch definition: success sends one email and ends Succeeded; a DUPLICATE sends nothing, counts nothing and ends Succeeded; any OTHER claim error sends nothing, is counted and ends Failed through Terminate_run_failed', () => {
+  const acts = buildDefinition(testVariant()).actions;
+  const ok = simulate(acts, 'success'); assert.equal(ok.status, 'Succeeded'); assert.ok(ok.ran.includes('Send_alert_email') && ok.ran.includes('Increment_noticesSent') && !ok.ran.includes('Compose_claim_failure') && !ok.terminated);
+  const dup = simulate(acts, 'duplicate'); assert.equal(dup.status, 'Succeeded'); assert.ok(!dup.ran.includes('Send_alert_email') && !dup.ran.includes('Increment_noticesSent') && !dup.ran.includes('Increment_claimFailures') && dup.ran.includes('Compose_claim_failure') && !dup.terminated);
+  const bad = simulate(acts, 'error'); assert.equal(bad.status, 'Failed'); assert.ok(!bad.ran.includes('Send_alert_email') && !bad.ran.includes('Increment_noticesSent') && bad.ran.includes('Increment_claimFailures') && bad.terminated);
+});
+
+test('the classification of a failed claim, evaluated: the duplicate code in the recorded failure is recognised, any other text (also an empty or unknown shape) is NOT a duplicate (fail safe: it counts as an error)', () => {
+  const expr = find(buildClientdata(testVariant()), 'Check_claim_duplicate').action.expression;
+  const isDup = (recorded) => evalCondition(expr, { outputs: { Compose_claim_failure: recorded } });
+  assert.equal(isDup({ result: [{ name: 'Insert_claim', status: 'Failed', error: { message: 'A record with the same key 0x80060892 already exists' } }] }), true);
+  for (const other of [{ result: [{ name: 'Insert_claim', status: 'Failed', error: { message: 'Principal user is missing the create privilege 0x80040220' } }] }, { result: [] }, { result: null }, 'unknown shape']) assert.equal(isDup(other), false);
 });

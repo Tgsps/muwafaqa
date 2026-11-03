@@ -13,7 +13,7 @@
  *   --mode=verify  READ ONLY. Needs --env, --auth=az, --solution. Reports the state (must be OFF), the solution membership, the references bound, whether the stored definition equals the generated
  *                  one (every difference listed, none fixed) and the real action count and depth read from the stored definition.
  *
- * create WAS RUN ONCE against the environment on 2026-11-03: it created the flow OFF (one POST, HTTP 204), and verify read it back identical to the generated definition (32 actions, depth 5). Both are
+ * create WAS RUN ONCE against the environment on 2026-11-03: it created the flow OFF (one POST, HTTP 204), and verify read it back identical to the generated definition of THAT day (32 actions, depth 5; the definition was changed offline on 2026-11-04, see the Try/catch rule below: the stored flow is now older than the generator and `verify` will list the differences). Both are
  * also covered by unit tests against a mocked, stateful environment (lib/obligation-flow-deploy.mjs). With the flow in place a second create refuses: a flow of this name exists.
  *
  * Variants (one generator, they differ ONLY in interval, lead time, lookback window and the subject prefix):
@@ -29,11 +29,13 @@
  *   - The alert key is a GENERATED expression; offline checks compare its evaluated output with scripts/lib/alert-key.mjs (through the small evaluator of
  *     scripts/lib/flow-expression-eval.mjs, whose limits are stated there: it proves the expression TEXT, not the behavior of Power Automate).
  *   - A guard before the insert: the iteration stops (skips) if the recipient or the key is empty, or the key has not the exact length of a valid key.
- *   - Fail closed: the email action is reachable only through actions whose runAfter is Succeeded back to the claim insert. Any failed insert skips the send and is
- *     recorded in a Compose action (the real shape of a failed insert is unknown until test case 13 of the spec).
+ *   - Try/catch of the claim (changed after the run history of 2026-11-04): Insert_claim is the ONLY action inside the scope Try_claim, and nothing hangs off Insert_claim directly.
+ *     Claim_succeeded (runAfter Try_claim Succeeded, Failed or TimedOut) tests the status of the scope. Its true branch is Increment_noticesSent -> Send_alert_email: fail closed,
+ *     no email unless the claim succeeded. Its false branch records the failure (Compose_claim_failure) and classifies it: the duplicate code is EXPECTED and counts nothing,
+ *     every other claim error is counted in claimFailures and makes the run end Failed (Check_errors -> Terminate_run_failed). NOT TESTED in a live run.
  *   - The cap of 5 counts SUCCESSFUL claims only; skipped duplicates do not count.
  *   - The rules the designer has bitten us with: no Set variable with an empty-string literal (string('') is used), no Terminate inside a loop, every expression parameter non-empty.
- *   - The real action count and nesting depth are computed from the definition; the check fails above depth 8 or above 500 actions.
+ *   - The real action count and nesting depth are computed from the definition; the check fails above depth 8 or above 500 actions (Learn, power-automate/limits-and-config, 'Allowed nesting depth for actions: 8', 'Actions per workflow: 500').
  *
  * Usage:
  *   node scripts/build-flow-obligation-alerts.mjs --mode=check
@@ -89,6 +91,8 @@ export const [TYPE_DUE_SOON, TYPE_OVERDUE] = TYPES_USED;
 /** The exact lengths of a valid key of THIS flow: 36 (GUID) + 1 + the type + 1 + 8 (yyyyMMdd), derived from the types it emits. */
 export const KEY_LENGTHS = Object.freeze([...new Set(TYPES_USED.map((t) => 36 + 1 + t.length + 1 + 8))]);
 
+/** The error code of the alternate key of mwf_alertlog on a duplicate key (measured over REST on 2026-11-03: HTTP 412, 0x80060892). Whether the text of a failed CreateRecord in the flow holds it is NOT proven. */
+export const DUPLICATE_CODE = '0x80060892';
 const LOOP = 'Apply_to_each_obligation';
 const OBL = `items('${LOOP}')`;
 const NOW = "variables('runStartedAt')";
@@ -144,22 +148,30 @@ const BODY = [
 
 export function buildDefinition(variant = testVariant()) {
   if (!variant || !Number.isInteger(variant.intervalMinutes) || !Number.isInteger(variant.leadMinutes) || !Number.isInteger(variant.lookbackMinutes)) throw new VariantError('a variant with interval, lead time and lookback window (whole minutes) is required');
+  // The error of the claim is read from the scope (result() returns the results of the top-level actions of a scope: Learn, Logic Apps "Handle workflow errors and exceptions"), not from Insert_claim.
   const CLAIM_FAILURE_RECORD = {
-    action: "@actions('Insert_claim')?['status']", error: "@actions('Insert_claim')?['error']", outputs: "@actions('Insert_claim')?['outputs']",
+    scopeStatus: "@actions('Try_claim')?['status']", result: "@result('Try_claim')",
     obligationId: `@${OBL}?['mwf_obligationid']`, key: v('alertKey'),
   };
-  // The scope of the claim. Insert_claim is first. Increment_noticesSent runs ONLY after Insert_claim Succeeded and Send_alert_email ONLY after that: fail closed.
-  // Compose_claim_failure runs ONLY after Insert_claim Failed or TimedOut. Two branches from one action, so this scope is written by hand, not with chain().
+  // Try/catch of the claim. Try_claim holds ONLY Insert_claim. Claim_succeeded runs after the scope whatever its status (Succeeded, Failed, TimedOut) and sends only when the scope Succeeded.
+  // A duplicate claim (the alternate key) is expected: it sends nothing, counts nothing and does not fail the run. Any other error is counted; Check_errors then ends the run Failed.
   const claimScope = {
-    Insert_claim: cds('CreateRecord', { entityName: 'mwf_alertlogs', 'item/mwf_alertkey': v('alertKey'), 'item/mwf_name': v('alertKey') }),
-    Increment_noticesSent: { ...incVar('noticesSent'), runAfter: { Insert_claim: ['Succeeded'] } },
-    Send_alert_email: {
-      type: 'OpenApiConnection',
-      inputs: { parameters: { [emailKey('To')]: v('recipientEmail'), [emailKey('Subject')]: `${variant.subjectPrefix}${SUBJECT}`, [emailKey('Body')]: BODY }, host: OUT('SendEmailV2') },
-      runAfter: { Increment_noticesSent: ['Succeeded'] },
+    Try_claim: { type: 'Scope', actions: { Insert_claim: cds('CreateRecord', { entityName: 'mwf_alertlogs', 'item/mwf_alertkey': v('alertKey'), 'item/mwf_name': v('alertKey') }) } },
+    Claim_succeeded: {
+      type: 'If', expression: eq("@actions('Try_claim')?['status']", 'Succeeded'),
+      actions: chain([
+        ['Increment_noticesSent', incVar('noticesSent')],
+        ['Send_alert_email', {
+          type: 'OpenApiConnection',
+          inputs: { parameters: { [emailKey('To')]: v('recipientEmail'), [emailKey('Subject')]: `${variant.subjectPrefix}${SUBJECT}`, [emailKey('Body')]: BODY }, host: OUT('SendEmailV2') },
+        }],
+      ]),
+      else: { actions: chain([
+        ['Compose_claim_failure', { type: 'Compose', inputs: CLAIM_FAILURE_RECORD }],
+        ['Check_claim_duplicate', ifThen(eq(`@contains(string(outputs('Compose_claim_failure')), '${DUPLICATE_CODE}')`, true), {}, { Increment_claimFailures: incVar('claimFailures') })],
+      ]) },
+      runAfter: { Try_claim: ['Succeeded', 'Failed', 'TimedOut'] },
     },
-    Compose_claim_failure: { type: 'Compose', inputs: CLAIM_FAILURE_RECORD, runAfter: { Insert_claim: ['Failed', 'TimedOut'] } },
-    Increment_claimFailures: { ...incVar('claimFailures'), runAfter: { Compose_claim_failure: ['Succeeded'] } },
   };
 
   const guardTrue = chain([
@@ -204,8 +216,8 @@ export function buildDefinition(variant = testVariant()) {
     })],
     [LOOP, { type: 'Foreach', foreach: "@outputs('Get_open_obligations')?['body/value']", actions: loopActions, runtimeConfiguration: { concurrency: { repetitions: 1 } } }],
     // After the loop and NOT inside any loop: a Terminate inside a loop ends the whole run at the first obligation.
-    ['Check_errors', ifThen({ greater: ["@variables('errors')", 0] }, {
-      Terminate_run_failed: { type: 'Terminate', inputs: { runStatus: 'Failed', runError: { code: 'ObligationAlertErrors', message: "@{concat('Obligation alerts finished with ', string(variables('errors')), ' error(s); see the run history')}" } } },
+    ['Check_errors', ifThen({ greater: ["@add(variables('errors'), variables('claimFailures'))", 0] }, {
+      Terminate_run_failed: { type: 'Terminate', inputs: { runStatus: 'Failed', runError: { code: 'ObligationAlertErrors', message: "@{concat('Obligation alerts finished with ', string(variables('errors')), ' error(s) and ', string(variables('claimFailures')), ' claim failure(s) (a duplicate claim is not one); see the run history')}" } } },
     })],
   ], { top: true });
   return {
@@ -236,7 +248,7 @@ export function statsOf(cd) {
   const list = walk(cd.properties.definition.actions);
   return { actions: list.length, depth: Math.max(...list.map((x) => x.scope.length)) + 1 };
 }
-export const LIMITS = Object.freeze({ maxActions: 500, maxDepth: 8 });   // Learn, limits-and-config (not re-read in this session; the reminders generator uses the same)
+export const LIMITS = Object.freeze({ maxActions: 500, maxDepth: 8 });   // Learn, Power Automate limits-and-config, 'Actions per workflow: 500' and 'Allowed nesting depth for actions: 8' (read on 2026-11-04)
 
 // ------------------------------------------------------------------------------------------------ the offline comparison of the key expression with alert-key.mjs
 const GUID_LOWER = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';   // a made-up GUID
@@ -322,7 +334,7 @@ export function checkClientdata(cd, variant = testVariant(), { outlookRef = DEFA
     strs({ i: x.action.inputs, e: x.action.expression, f: x.action.foreach }).forEach((s) => expressionsOf(s).forEach((e) => parts.push(e)));
     for (const e of parts) {
       if (e === '\u0000UNCLOSED' || !balanced(e)) { exprErrors.push(`${x.name}: ${e.slice(0, 60)}`); continue; }
-      for (const m of e.matchAll(/\b(outputs|body|actions)\('([^']+)'\)/g)) {
+      for (const m of e.matchAll(/\b(outputs|body|actions|result)\('([^']+)'\)/g)) {
         const t = byName[m[2]];
         if (!t) { refErrors.push(`${x.name} -> ${m[2]} (missing)`); continue; }
         const visible = t.scope.length <= x.scope.length && t.scope.every((s, i) => x.scope[i] === s);
@@ -360,6 +372,7 @@ export function checkClientdata(cd, variant = testVariant(), { outlookRef = DEFA
   ok('no Terminate inside a loop: the only Terminate is inside Check_errors, which follows the loop at the top level, with status Failed',
     terminates.length === 1 && terminates[0].name === 'Terminate_run_failed' && terminates[0].action.inputs.runStatus === 'Failed' && terminates[0].scope.join('/') === 'Check_errors' && !terminates[0].scope.some((s) => loops.includes(s))
     && byName.Check_errors?.scope.length === 0 && idx('Check_errors') > idx(LOOP) && Object.keys(byName.Check_errors?.action.runAfter || {}).join() === LOOP);
+  ok('Check_errors tests errors PLUS claimFailures: a claim error that is not a duplicate ends the run Failed', JSON.stringify(byName.Check_errors?.action.expression) === JSON.stringify({ greater: ["@add(variables('errors'), variables('claimFailures'))", 0] }) && /claimFailures/.test(JSON.stringify(byName.Terminate_run_failed?.action.inputs)));
   ok('no Until loop; one Foreach, run one at a time (concurrency 1)', !list.some((x) => x.action.type === 'Until') && loops.length === 1 && byName[LOOP]?.action.runtimeConfiguration?.concurrency?.repetitions === 1);
 
   // operations and tables
@@ -393,23 +406,33 @@ export function checkClientdata(cd, variant = testVariant(), { outlookRef = DEFA
   ok(`the guard sits before the insert: Insert_claim is inside Gate_guard (true branch); the guard tests recipient, key empty, the exact key length ${KEY_LENGTHS.join(' or ')} and the type segment; its false branch only counts an error`,
     guard && byName.Insert_claim?.scope.includes('Gate_guard') && idx('Gate_guard') < idx('Insert_claim') && JSON.stringify(guard.action.expression) === JSON.stringify(GUARD_CONDITION)
     && Object.keys(guard.action.else.actions).join() === 'Increment_errors' && KEY_LENGTHS.every((n) => JSON.stringify(guard.action.expression).includes(`"@length(variables('alertKey'))",${n}`)));
-  ok('Insert_claim is inside Check_obligation_still_due, which is inside Gate_guard, which is inside Gate_prepare (the cap gate)', JSON.stringify(byName.Insert_claim?.scope) === JSON.stringify([LOOP, 'Gate_prepare', 'Gate_guard', 'Check_obligation_still_due']));
+  ok('Insert_claim is inside Try_claim, which is inside Check_obligation_still_due, inside Gate_guard, inside Gate_prepare (the cap gate)', JSON.stringify(byName.Insert_claim?.scope) === JSON.stringify([LOOP, 'Gate_prepare', 'Gate_guard', 'Check_obligation_still_due', 'Try_claim']));
 
-  // fail closed: walk the runAfter chain from the send back to the insert
-  const sends = list.filter((x) => x.action.inputs?.host?.operationId === 'SendEmailV2');
-  const chainBack = (name, acc = []) => { const ra = byName[name]?.action.runAfter || {}; for (const [t, st] of Object.entries(ra)) { acc.push({ from: name, to: t, st }); chainBack(t, acc); } return acc; };
-  const back = sends[0] ? chainBack(sends[0].name) : [];
-  ok('fail closed: the email action is reachable only through runAfter Succeeded edges back to Insert_claim (exactly one send, in the same scope as the insert)',
-    sends.length === 1 && sends[0].name === 'Send_alert_email' && JSON.stringify(sends[0].scope) === JSON.stringify(byName.Insert_claim?.scope) && back.length > 0 && back.every((e) => JSON.stringify(e.st) === '["Succeeded"]') && back.some((e) => e.to === 'Insert_claim'),
-    back.map((e) => `${e.from}<-${e.to}:${e.st.join('/')}`).join(' '));
-  ok('a failed insert (Failed or TimedOut) leads only to Compose_claim_failure and Increment_claimFailures: nothing sent, nothing counted as a notice',
-    JSON.stringify(byName.Compose_claim_failure?.action.runAfter) === JSON.stringify({ Insert_claim: ['Failed', 'TimedOut'] }) && JSON.stringify(byName.Increment_claimFailures?.action.runAfter) === JSON.stringify({ Compose_claim_failure: ['Succeeded'] })
-    && list.filter((x) => Object.keys(x.action.runAfter || {}).includes('Insert_claim')).map((x) => x.name).sort().join() === 'Compose_claim_failure,Increment_noticesSent'
-    && ['status', 'error', 'outputs'].every((k) => JSON.stringify(byName.Compose_claim_failure.action.inputs).includes(`actions('Insert_claim')?['${k}']`)));
+  // try/catch of the claim: the scope, the status test, fail closed, the classification of a failed claim
+  const claim = byName.Claim_succeeded; const tryScope = byName.Try_claim; const sends = list.filter((x) => x.action.inputs?.host?.operationId === 'SendEmailV2');
+  const SUCCESS_TEST = eq("@actions('Try_claim')?['status']", 'Succeeded');
+  ok('Try_claim is a Scope that holds ONLY Insert_claim, as the first action of Check_obligation_still_due (true branch)', tryScope?.action.type === 'Scope' && Object.keys(tryScope.action.actions || {}).join() === 'Insert_claim'
+    && JSON.stringify(tryScope.scope) === JSON.stringify([LOOP, 'Gate_prepare', 'Gate_guard', 'Check_obligation_still_due']) && Object.keys(byName.Check_obligation_still_due?.action.actions || {})[0] === 'Try_claim'
+    && !Object.keys(tryScope.action.runAfter || {}).length);
+  ok('nothing has a runAfter directly on Insert_claim (an action after a failed insert would leave a Skipped branch behind it, and a branch that ends in a failure fails the run: Learn, Logic Apps error handling)',
+    list.filter((x) => Object.keys(x.action.runAfter || {}).includes('Insert_claim')).length === 0 && Object.keys(byName.Insert_claim?.action.runAfter || {}).length === 0);
+  ok('Claim_succeeded comes right after Try_claim and runs after Succeeded, Failed AND TimedOut of the scope (so the handler always runs), and tests the status of the scope for Succeeded',
+    claim?.action.type === 'If' && JSON.stringify(claim.action.runAfter) === JSON.stringify({ Try_claim: ['Succeeded', 'Failed', 'TimedOut'] }) && JSON.stringify(claim.action.expression) === JSON.stringify(SUCCESS_TEST)
+    && JSON.stringify(claim.scope) === JSON.stringify(tryScope?.scope) && list.filter((x) => Object.keys(x.action.runAfter || {}).includes('Try_claim')).map((x) => x.name).join() === 'Claim_succeeded');
+  ok('fail closed: the email action is reachable ONLY through the true branch of Claim_succeeded (exactly one send, right after Increment_noticesSent; nothing in the false branch sends)',
+    sends.length === 1 && sends[0].name === 'Send_alert_email' && JSON.stringify(sends[0].scope) === JSON.stringify([...(claim?.scope || []), 'Claim_succeeded']) && Object.keys(claim?.action.actions || {}).join() === 'Increment_noticesSent,Send_alert_email'
+    && JSON.stringify(claim.action.actions.Send_alert_email.runAfter) === JSON.stringify({ Increment_noticesSent: ['Succeeded'] }) && !Object.keys(claim.action.actions.Increment_noticesSent.runAfter || {}).length
+    && !JSON.stringify(claim.action.else).includes('SendEmailV2'));
+  const dup = byName.Check_claim_duplicate;
+  ok(`a failed claim (the false branch of Claim_succeeded) only records it (Compose_claim_failure from the result of the scope) and classifies it: the duplicate code ${DUPLICATE_CODE} counts nothing, anything else is counted in claimFailures; nothing is sent, no notice counted`,
+    Object.keys(claim?.action.else?.actions || {}).join() === 'Compose_claim_failure,Check_claim_duplicate' && JSON.stringify(byName.Check_claim_duplicate?.action.runAfter) === JSON.stringify({ Compose_claim_failure: ['Succeeded'] })
+    && ['scopeStatus', 'result'].every((k) => JSON.stringify(byName.Compose_claim_failure?.action.inputs).includes(`('Try_claim')`)) && JSON.stringify(byName.Compose_claim_failure?.action.inputs).includes("result('Try_claim')")
+    && JSON.stringify(dup?.action.expression) === JSON.stringify(eq(`@contains(string(outputs('Compose_claim_failure')), '${DUPLICATE_CODE}')`, true))
+    && Object.keys(dup?.action.actions || {}).length === 0 && Object.keys(dup?.action.else?.actions || {}).join() === 'Increment_claimFailures' && byName.Increment_claimFailures?.action.inputs.name === 'claimFailures');
   const incs = list.filter((x) => x.action.type === 'IncrementVariable');
-  ok('the cap counter noticesSent is incremented exactly once, by 1, and only right after Insert_claim Succeeded (skipped duplicates and failures never count)',
-    incs.filter((x) => x.action.inputs.name === 'noticesSent').length === 1 && byName.Increment_noticesSent?.action.inputs.value === 1 && JSON.stringify(byName.Increment_noticesSent?.action.runAfter) === JSON.stringify({ Insert_claim: ['Succeeded'] })
-    && idx('Insert_claim') < idx('Increment_noticesSent') && idx('Increment_noticesSent') < idx('Send_alert_email') && incs.every((x) => x.action.inputs.value === 1) && incs.map((x) => x.action.inputs.name).sort().join() === 'claimFailures,errors,noticesSent');
+  ok('the cap counter noticesSent is incremented exactly once, by 1, and only as the first action of the true branch of Claim_succeeded (skipped duplicates and failures never count)',
+    incs.filter((x) => x.action.inputs.name === 'noticesSent').length === 1 && byName.Increment_noticesSent?.action.inputs.value === 1 && JSON.stringify(byName.Increment_noticesSent?.scope) === JSON.stringify([...(claim?.scope || []), 'Claim_succeeded'])
+    && Object.keys(claim?.action.actions || {})[0] === 'Increment_noticesSent' && idx('Insert_claim') < idx('Increment_noticesSent') && idx('Increment_noticesSent') < idx('Send_alert_email') && incs.every((x) => x.action.inputs.value === 1) && incs.map((x) => x.action.inputs.name).sort().join() === 'claimFailures,errors,noticesSent');
   ok(`the cap is ${MAX_NOTICES_PER_RUN} per run and is checked BEFORE the claim: Set_proceed is the first action of the loop, Gate_prepare runs only when it is yes`, MAX_NOTICES_PER_RUN === 5 && Object.keys(byName[LOOP]?.action.actions || {})[0] === 'Set_proceed'
     && byName.Set_proceed?.action.inputs.value === `@{if(less(variables('noticesSent'), ${MAX_NOTICES_PER_RUN}), 'yes', 'no')}` && JSON.stringify(byName.Gate_prepare?.action.expression) === JSON.stringify(eq(v('proceed'), 'yes')));
   const still = byName.Check_obligation_still_due?.action.expression;
@@ -448,7 +471,7 @@ export function planLines(variant, refs = {}) {
   L.push(`KEY         ${KEY_EXPRESSION}`);
   L.push(`TYPE        ${TYPE_EXPRESSION}`);
   L.push(`GUARD       recipient not empty, key not empty, key length ${KEY_LENGTHS.join(' or ')}, key contains -<alertType>-  (else: Increment_errors, nothing inserted, nothing sent)`);
-  L.push(`CLAIM       Insert_claim (CreateRecord, mwf_alertlogs); Increment_noticesSent and Send_alert_email only after it Succeeded; Compose_claim_failure + Increment_claimFailures after Failed/TimedOut`);
+  L.push(`CLAIM       Try_claim (scope: Insert_claim only) -> Claim_succeeded (runs after Succeeded/Failed/TimedOut); true: Increment_noticesSent -> Send_alert_email; false: Compose_claim_failure -> Check_claim_duplicate (${DUPLICATE_CODE} expected, anything else Increment_claimFailures; Check_errors then ends the run Failed)`);
   L.push(`SIZE        ${s.actions} actions, nesting depth ${s.depth} (REAL numbers from the generated definition; limits ${LIMITS.maxActions} and ${LIMITS.maxDepth})`);
   L.push(`CHECKS      ${checks.length - failed} of ${checks.length} structural checks pass${failed ? ` (${failed} FAILED: run --mode=check)` : ''}`);
   L.push('NUMBERED ACTIONS (as the spec, section 4, lists them)');

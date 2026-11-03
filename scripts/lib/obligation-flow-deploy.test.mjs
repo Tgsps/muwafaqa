@@ -207,7 +207,7 @@ test('verify after a create: every check passes, the real action count and depth
   const env = fakeEnv(); await runCreate(env.opts()); const before = env.log.length; env.out.length = 0;
   const r = await runVerify(env.opts());
   assert.equal(r.ok, true, env.text()); assert.deepEqual(r.differences, []);
-  assert.deepEqual(r.stats, statsOf(buildClientdata(testVariant()))); assert.match(env.text(), /32 actions, nesting depth 5/);
+  assert.deepEqual(r.stats, statsOf(buildClientdata(testVariant()))); { const s = statsOf(buildClientdata(testVariant())); assert.ok(env.text().includes(`${s.actions} actions, nesting depth ${s.depth}`)); }
   assert.ok(env.log.slice(before).every((c) => c.method === 'GET')); assert.match(env.text(), /identical/); assert.match(env.text(), /connection references bound: shared_commondataserviceforapps -> new_sharedcommondataserviceforapps_43184; shared_office365 -> mwf_sharedoffice365_reminders/);
 });
 
