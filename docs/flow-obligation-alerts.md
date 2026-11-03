@@ -1,152 +1,169 @@
 # Flow Specification: Obligation Alerts
 
-**A SPEC to review before any build. No flow, no generator and no test script exists for it.** Decision and context: [ADR-011](decisions/ADR-011-obligations-and-renewal-alerts.md) (status Proposed). It follows the pattern of [flow-approval-reminders.md](flow-approval-reminders.md) (a scheduled flow, claim first, a hard cap per run, test and production variants, the flow stays OFF except during the owner's tests).
+**A SPEC to review before any build. No flow exists for it and nothing has been created in the environment.** The generator `scripts/build-flow-obligation-alerts.mjs` (modes `check` and `plan` only, offline) emits the definition this document describes. Decision and context: [ADR-011](decisions/ADR-011-obligations-and-renewal-alerts.md) (status Proposed). It follows the pattern of [flow-approval-reminders.md](flow-approval-reminders.md): a scheduled flow, claim first, a hard cap per run, test and production variants, the flow stays OFF except during the owner's tests.
 
-Tags: **(measured)** a value from a run of the environment (see ADR-011, "Measured results of the uniqueness test"); **(estimate)** a number that was not measured; **(assumption)**; **(not proven)**; **(existing)** a pattern that the reminders flow already uses and that ran in the two test windows of 2026-10-29. **Every number in this document that is not marked (measured) is an estimate.**
+Tags: **(measured)** a value from a run of the environment (ADR-011, "Measured results of the uniqueness test"); **(estimate)**; **(assumption)**; **(not proven)**; **(existing)** a pattern the reminders flow already uses and that ran in the two test windows of 2026-10-29; **(not verified)** a name or behavior not checked against the connector. **Every number in this document that is not marked (measured) is an estimate or a stated constant.**
 
 **Out of scope here, said once:** renewal alerts (`RENEWAL-T90`, `RENEWAL-T30`). The columns they need on the contract (renewal type, notice period) do not exist yet (ADR-011, "Known risks"). This flow handles `OBLIGATION-DUESOON` and `OBLIGATION-OVERDUE` only.
 
 ## 1. What the flow does
 
-Every run, for each **Open** obligation whose due date is within the lead time or already past, it **claims** the alert by inserting one row into `mwf_alertlog`, and **only if the insert succeeds** it sends one informational email to the **owner of the contract**. A duplicate-key rejection means "already claimed": nothing is sent. The flow never changes an obligation, a contract or an approval; its only write is the alert log insert.
+Every run, for each **Open** obligation whose due date lies inside the **window** `[now - lookback, now + lead time]`, it **claims** the alert by inserting one row into `mwf_alertlog`; **only if the insert succeeds** it sends one informational email to the **owner of the contract**. Any failed insert, a duplicate (412) or anything else, skips the email (fail closed). The flow never changes an obligation, a contract or an approval; its only write is the alert log insert.
 
 ## 2. Trigger and recurrence
 
-- **Recurrence** trigger. Test variant: every **1 minute** (existing pattern). Production variant: **15 minutes (placeholder, not decided; estimate)**.
+- **Recurrence** trigger. Test variant: every **1 minute** (a test constant). Production variant: **a required parameter with no default**; no number is proposed (open question 2).
 - No trigger Concurrency Control (ADR-011 rejects it: irreversible, and the alternate key does the job).
-- The interval should be longer than a run. Runs of the reminders flow lasted 16.6 to 84.8 s on a 1-minute interval **(measured, 2026-10-29)**, so overlaps are expected in the test variant; section 11 covers them.
+- Runs of the reminders flow lasted 16.6 to 84.8 s on a 1-minute interval **(measured, 2026-10-29)**, so overlaps are expected in the test variant; section 11.
 
-## 3. The query for obligations
+## 3. The window and the query
 
-One server-side `List rows` on `mwf_obligations` (Dataverse connector), **(existing pattern: the reminders flow reads its candidates the same way)**:
+**Three named parameters per variant, no default in code** (section 13): the **lead time** (how long before the due date the due-soon alert is due), the **lookback window** (how far back an overdue obligation is still looked at) and the **recurrence interval**.
 
-- `$filter`: `mwf_status eq 867640000` (Open) **and** `mwf_duedate le <now + lead time>`. Both bounds are computed once at the start of the run into one variable (`runStartedAt`, as in the reminders flow) so that every obligation of the run is judged against the same instant.
-- **Excluded by the filter, not by later logic:** Done (867640001) and **Disputed (867640002)**, per ADR-011 (decision 8: Disputed obligations are not alerted); Open obligations due later than now + lead time.
-- `$orderby`: `mwf_duedate asc`; `$top`: **50 (estimate; placeholder)**.
-- `$select`: `mwf_obligationid,mwf_name,mwf_duedate,mwf_status,_mwf_contract_value`.
-- **Which type:** `mwf_duedate` before the run start = `OBLIGATION-OVERDUE`; otherwise `OBLIGATION-DUESOON`. An obligation that was alerted as due soon and then becomes overdue gets a second alert (a different key), once.
-- **Known weakness (not solved here):** an obligation that is overdue and already alerted stays in this query forever (nothing changes on the obligation when it is claimed). With `$orderby mwf_duedate asc` and `$top 50`, **more than 50 old, already-alerted obligations would hide newer ones**, and every run would spend one failed insert on each of them. Options, none chosen: a look-back bound on the due date (needs a business number), or a pre-read of existing keys from the log (needs a query form that was not tried). Open question 4.
+One server-side `List rows` on `mwf_obligations` (Dataverse connector) **(existing pattern)**:
 
-## 4. Order of actions (per run)
+- `$filter`: `mwf_status eq 867640000` (Open) **and** `mwf_duedate ge <runStart - lookback>` **and** `mwf_duedate le <runStart + lead>`. The bounds are computed from one `runStartedAt` taken at the start of the run, so every obligation of the run is judged against the same instant.
+- **Excluded by the filter:** Done (867640001) and **Disputed (867640002)**, per ADR-011 decision 8; Open obligations due later than `now + lead`; **Open obligations overdue for longer than the lookback window**.
+- `$orderby`: `mwf_duedate asc`; `$top`: **50 (estimate; placeholder)**; `$select`: `mwf_obligationid,mwf_name,mwf_duedate,_mwf_contract_value`.
+- **Which type:** the due date before the run start = `OBLIGATION-OVERDUE`; otherwise `OBLIGATION-DUESOON`. An obligation alerted as due soon that then becomes overdue gets a second alert (a different key), once.
+- **No new column on Obligation.** Nothing records that an alert was missed or sent; the alert log is the only record.
+- **What the lookback costs (accepted):** an obligation that has been overdue for **longer than the window because the flow was down** (turned off, failing runs, an outage) **never gets its alert**, and one that was due soon during a downtime longer than the lead time never gets its due-soon alert either. Nothing detects or repairs this. A downtime shorter than the lookback loses nothing. Recovery by hand is not designed.
+- **What the lookback fixes, and what it does not:** an old, already-alerted obligation leaves the query when it ages past the window, instead of staying in it forever and costing one failed insert per run. **Inside the window**, already-alerted obligations are still read and still attempt one insert each per run (they fail; section 6). With more than 50 obligations inside the window the oldest 50 hide the rest; the window must be chosen with that in mind **(not solved)**.
+- **Constraint enforced by the generator:** `lookback >= interval`; otherwise an obligation whose due date passes between two runs could fall out of the window before any run sees it.
 
-Top level: initialize `noticesSent` (integer, 0), `duplicates` (integer, 0), `errors` (integer, 0), `runStartedAt`; the key gate (section 12, open); `Get_open_obligations`; one `Foreach` over the result with **concurrency 1** **(existing pattern)**.
+## 4. Order of actions
 
-Per obligation, in this order:
+Numbered as the generator emits them (a unit test compares this list with the generated definition). Names are the real action names; variables are `runStartedAt`, `noticesSent`, `claimFailures`, `errors`, `proceed`, `alertType`, `alertKey`, `recipientEmail`.
 
-1. **Cap check** (section 7): if `noticesSent` is already 5, do nothing for this obligation (the alert stays unclaimed and is picked up by a later run).
-2. **Read the contract** (`mwf_contractnumber`, `mwf_name`, `_ownerid_value`) and **the owner's address** (`internalemailaddress` of the user in `_ownerid_value`), **before anything is written** **(existing pattern)**. If there is no address, nothing is claimed and nothing is sent; `errors` is incremented (visible, not silent).
-3. **Re-read the obligation** (`mwf_status`, `mwf_duedate`) and continue only if it is still Open **and** its due date still equals the one the key will use **(existing pattern of the reminders flow, which re-reads the step)**. No step is atomic: the owner can mark it Done between the read and the claim; the re-read narrows that window, it does not close it.
-4. **Build the key** (section 9) and **run the guard** (section 10). If the guard fails: no insert, no email, `errors` + 1.
-5. **Claim: insert** one `mwf_alertlog` row (`mwf_alertkey` = the key, `mwf_name` = the same text).
-6. **Decide on the result** (section 6): inserted -> go on; duplicate -> skip; any other failure -> `errors` + 1, nothing is sent.
-7. **After a successful claim only:** `noticesSent` + 1, **then** send the email. **Claim, then count, then send** is the order of the reminders flow (existing); the claim is never undone, so a failed send loses that alert (ADR-011, "Known risks").
+Top level:
+1. `Init_runStartedAt` (string, `utcNow()`)
+2. `Init_noticesSent` (integer 0)
+3. `Init_claimFailures` (integer 0)
+4. `Init_errors` (integer 0)
+5. `Init_proceed`, 6. `Init_alertType`, 7. `Init_alertKey`, 8. `Init_recipientEmail` (strings)
+9. `Get_open_obligations` (the query of section 3)
+10. `Apply_to_each_obligation` (Foreach, concurrency 1 **(existing pattern)**) containing, in this order:
+    1. `Set_proceed`: the **cap check** (section 7): `yes` only while `noticesSent` is below 5
+    2. `Reset_alertType`, 3. `Reset_alertKey`, 4. `Reset_recipientEmail` (Set variable to `string('')`, never an empty literal)
+    5. `Gate_prepare` (If `proceed` is `yes`) containing:
+        1. `Set_alertType` (overdue or due soon, section 3)
+        2. `Get_contract` (`mwf_name`, `mwf_contractnumber`, `_ownerid_value`)
+        3. `Get_owner_user_list` (the address of the contract owner), 4. `Set_recipient_owner`: **before anything is written** **(existing pattern)**
+        5. `Set_alertKey` (the generated key expression, section 9)
+        6. `Gate_guard` (If the recipient is not empty **and** the key passes the guard, section 10):
+            - true: 1. `Get_obligation_before_claim` (`mwf_status`, `mwf_duedate`), then 2. `Check_obligation_still_due` (If still Open and the due date unchanged) containing:
+                1. `Insert_claim`: **the claim** (section 6)
+                2. `Increment_noticesSent`: runs **only after `Insert_claim` Succeeded**
+                3. `Send_alert_email`: runs **only after `Increment_noticesSent` Succeeded**, so only on the success path of the claim
+                4. `Compose_claim_failure`: runs **only after `Insert_claim` Failed or TimedOut**; records the real outputs of the failed insert
+                5. `Increment_claimFailures` (after `Compose_claim_failure`)
+            - false: `Increment_errors` (nothing is inserted, nothing is sent)
+11. `Check_errors` (If `errors` is above 0) containing `Terminate_run_failed` (status Failed). **After** the loop and **not inside any loop**.
 
-After the loop: if `errors` is above 0, end the run as **Failed** (a Terminate action with status Failed), so a problem is visible in the run history instead of being swallowed. (The reminders flow has no Terminate: a failed action fails its run. Here a handled failure would not, see section 6.)
+**Order of the three decisive writes:** claim (insert), then count, then send; a claim is never undone, so a failed send loses that alert (ADR-011, "Known risks"). The real action count and the nesting depth are computed by the generator from this definition (section 14).
 
 ## 5. Recipient
 
-The **owner of the contract** always, also for obligations of the second party (ADR-011, decision 8). One recipient. **(assumption)** that the contract owner is the right person; who receives the alert when the owner is disabled or has left is an open question (ADR-011, open question 6). In this development environment every address resolves to the test account, so the recipient logic is not distinguishable from "everything goes to one mailbox" **(not proven)**.
+The **owner of the contract** always, also for obligations of the second party (ADR-011 decision 8). **(assumption)** that the contract owner is the right person; who receives the alert when the owner is disabled or has left is open (ADR-011 open question 6). In this development environment every address resolves to the test account, so the recipient logic cannot be told apart from "everything goes to one mailbox" **(not proven)**. An empty address blocks the claim and counts as an error.
 
-## 6. Claim first, and how the duplicate is detected
+## 6. Claim first, fail closed, and what is recorded
 
-- The claim is a `Create a new row` (Dataverse connector) into `mwf_alertlogs` with `mwf_alertkey` and `mwf_name` = the key.
+- **The claim** is `Insert_claim`: a `Create a new row` (Dataverse connector, operation `CreateRecord`, **(not verified)** that this is the operation id and that the parameters are `entityName` and `item/<column>` as for `UpdateOnlyRecord`) into `mwf_alertlogs` with `mwf_alertkey` and `mwf_name` = the key. `mwf_alertlog` is the only table the flow writes.
 - **What the server did, measured directly against the Web API (one run, N = 5, not Power Automate):** a duplicate non-empty key gives **HTTP 412** with `{"error":{"code":"0x80060892","message":"Entity Key Alert Log Key violated. A record with the same value for Alert Key already exists. A duplicate record cannot be created. Select one or more unique values and try again."}}` **(measured)**.
-- **The design reads the code `0x80060892` in the body, not the status** (the status is undocumented; one measurement is not a contract, ADR-011 decision 5).
-- **How the flow takes the branch:** the action after `Claim` has **run-after = Succeeded and Failed** (a failed action does not stop the iteration). It is a condition:
-  - the claim **Succeeded** -> step 7 of section 4;
-  - the claim **Failed** and the text of the failed action's outputs **contains `0x80060892`** -> **skip**: `duplicates` + 1, no counter, **no email**;
-  - the claim **Failed** for any other reason -> `errors` + 1, no email.
-- **(not proven) Three things nobody has seen:** (a) **what the Dataverse connector puts in the outputs of a failed insert** (whether the body, the code or the HTTP status is in `outputs(...)` and in which shape); the condition above is written on a **search of the whole outputs text** because that shape is unknown; (b) **whether the connector retries a 412** before it reports the failure (a retry would not change the outcome but would change the timing); (c) **whether a failure that the run-after handles still marks the iteration or the run as Failed** in the run history. The first build step must therefore be a **discovery run** with a deliberately duplicated key, reading the real failed output before the condition is trusted. If the shape differs, the condition is rewritten; nothing else in this spec depends on it.
-- **What is skipped on a duplicate:** the cap counter, the email and any write. Nothing is retried within the run.
+- **Fail closed (decision, test variant and production variant alike):** **no email unless the claim insert succeeded.** The email action is reachable only through actions whose `runAfter` is `Succeeded` back to `Insert_claim`. **Any failure of the insert, a 412, any other status, a timeout, skips the send.** The flow does **not** try to tell a duplicate from another failure in order to decide anything: both skip.
+- **Recorded separately:** on a failed insert `Compose_claim_failure` stores the status, the error and the outputs of `Insert_claim` and the key, and `claimFailures` is incremented. These are visible in the run history. They are not an error of the run (a duplicate is the normal case for an obligation alerted before and still inside the window), so they do **not** end the run as Failed; other problems (`errors`: no recipient, a key that fails the guard) do, after the loop.
+- **No separate discovery flow.** The shape of a failed insert is learned in **test case 13** (section 15): an obligation whose alert log row was inserted beforehand, so the flow's own insert is rejected inside a real run.
+- **Unknown until test case 13 (not proven):** (a) **the real output shape of a failed insert** in Power Automate (which fields of `actions('Insert_claim')` carry the status, the code and the message); (b) **whether the connector retries** a 412 before it reports the failure; (c) **whether a failure handled by `runAfter` still marks the iteration or the run as Failed** in the run history. The design does not depend on the answers (fail closed either way); the **diagnosis** does: if the run turns out to be marked Failed for every duplicate, the run history is noise and the design needs another way to record duplicates. That would be a finding, not a surprise to hide.
+- **What is skipped on a failed insert:** the counter, the email, and every later step for that obligation. Nothing is retried within the run.
 
 ## 7. The cap
 
-- **Global 5 per run** (hard-coded, as in ADR-010; **no default to change**). It counts **successful claims** (inserts that returned success), not obligations visited and not duplicates.
-- The cap is **checked before the claim** (section 4 step 1) and the counter is **incremented after a successful claim, before the send**. So at most **5 inserts succeed and at most 5 emails are attempted per run**; an obligation that meets the cap is not claimed and waits for a later run.
-- **Duplicates and errors do not consume the cap**, so an old, already-claimed obligation never uses up the 5; it costs one failed insert per run instead (section 3, known weakness).
-- With **overlapping runs** each run has its own counter, so the two together can exceed 5 within the same minute **(estimate: at most 5 per overlapping run)**.
+- **Global 5 per run** (hard-coded, as in ADR-010; no default to change). It counts **successful claims only**: `Increment_noticesSent` runs only after `Insert_claim` Succeeded.
+- **Skipped duplicates do NOT count toward the cap**, and neither do failed inserts, guard failures or obligations that changed. An old, already-claimed obligation therefore never uses up the 5; it costs one failed insert per run while it is inside the window.
+- The cap is **checked before the claim** (`Set_proceed`, first action of each iteration): at 5, the obligation is not claimed and waits for a later run (while it is still inside the window). So at most **5 inserts succeed and at most 5 emails are attempted per run**.
+- With **overlapping runs** each run has its own counter, so two together can exceed 5 within the same minute **(estimate: at most 5 per overlapping run)**.
 
 ## 8. The email (informational only)
 
-One text per alert type; sample text, to be edited by the owner (the same status as the reminders flow's texts). Subject prefix `[Muwafaqa test] ` in the test variant only.
+One generated text, with the due-soon or overdue wording chosen by `alertType`; sample text, to be edited by the owner. Subject prefix `[Muwafaqa test] ` in the test variant only.
 
-- **Due soon:** subject `Obligation due soon: <obligation name> (contract <contract name>)`. Body: the obligation, the contract number, the **due date in UTC (stated as UTC)**, the party (not in the first version unless the owner wants it), and "this is an informational notice; nothing was changed; nobody has to answer".
-- **Overdue:** subject `Obligation overdue: <obligation name> (contract <contract name>)`. Body: the same, "the due date has passed and the obligation is still Open".
-- A link to the **obligation** record, built like the reminders flow's link to the contract (`https://<ORG_HOST>/main.aspx?etn=mwf_obligation&pagetype=entityrecord&id=<id>`, host replaced in memory at creation and scrubbed in `src/`). **(not proven)** that this link opens the record: the app has no form for the obligation yet (ADR-011, open question 4 is about roles; forms and the model-driven app are not designed at all).
-- Email through Office 365 Outlook "Send an email (V2)" with the connection reference of the reminders flow **(existing: 12 messages arrived in the two windows of 2026-10-29)**. The nested parameter keys (`emailMessage/To`, `/Subject`, `/Body`) are the ones that worked there.
+- **Due soon:** subject `Obligation due soon: <obligation name> (contract <contract name>)`. **Overdue:** `Obligation overdue: <obligation name> (contract <contract name>)`. Body: the obligation, the contract number, the **due date in UTC (stated as UTC)**, and "this is an informational notice; nothing was changed; nobody has to answer".
+- A link to the **obligation** record built like the reminders flow's link to the contract (`https://<ORG_HOST>/main.aspx?etn=mwf_obligation&pagetype=entityrecord&id=<id>`; the host is replaced in memory at creation and scrubbed in `src/`). **(not proven)** that it opens a record: there is no form or app page for the obligation yet.
+- Office 365 Outlook "Send an email (V2)", the connection reference of the reminders flow, the nested keys (`emailMessage/To`, `/Subject`, `/Body`) **(existing: 12 messages arrived in the two windows of 2026-10-29)**.
 
 ## 9. The key expression
 
-`<lower-case obligation GUID>-<TYPE>-<yyyyMMdd of mwf_duedate in UTC>`, for example type `OBLIGATION-OVERDUE`. The rule of ADR-011 ("Key construction in the flow") applies:
+`<lower-case obligation GUID>-<TYPE>-<yyyyMMdd of mwf_duedate in UTC>`. The rule of ADR-011 ("Key construction in the flow") applies:
 
-1. **The generator emits the expression** (from the same parts as `scripts/lib/alert-key.mjs`: `toLower(guid)`, the TYPE literal chosen by the due-date test of section 3, `formatDateTime(duedate, 'yyyyMMdd')` on the UTC value, joined by `-`).
-2. **Offline tests compare the expression's output with `alert-key.mjs`** on samples (lower-case GUID and one in capitals, each TYPE of this flow, an end-of-month date and a leap day) **before any build is applied**. This needs an evaluator for the few expression functions used; if none is written, the gap is stated in the test output.
+1. **The generator emits the expression** (never typed in the designer): `concat(toLower(string(<obligation id>)), '-', <alertType>, '-', formatDateTime(<due date>, 'yyyyMMdd'))`.
+2. **Offline tests compare the expression's output with `scripts/lib/alert-key.mjs`** on samples: a lower-case GUID and one in capitals, a date as `yyyyMMdd` (including an end-of-month and a leap day), **each of the four TYPE values**, and cases that must be rejected (empty, too long). They run through a **small evaluator** of the expression subset used (`scripts/lib/flow-expression-eval.mjs`). **Its limits:** it implements only the functions this flow uses; `formatDateTime` is implemented for the formats `yyyyMMdd` and `yyyy-MM-ddTHH:mm:ssZ` on ISO UTC strings; it is **not** Power Automate, so it proves the **expression text** against `alert-key.mjs`, not the behavior of the real engine.
 3. The guard of section 10 runs on the result.
 
-**(not proven)** that `formatDateTime` on the connector's `mwf_duedate` string gives the **UTC** date in every case (the column is Date and Time with user-local behavior and is returned in UTC as an ISO string; no test has run).
+**(not proven)** that `formatDateTime` on the connector's `mwf_duedate` string gives the **UTC** date in every case (no run has tested it).
 
 ## 10. The guard against an empty or out-of-length key
 
-**Measured:** the server **accepts an empty-string key twice and a null key twice (HTTP 204, two rows each)**; ApplicationRequired is not enforced for API writes. The server therefore will not stop a bad key; the flow must. **Before the insert** the flow checks that the key **is not empty**, **is not longer than 100** (the column length), and **has the shape** `<guid>-<TYPE>-<yyyyMMdd>` as far as the expression language allows (length 36 + `-` + a known TYPE + `-` + 8 digits). On failure: no insert, no email, `errors` + 1. The guard is part of the flow, not of the server.
+**Measured:** the server **accepts an empty-string key twice and a null key twice (HTTP 204, two rows each)**; ApplicationRequired is not enforced for API writes. The flow must therefore stop a bad key. `Gate_guard` lets the iteration go on only if the key **is not empty**, its **length is exactly the length of a valid key of this flow** (64 for both types of this flow: 36 + 1 + 18 + 1 + 8, derived by the generator from `alert-key.mjs`), the key **contains `-<alertType>-`**, and the recipient is not empty. On failure nothing is inserted and nothing is sent, and `errors` is incremented (the run ends Failed after the loop). The guard checks emptiness, length and the type segment only; it does not check that the other 8 characters are digits or that the GUID is well formed **(limit)**.
 
 ## 11. Overlapping runs
 
-- Protection is **the alternate key**, not the trigger setting. A second run that reaches the same obligation gets the duplicate rejection and skips it. **Measured only directly against the Web API from one client: 5 parallel inserts of one key gave 1 success and 4 rejections (412, `0x80060892`). Not seen from two real flow runs (not proven).**
-- Sequential loop (concurrency 1) inside one run, so a run does not race itself.
-- The run interval should exceed the run length; in the test variant overlaps are expected (estimate, from the reminders flow).
-- Not covered: the cap counts per run (section 7).
+- Protection is **the alternate key**, not the trigger setting. A second run that reaches the same obligation gets a failed insert and skips the email. **Measured only directly against the Web API from one client: 5 parallel inserts of one key gave 1 success and 4 rejections (412, `0x80060892`). Not seen from two real flow runs (not proven).**
+- Sequential loop (concurrency 1) inside one run.
+- The run interval should exceed the run length; in the test variant overlaps are expected **(estimate)**.
+- The cap counts per run (section 7).
 
-## 12. The key must be Active (ADR-011, decision 6)
+## 12. The key must be Active: an accepted, documented risk
 
-An insert into `mwf_alertlog` **while the key index is not Active would succeed twice** (uniqueness is not in effect). The scripts refuse to run unless `EntityKeyIndexStatus` is Active. **The flow has no known way yet to do the same: a table row query reads rows, not metadata (not verified that nothing else in the connector can).** Options, none tried: the Dataverse connector's raw HTTP action against `EntityDefinitions(...)/Keys` (**not verified to exist or to be allowed**), or accepting the risk because the key is Active and the flow is built only after that. **Open question 1.** After a solution import the key must be re-checked (ADR-011; import not tested).
+An insert into `mwf_alertlog` **while the key index is not Active would succeed twice** (uniqueness not in effect). The scripts refuse to run unless `EntityKeyIndexStatus` is Active. **The flow cannot check this from inside, as far as we know** (a row query reads rows, not metadata; not verified that nothing else in the connector can). **Decision: this is an accepted, documented risk.** What reduces it: the key is Active now; the flow is built only after that; and **after a solution import the owner checks the key before turning the flow on** (runbook step R16b in [rebuild-runbook.md](rebuild-runbook.md), **[NOT TESTED]**). Nothing in the flow protects against a key that is Pending or Failed after an import.
 
 ## 13. Test variant and production variant
 
+One generator, two variants. They differ **only** in the three parameters and the subject prefix; a unit test enforces it.
+
 | | test | production |
 |---|---|---|
-| Recurrence | every 1 minute | 15 minutes (**placeholder; estimate**) |
-| Lead time (due soon) | **5 minutes**, a constant of the test variant chosen so that a seeded obligation becomes due-soon within one window (ADR-011, decision 9) | **a required named parameter of the generator, with no default in code**; the generator refuses to build the production variant without it; **the value is an open question for the owner, no number is proposed** |
+| Recurrence interval | **1 minute (test constant)** | **required parameter `--interval-minutes`, no default** |
+| Lead time (due soon) | **5 minutes (test constant**, chosen so that a seeded obligation becomes due-soon within one window; ADR-011 decision 9) | **required parameter `--lead-minutes`, no default; open question 1** |
+| Lookback window | **30 minutes (test constant**, chosen so that an obligation due 10 minutes ago is inside and one due 2 hours ago is outside) | **required parameter `--lookback-minutes`, no default; open question 1** |
 | Email subject | starts with `[Muwafaqa test] ` | no prefix |
 
-A unit test over the two generated definitions should show that nothing else differs (same as the reminders flow). The flow is created **OFF**; the owner alone turns it on and off.
+The generator **refuses to emit a production definition** unless all three are given as whole minutes (at least 1, at most 525600 as a sanity limit that is not a business rule) with `lookback >= interval`. The flow is created OFF; the owner alone turns it on and off. The generator has **no create, verify or replace mode**: nothing can be created from it yet.
 
-## 14. Size estimate
+## 14. Size
 
-**Estimate, not measured:** about **25 actions** (4 variable initializations, the query, the loop, and per obligation about 15: type, contract read, owner read, owner check, recipient, obligation re-read, key, guard, cap check, claim, result check, counter, send, duplicate counter, error counter; plus the final error check and Terminate) and **nesting depth about 6** (loop, guard, cap, result, duplicate branch, counter). Limits for comparison: 500 actions and depth 8 (Learn, limits-and-config, **not re-read in this session**). The reminders flow has 42 actions and depth 7 **(measured, generator)**, so a flow of this shape is plausible **(estimate)**.
+Computed from the generated definition by `scripts/build-flow-obligation-alerts.mjs --mode=plan` (the real numbers are written here when the generator exists). The limits are 500 actions and nesting depth 8 (Learn, limits-and-config, **not re-read in this session**); the generator's check fails above either. For comparison the reminders flow has 42 actions and depth 7 **(measured, generator)**.
 
-## 15. Test plan (one window, owner turns the flow ON and OFF; the scripts never do)
+## 15. Test plan (one window; the owner turns the flow ON and OFF; the scripts never do)
 
-Same discipline as the reminders windows: all test rows carry the prefix `TEST-TMP-OBL-` in `mwf_name`; the script writes only those rows and their alert log rows; baseline first, cleanup last; counters snapshotted and restored by the rule of `scripts/lib/counter-snapshot.mjs` (creating a contract takes a number).
+Same discipline as the reminders windows. Rows carry the prefix `TEST-TMP-OBL-` in `mwf_name`; the script writes only those rows and their alert log rows; baseline first, cleanup last; counters snapshotted and restored by the rule of `scripts/lib/counter-snapshot.mjs` (creating a contract takes a number). Test constants: lead 5 minutes, lookback 30 minutes, interval 1 minute. Nothing here is written yet: the session script does not exist.
 
-- **Seed:** one fictitious counterparty and one fictitious contract (a state in which it can hold obligations; the guard of ADR-004 is not involved because the flow does not write to the contract), and obligations:
-  - **O1 positive control:** Open, due in about 3 minutes (inside the 5-minute lead time) -> one `OBLIGATION-DUESOON` alert. The window is judged only if this one fired.
-  - **O2:** Open, already overdue -> one `OBLIGATION-OVERDUE` alert.
-  - **O3:** Disputed, overdue -> no alert. **O4:** Done, overdue -> no alert. **O5:** Open, due far in the future -> no alert.
-  - **O6 to O12 (7 obligations):** Open, overdue -> **5 alerts in the first run that sees them, the rest in the next** (the cap).
-  - **O13:** Open, overdue, with its `mwf_alertlog` row **inserted by the test before the window** (the key built by `alert-key.mjs`) -> **no email, no new row** (the duplicate path). This is the only case that exercises the duplicate branch **inside Power Automate**.
-- **Checks by script (read only during the window):** alert log rows per key (exactly one per alerted obligation, none for O3, O4, O5), the keys equal the output of `alert-key.mjs` for each obligation, run history statuses, **no obligation changed** (modifiedon unchanged), no empty key row, the key index still Active.
-- **Duplicate-notice check:** the number of emails received (the owner counts them in the mailbox, by eye) must equal the number of **new** alert log rows of the window; no key appears twice; no obligation is mentioned in two emails of the same type.
-- **Overlap:** the window runs on a 1-minute interval; if two runs overlap (start and end times from the run history), that fact and the rows they touched are reported; the check above is the verdict on duplicates. If no overlap happens, the overlap case is **not covered** and the report says so.
-- **Discovery step before the first window:** one run with a deliberately duplicated key to read the **real output of a failed insert** and the run status it leaves (section 6, three unknowns).
-- **Cleanup and baseline restore:** delete the test obligations, the test contract and counterparty, **and the alert log rows whose key starts with the id of a test obligation** (the owner's test account holds the delete privilege that no project role has; the script identifies these rows by the ids it created and by the seeded O13 row, never by guess); counters restored; **final baseline 11 contracts, 110 matrix rows, 5 assignments, 0 steps, 0 obligations, 0 alert log rows, all five flows Off, counters [0,0,0,0,0]**.
+- **Seed:** one fictitious counterparty and one fictitious contract, and obligations:
+  - **O1 positive control:** Open, due in about 3 minutes (inside the lead time) -> one `OBLIGATION-DUESOON` alert. The window is judged only if this fired.
+  - **O2:** Open, due 10 minutes ago (inside the lookback) -> one `OBLIGATION-OVERDUE` alert.
+  - **O3:** Disputed, due 10 minutes ago -> no alert. **O4:** Done, due 10 minutes ago -> no alert. **O5:** Open, due in 2 hours -> no alert.
+  - **O6 to O12 (7 obligations):** Open, due 10 minutes ago -> **5 alerts in the first run that sees them, the other 2 in the next run (the cap).**
+  - **O13:** Open, due 10 minutes ago, with its `mwf_alertlog` row **inserted by the test before the window** (key built by `alert-key.mjs`) -> **no email, no new row**. The flow's own insert fails here: **this is where the real output shape of a failed insert, a possible retry, and the run status are observed** (section 6). The run history of that run is read by the owner.
+  - **O14:** Open, due 2 hours ago (outside the lookback) -> **no alert**, on purpose: it shows the cost of the lookback (section 3).
+- **Checks by script (read only during the window):** alert log rows per key (exactly one for each alerted obligation, none for O3, O4, O5, O14; the pre-inserted row of O13 only), each key equals the output of `alert-key.mjs` for its obligation, no empty key row, no obligation changed (`modifiedon`), the key index still Active, the run statuses.
+- **Duplicate-notice check:** the emails received (the owner counts them in the mailbox, by eye) must equal the number of **new** alert log rows of the window; no key appears twice; no obligation is in two emails of the same type.
+- **Overlap:** if two runs overlap (start and end times from the run history), that and the rows they touched are reported; the duplicate check is the verdict. If none overlaps, the overlap case is **not covered** and the report says so.
+- **Cleanup and baseline restore:** delete the test obligations, contract and counterparty, **and the alert log rows whose key starts with the id of a test obligation** (the owner's test account holds the delete privilege no project role has; rows are identified by the ids the script created, never by guess); counters restored; **final baseline 11 contracts, 110 matrix rows, 5 assignments, 0 steps, 0 obligations, 0 alert log rows, all five flows Off, counters [0,0,0,0,0]**.
 
 ## 16. Not proven / open questions
 
-**Not proven (nothing here has run):**
-1. Everything in this spec: no flow, generator or session script exists.
-2. That the Dataverse connector exposes the code `0x80060892` (or the 412) of a failed insert in a form a condition can read, and **what a handled failed insert does to the run status** (section 6).
-3. That the duplicate branch works under overlapping real runs (measured only: 5 parallel direct calls, one run).
-4. That the UTC date of `mwf_duedate` formats to the expected `yyyyMMdd` in every case; that the expression for the key equals `alert-key.mjs` (needs the offline comparison of section 9).
-5. That the obligation link opens a record (no form or app page for it).
-6. That the recipient logic works for more than one user (every address is the test account).
-7. The behavior with more than 50 candidates (section 3, known weakness) and after a solution import.
-8. The size and depth in section 14 (estimates).
+**Not proven (nothing here has run; the generator is offline):**
+1. Everything in this spec: no flow exists and the session script is not written.
+2. **The output shape of a failed insert in Power Automate, whether the connector retries, and whether a handled failure marks the run Failed** (until test case 13).
+3. That the operation id `CreateRecord` and the parameters `entityName`, `item/mwf_alertkey`, `item/mwf_name` are right for the Dataverse connector (the existing flows use only `ListRecords`, `GetItem` and `UpdateOnlyRecord`).
+4. That `formatDateTime` gives the UTC date of `mwf_duedate` in every case, and that the generated expression equals `alert-key.mjs` **in the real engine** (the offline evaluator proves the text, not the engine).
+5. That the duplicate path works under overlapping real runs (measured only: 5 parallel direct calls, one run).
+6. That the obligation link opens a record; that the recipient logic works for more than one user.
+7. The behavior with more than 50 obligations inside the window; after a solution import; with the key not Active (accepted risk, section 12).
 
 **Open questions (the owner):**
-1. **How the flow checks that the key is Active** (section 12), or whether the risk is accepted.
-2. **Production lead time** and the **production recurrence** (placeholders).
+1. **Production lead time and lookback window.** The lookback decides which downtimes lose alerts (section 3). No number is proposed.
+2. **Production recurrence interval** (required parameter, no number proposed).
 3. **Repeated overdue alerts** (the key gives one per due date; ADR-011 open question 2).
-4. **How to bound the query** for old, already-alerted obligations (section 3).
-5. **Who receives** the alert when the contract owner cannot (ADR-011 open question 6).
-6. **Email texts**, and whether the party and a link belong in them.
-7. **Roles and forms for the obligation** (ADR-011 open question 4): who creates obligations at all, and where.
+4. **Who receives** the alert when the contract owner cannot (ADR-011 open question 6).
+5. **Email texts**, and whether the party and a link belong in them.
+6. **Roles and forms for the obligation** (ADR-011 open question 4).
