@@ -33,7 +33,7 @@ One server-side `List rows` on `mwf_obligations` (Dataverse connector) **(existi
 
 ## 4. Order of actions
 
-Numbered as the generator emits them (a unit test compares this list with the generated definition). Names are the real action names; variables are `runStartedAt`, `noticesSent`, `claimFailures`, `errors`, `proceed`, `alertType`, `alertKey`, `recipientEmail`.
+Numbered as the generator emits them (a unit test compares this list with the generated definition: same names, none missing, none extra). Names are the real action names; variables are `runStartedAt`, `noticesSent`, `claimFailures`, `errors`, `proceed`, `alertType`, `alertKey`, `recipientEmail`.
 
 Top level:
 1. `Init_runStartedAt` (string, `utcNow()`)
@@ -47,10 +47,10 @@ Top level:
     2. `Reset_alertType`, 3. `Reset_alertKey`, 4. `Reset_recipientEmail` (Set variable to `string('')`, never an empty literal)
     5. `Gate_prepare` (If `proceed` is `yes`) containing:
         1. `Set_alertType` (overdue or due soon, section 3)
-        2. `Get_contract` (`mwf_name`, `mwf_contractnumber`, `_ownerid_value`)
-        3. `Get_owner_user_list` (the address of the contract owner), 4. `Set_recipient_owner`: **before anything is written** **(existing pattern)**
-        5. `Set_alertKey` (the generated key expression, section 9)
-        6. `Gate_guard` (If the recipient is not empty **and** the key passes the guard, section 10):
+        2. `Get_contract` (a `List rows` on `mwf_contracts` by id: `mwf_name`, `mwf_contractnumber`, `_ownerid_value`; the same read pattern as the reminders flow)
+        3. `Check_contract_found` (If a contract came back) containing 1. `Get_owner_user_list` (the address of the contract owner) and 2. `Set_recipient_owner`: **before anything is written** **(existing pattern)**
+        4. `Set_alertKey` (the generated key expression, section 9)
+        5. `Gate_guard` (If the recipient is not empty **and** the key passes the guard, section 10):
             - true: 1. `Get_obligation_before_claim` (`mwf_status`, `mwf_duedate`), then 2. `Check_obligation_still_due` (If still Open and the due date unchanged) containing:
                 1. `Insert_claim`: **the claim** (section 6)
                 2. `Increment_noticesSent`: runs **only after `Insert_claim` Succeeded**
@@ -131,7 +131,7 @@ The generator **refuses to emit a production definition** unless all three are g
 
 ## 14. Size
 
-Computed from the generated definition by `scripts/build-flow-obligation-alerts.mjs --mode=plan` (the real numbers are written here when the generator exists). The limits are 500 actions and nesting depth 8 (Learn, limits-and-config, **not re-read in this session**); the generator's check fails above either. For comparison the reminders flow has 42 actions and depth 7 **(measured, generator)**.
+**Real numbers, computed by `scripts/build-flow-obligation-alerts.mjs --mode=plan` from the generated definition (not estimates): 32 actions, nesting depth 5**, the same for the test and a production variant. The limits are 500 actions and nesting depth 8 (Learn, limits-and-config, **not re-read in this session**); the generator's check fails above either. For comparison the reminders flow has 42 actions and depth 7 **(measured, generator)**. A unit test holds the two numbers, so a change of the definition is noticed. They say that the definition is far from the limits; they say nothing about whether it works.
 
 ## 15. Test plan (one window; the owner turns the flow ON and OFF; the scripts never do)
 
@@ -155,7 +155,7 @@ Same discipline as the reminders windows. Rows carry the prefix `TEST-TMP-OBL-` 
 1. Everything in this spec: no flow exists and the session script is not written.
 2. **The output shape of a failed insert in Power Automate, whether the connector retries, and whether a handled failure marks the run Failed** (until test case 13).
 3. That the operation id `CreateRecord` and the parameters `entityName`, `item/mwf_alertkey`, `item/mwf_name` are right for the Dataverse connector (the existing flows use only `ListRecords`, `GetItem` and `UpdateOnlyRecord`).
-4. That `formatDateTime` gives the UTC date of `mwf_duedate` in every case, and that the generated expression equals `alert-key.mjs` **in the real engine** (the offline evaluator proves the text, not the engine).
+4. That `formatDateTime` gives the UTC date of `mwf_duedate` in every case, and that the generated expression equals `alert-key.mjs` **in the real engine** (the offline evaluator proves the text, not the engine); that the due date read by `List rows` and the one read again by `Get item` are written in the same way, because `Check_obligation_still_due` compares them as text (if they differ, no alert is ever claimed: visible, not silent).
 5. That the duplicate path works under overlapping real runs (measured only: 5 parallel direct calls, one run).
 6. That the obligation link opens a record; that the recipient logic works for more than one user.
 7. The behavior with more than 50 obligations inside the window; after a solution import; with the key not Active (accepted risk, section 12).
