@@ -191,6 +191,9 @@ test('MUTATIONS: each broken definition makes exactly the right check fail', () 
     ['a real e-mail address in the definition', (c) => { find(c, 'Send_alert_email').action.inputs.parameters['emailMessage/Subject'] += ` ${['someone', 'example.net'].join('@')}`; }, /no email address/],
     ['a real host in the definition', (c) => { find(c, 'Send_alert_email').action.inputs.parameters['emailMessage/Body'] += ['https://org1234', 'crm4', 'dynamics', 'com'].join('.'); }, /placeholder <ORG_HOST>/],
     ['a loop that is not sequential', (c) => { find(c, 'Apply_to_each_obligation').action.runtimeConfiguration.concurrency.repetitions = 5; }, /one at a time/],
+    ['a loop whose concurrency is NOT pinned (no runtimeConfiguration: the default would apply)', (c) => { delete find(c, 'Apply_to_each_obligation').action.runtimeConfiguration; }, /one at a time/],
+    ['a loop with a concurrency block but no repetitions', (c) => { find(c, 'Apply_to_each_obligation').action.runtimeConfiguration = { concurrency: {} }; }, /one at a time/],
+    ['a loop with the concurrency written as a string', (c) => { find(c, 'Apply_to_each_obligation').action.runtimeConfiguration.concurrency.repetitions = '1'; }, /one at a time/],
     ['a second trigger interval', (c) => { c.properties.definition.triggers.Recurrence.recurrence.interval = 7; }, /exactly one trigger/],
   ];
   for (const [label, mutate, expected] of cases) {
