@@ -69,6 +69,7 @@ if (isMain) {
   const { parseArgs, openSession, noGuid, sleep, Stop } = await import('./lib/dv-session.mjs');
   const { snapshotCounters, ctrIo, trackCreate, restoreFromArgs, printHandoff, requireStableConnection } = await import('./lib/counter-snapshot.mjs');
   const { deleteContracts } = await import('./lib/contract-cleanup.mjs');
+  const { readAlertTableCounts, alertTablesVerdict } = await import('./lib/alert-tables-baseline.mjs');
   const { enterCleanupPhase, recheckAfterWait } = await import('./lib/resilient-fetch.mjs');
   const { expectContractsOrExit, describeExpectContracts, contractsVerdict } = await import('./lib/expect-contracts.mjs');
   const { env: ENV, auth: AUTH } = parseArgs(argv);
@@ -133,6 +134,8 @@ if (isMain) {
     check('counts', `contracts ${EXPECT.value}, active matrix rows 110, active assignments 5, approval steps 0`, c.contracts === EXPECT.value && c.matrix === 110 && c.assignments === 5 && c.steps === 0, JSON.stringify(c));
     if (c.contracts !== EXPECT.value) console.log(`MISMATCH ${contractsVerdict(EXPECT, c.contracts).text}`);
     check('rows', `no contract and no counterparty of this session (${FAMILY}...) exists`, family === 0 && familyCp === 0, `${family} contract(s), ${familyCp} counterparty(ies)`);
+    // ADR-011 tables: 0 rows when they exist; "not created yet" is an observation, not a failure (read only)
+    for (const l of alertTablesVerdict(await readAlertTableCounts(S.call)).lines) out('alert', l.status, l.name, l.detail);
     const flows = await allFlows();
     check('flows', 'EVERY flow row of the environment is OFF', flows.length > 0 && flows.every((f) => f.statecode === 0), flows.map((f) => `${f.name.slice(0, 28)}=${f.statecode === 0 ? 'OFF' : 'ON'}`).join('; '));
     const fl = await reminderFlow();

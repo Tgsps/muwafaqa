@@ -28,6 +28,7 @@ import { approvalFlowState, describeFlowState, deleteContracts } from './lib/con
 import { enterCleanupPhase } from './lib/resilient-fetch.mjs';
 import { expectContractsOrExit, describeExpectContracts } from './lib/expect-contracts.mjs';
 import { compareProjectRolesOnTables } from './lib/security-roles.mjs';
+import { readAlertTableCounts, alertTablesVerdict } from './lib/alert-tables-baseline.mjs';
 
 const { argOf, env: ENV, auth: AUTH, has } = parseArgs();
 const SOLUTION = argOf('solution') || 'Muwafaqa';
@@ -126,6 +127,9 @@ const check = (id, name, ok, detail) => out(id, ok ? 'PASS' : 'FAIL', name, deta
       const own = (await must('GET', `solutioncomponents?$filter=_solutionid_value eq ${sol[0].solutionid} and objectid eq ${id}&$select=componenttype`)).j.value;
       check('S7', `${table} is a component of the solution`, own.length >= 1, `${own.length} row(s)`);
     }
+
+    // ---- S7b the two tables of ADR-011 (if they exist): 0 rows; absent is an observation, not a failure
+    for (const l of alertTablesVerdict(await readAlertTableCounts(call)).lines) out('S7b', l.status, l.name, l.detail);
 
     // ---- S8 roles with a privilege on the tables
     const privs = await call('GET', `privileges?$select=name&$filter=${q("contains(name,'approvalstep') or contains(name,'approverassignment')")}`);
