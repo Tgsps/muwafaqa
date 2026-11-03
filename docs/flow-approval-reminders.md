@@ -98,8 +98,8 @@ Window 2 sends 4 emails.
 
 ## 5. Not verified (the state before the test windows of 2026-10-29; what the windows showed is in section 8)
 
-- **The parameter keys of Send an email (V2).** Learn ([Office 365 Outlook](https://learn.microsoft.com/en-us/connectors/office365/)) lists flat keys (`To`, `Subject`, `Body`); the designer usually writes `emailMessage/To` and so on. The generator uses the nested style and holds it in one constant (`EMAIL_KEY_STYLE`). The first created row must be opened in the designer and compared; this was the highest-risk item of v2 too. **Update 2026-10-29:** the messages of the two test windows arrived in the owner's mailbox (section 8), so the nested keys were accepted at run time; the action-level run history was not viewed.
-- Expressions: the first live runs of 2026-10-28 failed at the step query of the legacy contract (HTTP 400, section 7); the two test windows of 2026-10-29 then ran the chain on seeded rows and every listed run Succeeded (section 8). Which expression ran in which run is visible only in the action-level run history, which the owner has not viewed yet.
+- **The parameter keys of Send an email (V2).** Learn ([Office 365 Outlook](https://learn.microsoft.com/en-us/connectors/office365/)) lists flat keys (`To`, `Subject`, `Body`); the designer usually writes `emailMessage/To` and so on. The generator uses the nested style and holds it in one constant (`EMAIL_KEY_STYLE`). The first created row must be opened in the designer and compared; this was the highest-risk item of v2 too. **Update 2026-10-29:** the messages of the two test windows arrived in the owner's mailbox (section 8), so the nested keys were accepted at run time; the action-level history of one run was viewed (section 8).
+- Expressions: the first live runs of 2026-10-28 failed at the step query of the legacy contract (HTTP 400, section 7); the two test windows of 2026-10-29 then ran the chain on seeded rows and every listed run Succeeded (section 8). For the action-level history of one run see section 8.
 - The owner of a contract can be a team; then no user is found, no address, and the notice is skipped (not claimed).
 - More than 50 Pending Approval contracts: the newest are not scanned. The production interval of 15 minutes is a placeholder.
 - The trigger's concurrency control is **not** set (whether the Recurrence trigger offers it was not verified); overlapping runs are limited by the interval, the re-read before the claim and the cap.
@@ -170,7 +170,7 @@ Sources: the session script `scripts/test-flow-reminders.mjs` (the verdict, read
 ### Not proven
 
 - **The integration with v2** (v2 simulated by seeded rows: no real approval request, no real answer, no real `Mark_step_Waiting`).
-- **The action-level run history** (Send reminder email, Increment noticesSent) has not yet been viewed by the owner.
+- **Action-level run history, verified for ONE run only (the owner, read only):** The owner viewed the run of 2026-10-29 12:06 (local time) in read-only mode: "Send reminder email" executed SendEmailV2 through the shared_office365 connection and returned statusCode 200, and "Increment noticesSent" succeeded; this matches the message that arrived in the mailbox. The action-level history of the other runs was not viewed.
 - **Duplicate notices under overlapping runs**: none were seen in the step columns or in the mailbox, but the condition was not provoked.
 - Behavior with 50 or more Pending Approval contracts.
 - **The production variant** (interval 15 minutes and the 2880 / 5760 minute values) was never run.

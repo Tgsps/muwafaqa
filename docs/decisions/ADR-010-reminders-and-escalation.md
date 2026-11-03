@@ -112,7 +112,7 @@ Sources: the session script `scripts/test-flow-reminders.mjs` (the verdict, read
 ### Not proven
 
 - **The integration with v2** (v2 simulated by seeded rows: no real approval request, no real answer, no real `Mark_step_Waiting`).
-- **The action-level run history** (Send reminder email, Increment noticesSent) has not yet been viewed by the owner.
+- **Action-level run history, verified for ONE run only (the owner, read only):** The owner viewed the run of 2026-10-29 12:06 (local time) in read-only mode: "Send reminder email" executed SendEmailV2 through the shared_office365 connection and returned statusCode 200, and "Increment noticesSent" succeeded; this matches the message that arrived in the mailbox. The action-level history of the other runs was not viewed.
 - **Duplicate notices under overlapping runs**: none were seen in the step columns or in the mailbox, but the condition was not provoked.
 - Behavior with 50 or more Pending Approval contracts.
 - **The production variant** (interval 15 minutes and the 2880 / 5760 minute values) was never run.
