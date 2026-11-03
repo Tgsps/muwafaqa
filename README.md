@@ -49,6 +49,7 @@ A flow starts after the transaction has committed and can be skipped or raced; a
 - [ADR-008](docs/decisions/ADR-008-security-roles.md): the four roles, least privilege, no bypass privilege, nothing on the counter table.
 - [ADR-009](docs/decisions/ADR-009-auditing.md): Dataverse auditing; the 365-day retention is provisional.
 - [ADR-010](docs/decisions/ADR-010-reminders-and-escalation.md) (**Proposed**, not built): reminders and escalation of pending approvals through a separate scheduled flow.
+- [ADR-011](docs/decisions/ADR-011-obligations-and-renewal-alerts.md) (**Proposed**, nothing built or run): obligations, renewal and due alerts, an alert log with an alternate key as the claim. Offline code only (unit tested, not run against the environment).
 
 ## What is built and tested
 
@@ -57,7 +58,7 @@ Every number below comes from the documents linked next to it; the test scripts 
 | Area | Result | Run with |
 |---|---|---|
 | Plug-in unit tests (`dotnet test`) | 346 passed, 0 failed | no environment needed |
-| Script unit tests (`node --test`) | 358 tests: 357 pass, 1 skipped on purpose (it compares a constant with a file that no longer exists), 0 fail | no environment needed |
+| Script unit tests (`node --test`) | 420 tests: 419 pass, 1 skipped on purpose (it compares a constant with a file that no longer exists), 0 fail | no environment needed |
 | Contract form script (UX only, not security; [docs/contract-form-js.md](docs/contract-form-js.md)) | 16 unit tests of the logic against a fake form object. **Manual test by me on the real model-driven app, 2026-10-26, with the System Administrator account: PASS after a fix (the first attempt left four of five columns editable); one limitation, not fixed: after Activate / Deactivate the form keeps the old locks until Refresh. Not tested: other browsers, the card and quick forms, a non-admin user** | my account (a System Administrator), by hand in the real app |
 | State guard, server | 76 PASS, 0 FAIL, 4 OBS (last run 2026-10-25, after flow v1 was deleted; [ADR-007](docs/decisions/ADR-007-approval-chain.md), regression section; design in [ADR-004](docs/decisions/ADR-004-contract-state-guard.md)) | my account (a System Administrator) through the Web API |
 | Contract number, server | 18 PASS, 0 FAIL in the full run (last run 2026-10-25, [ADR-007](docs/decisions/ADR-007-approval-chain.md), regression table); 20 parallel creates, three rounds in a row, gave unique consecutive numbers ([ADR-006](docs/decisions/ADR-006-contract-number-generator.md)) | same |
@@ -112,7 +113,7 @@ src/         unpacked solution (tables, roles, flow v2, app, plug-in steps)
 plugins/     the C# plug-ins and their unit tests
 scripts/     Node scripts: create and verify schema, seed data, server tests, audit and role tools (see scripts/README.md)
 docs/        specifications, the plug-in registration log, the rebuild runbook
-  decisions/ ADR-001 to ADR-009
+  decisions/ ADR-001 to ADR-011
 data/        fictional seed and demo data
 pcf/         placeholder (empty)
 pipelines/   placeholder (empty)

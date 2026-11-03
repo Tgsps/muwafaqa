@@ -121,7 +121,7 @@ export function planLines() {
       L.push(`  COLUMN ${c.table}.${c.logical} (${c.schema}) "${c.display}": ${shape}; required level ${c.required}; audit ${c.audit ? 'ON' : 'OFF'}`);
       L.push(`      ${c.description}`);
     }
-    for (const k of KEYS.filter((x) => x.table === t.logical)) L.push(`  KEY ${k.schema} on (${k.attributes.join(', ')}) "${k.display}"; the index is built asynchronously, the script waits for Active`);
+    for (const k of KEYS.filter((x) => x.table === t.logical)) L.push(`  KEY ${k.schema} on (${k.attributes.join(', ')}) "${k.display}"; the index is built asynchronously; --mode=verify fails until its status is Active`);
   }
   L.push('NOT created by this script: any security role or privilege (no project role gets anything on mwf_alertlog; the roles for mwf_obligation are not designed yet, ADR-011 open question).');
   return L;
