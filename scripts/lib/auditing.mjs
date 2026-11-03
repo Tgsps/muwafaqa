@@ -228,3 +228,55 @@ export function relevantDiffs(kind, diffs) {
   if (kind !== 'attr') return diffs;
   return diffs.filter((d) => !VOLATILE_COLUMN_PATHS.includes(d.path));
 }
+
+// ---------------------------------------------------------------------------------------------------------------- ADR-011: two column settings of the new tables
+/**
+ * The ONLY two column audit settings, besides COLUMN_ENABLE, that scripts/configure-auditing.mjs may write (ADR-011, status Proposed). Both come from what the
+ * environment stored after scripts/add-obligation-schema.mjs --stage=tables on 2026-11-03: the lookup was stored with audit OFF although ON was requested (as for the
+ * other lookups of this project, ADR-009), and the primary name of the service table was stored with audit ON although OFF was requested. Nothing here has run.
+ * 'value' is the IsAuditEnabled.Value to set. They are not in COLUMN_ENABLE on purpose: mwf_obligation and mwf_alertlog are not in AUDIT_TABLES, so the table-level
+ * and the verify logic of the five audited tables stay as they are.
+ */
+export const COLUMN_AUDIT_TARGETS = Object.freeze([
+  Object.freeze({ table: 'mwf_alertlog', column: 'mwf_name', value: false, reason: 'the service table is not audited; its primary name column was stored with audit ON although OFF was requested' }),
+  Object.freeze({ table: 'mwf_obligation', column: 'mwf_contract', value: true, reason: 'which contract an obligation belongs to; the lookup was stored with audit OFF although ON was requested (lookups are OFF by default, ADR-009)' }),
+]);
+
+/** The IsAuditEnabled.Value this script may set on table.column: true for a column of COLUMN_ENABLE, the explicit value for the two ADR-011 targets, undefined for any other column. */
+export function auditTargetValue(table, column) {
+  if (COLUMN_ENABLE.some((x) => x.table === table && x.column === column)) return true;
+  return COLUMN_AUDIT_TARGETS.find((x) => x.table === table && x.column === column)?.value;
+}
+
+/** What to do with a definition read from the environment: { action: 'none' | 'change' | 'blocked', now: boolean|undefined }. */
+export function auditChange(def, value) {
+  const p = def?.IsAuditEnabled;
+  if (!p || typeof p !== 'object' || !('Value' in p)) return { action: 'blocked', now: undefined, why: 'no IsAuditEnabled managed property' };
+  if (!!p.Value === !!value) return { action: 'none', now: !!p.Value };
+  if (p.CanBeChanged === false) return { action: 'blocked', now: !!p.Value, why: 'CanBeChanged is false' };
+  return { action: 'change', now: !!p.Value };
+}
+
+/** What `--mode=plan` prints for the two ADR-011 targets. Pure, offline. */
+export function auditTargetPlanLines() {
+  const L = ['PLAN (offline, nothing is sent). The ONLY column audit settings this script may set besides its existing plan (ADR-011):'];
+  for (const t of COLUMN_AUDIT_TARGETS) {
+    L.push(`  ${t.table}.${t.column}: IsAuditEnabled.Value -> ${t.value}   (${t.reason})`);
+    L.push('      for a column definition, in this order: (1) read the WHOLE definition and save it outside the repository; (2) a no-op PUT (MSCRM.MergeLabels: true) and a read, the deep diff must be empty (only the top-level ModifiedOn is tolerated);');
+    L.push(`      (3) set IsAuditEnabled.Value to ${t.value} only, PUT, read, deep diff: only IsAuditEnabled.Value may differ; any other difference restores the backup and stops; (4) PublishXml for ${t.table}, read back, the value must be ${t.value}; before every write 3 consecutive successful reads; no retry`);
+  }
+  L.push('Command (needs the environment; NOT run in this task): node scripts/configure-auditing.mjs --env=... --auth=az --mode=apply --column-list=mwf_obligation.mwf_contract,mwf_alertlog.mwf_name [--dry-run | --confirm-mutates-environment]');
+  L.push('No other column, no table definition and no organization setting is touched by these two entries. --mode=check and --mode=verify read them (OBS when the table does not exist).');
+  return L;
+}
+
+// ---------------------------------------------------------------------------------------------------------------- reading the audit rows of given records (shared)
+export const AUDIT_SELECT = 'auditid,createdon,operation,action,objecttypecode,_userid_value,_callinguserid_value,_objectid_value,transactionid';
+const GUID_TEXT = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+/** The Web API path that reads the audit rows of the given record ids (read only). Throws for an empty list or an id that is not a GUID. */
+export function auditRowsPath(ids, top = 500) {
+  if (!Array.isArray(ids) || !ids.length) throw new Error('auditRowsPath needs at least one record id');
+  for (const i of ids) if (!GUID_TEXT.test(String(i))) throw new Error('auditRowsPath: an id is not a GUID');
+  const filter = ids.map((i) => `_objectid_value eq ${i}`).join(' or ');
+  return `audits?$select=${AUDIT_SELECT}&$filter=${encodeURIComponent(filter)}&$orderby=createdon asc&$top=${top}`;
+}

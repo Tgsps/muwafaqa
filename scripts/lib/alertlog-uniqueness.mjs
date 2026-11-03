@@ -8,12 +8,15 @@
  *       RECORDED as a measurement and never asserted: Learn does not document it for this error and its pages disagree for another duplicate mechanism.
  *   (3) an empty and a null key: OBSERVATIONS only (what the server does is the result; it can differ from "required")
  *   (4) N concurrent inserts of one fresh key: exactly one success (PASS), the others are recorded with status and code
+ *   (4b) read-only OBSERVATION, never an assertion: how many audit records exist for the ids of the rows it created (the table is configured audit OFF; this records what
+ *       the environment does). Read with the shared path builder of lib/auditing.mjs (the one test-auditing.mjs uses). A failed read is an observation too.
  *   (5) cleanup of every row it created, in a finally block, also after a failure; a sweep by the TEST-TMP-ALERT prefix catches rows whose
  *       id was never seen (a lost answer). The leftover count is reported.
  * Every row it writes has a key or a name that starts with TEST-TMP-ALERT-. It writes to mwf_alertlog only.
  */
 import { buildAlertKey, TEST_SOURCE_PREFIX } from './alert-key.mjs';
 import { keyGate } from './obligation-schema.mjs';
+import { auditRowsPath, operationName } from './auditing.mjs';
 
 export const DUPLICATE_CODE = '0x80060892';
 export const TABLE = 'mwf_alertlog';
@@ -42,7 +45,7 @@ const rnd = () => Array.from({ length: 6 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456
  */
 export async function runUniquenessTest({ call, stable = async () => {}, n = 5, log = () => {}, suffix = rnd }) {
   if (!Number.isInteger(n) || n < 2 || n > 20) throw new Error('n must be an integer from 2 to 20');
-  const results = []; const measured = { duplicateStatus: null, duplicateCode: null, empty: [], nullKey: [], concurrent: [] };
+  const results = []; const measured = { duplicateStatus: null, duplicateCode: null, empty: [], nullKey: [], concurrent: [], audit: null };
   const cleanup = { deleted: 0, leftover: 0, errors: [] };
   let failed = 0; let writes = 0;
   const out = (id, status, name, detail = '') => { if (status === 'FAIL') failed++; results.push({ id, status, name, detail }); log(`${status.padEnd(4)}  ${String(id).padEnd(5)} ${name}${detail ? `  [${detail}]` : ''}`); };
@@ -118,6 +121,19 @@ export async function runUniquenessTest({ call, stable = async () => {}, n = 5, 
     if (nonDup) out('4n', 'OBS', 'concurrent rejections whose body does NOT hold the duplicate-key code', String(nonDup));
     const c4 = await countKey(k4);
     out('4c', c4 === 1 ? 'PASS' : 'FAIL', 'exactly one row holds the concurrent key afterwards', String(c4));
+
+    // (4b) audit records of the test rows: observation only
+    const ids = [...created];
+    if (!ids.length) out('4a', 'OBS', 'audit records of the test rows: no row was created, nothing to look at');
+    else {
+      const rows = []; let readFailed = null;
+      for (let i = 0; i < ids.length && !readFailed; i += 15) {
+        const r = await call('GET', auditRowsPath(ids.slice(i, i + 15)));
+        if (r.ok) rows.push(...(r.j?.value || [])); else readFailed = `HTTP ${r.status}`;
+      }
+      measured.audit = readFailed ? { rows: null, error: readFailed } : { rows: rows.length, byOperation: rows.reduce((m, x) => { const n = operationName(x.operation); m[n] = (m[n] || 0) + 1; return m; }, {}) };
+      out('4a', 'OBS', `audit records for the ${ids.length} test row(s) (table audit is configured OFF; observation, not an assertion)`, readFailed ? `could not be read: ${readFailed}` : `${rows.length} record(s)${rows.length ? ` ${JSON.stringify(measured.audit.byOperation)}` : ''}`);
+    }
   } catch (e) {
     out('stop', 'FAIL', 'the test stopped before its last step', String(e.message).slice(0, 160));
   } finally {

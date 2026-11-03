@@ -33,7 +33,7 @@ import { snapshotCounters, ctrIo, trackCreate, restoreAfterRun, restoreFromArgs,
 import { deleteContracts } from './lib/contract-cleanup.mjs';
 import { enterCleanupPhase, recheckAfterWait } from './lib/resilient-fetch.mjs';
 import { allFlowsOff } from './lib/bulk-messages.mjs';
-import { AUDIT_TABLES, changesOf, describeRows, operationName, actionName, lagStats, classifyUser, unmetExpectations, pollFinished, noteNewRows, changeHistoryPath, auditDetailsPath } from './lib/auditing.mjs';
+import { AUDIT_TABLES, changesOf, describeRows, operationName, actionName, lagStats, classifyUser, unmetExpectations, pollFinished, noteNewRows, changeHistoryPath, auditDetailsPath, auditRowsPath } from './lib/auditing.mjs';
 import { expectContractsOrExit, describeExpectContracts, contractsVerdict } from './lib/expect-contracts.mjs';
 
 const PREFIX = 'TEST-TMP-AUD';
@@ -95,11 +95,9 @@ async function auditConfigApplied() {
 }
 
 // ---------------------------------------------------------------------------------------------------------------- audit reading
-const AUDIT_SEL = 'auditid,createdon,operation,action,objecttypecode,_userid_value,_callinguserid_value,_objectid_value,transactionid';
 async function auditsOf(ids) {
   if (!ids.length) return [];
-  const filter = ids.map((i) => `_objectid_value eq ${i}`).join(' or ');
-  return (await get(`audits?$select=${AUDIT_SEL}&$filter=${q(filter)}&$orderby=createdon asc&$top=500`)).value;
+  return (await get(auditRowsPath(ids))).value;
 }
 const seen = new Map();     // auditid -> first moment the poll saw it
 const allRows = new Map();  // auditid -> row

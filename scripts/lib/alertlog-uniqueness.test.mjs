@@ -23,10 +23,11 @@ const run = (...a) => spawnSync(process.execPath, [SCRIPT, ...a], { encoding: 'u
  *  preexisting     rows that exist before the run
  *  lostAnswer      the nth POST creates the row but the answer is lost (no id)
  */
+const gid = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 function fake(opts = {}) {
   const o = { keyStatus: 'Active', dupStatus: 412, dupCode: DUPLICATE_CODE, enforce: true, emptyOk: true, enforceEmpty: true, ...opts };
   const rows = new Map(); let seq = 0; let posts = 0; const log = [];
-  (o.preexisting || []).forEach((k) => rows.set(`id-${++seq}`, { mwf_alertkey: k, mwf_name: k }));
+  (o.preexisting || []).forEach((k) => rows.set(gid(++seq), { mwf_alertkey: k, mwf_name: k }));
   const ok = (j, status = 200, id = null) => ({ ok: true, status, j, text: JSON.stringify(j ?? {}), id });
   const err = (status, code, message = 'x') => ({ ok: false, status, j: { error: { code, message } }, text: JSON.stringify({ error: { code, message } }), id: null });
   const filterRows = (path) => {
@@ -48,11 +49,16 @@ function fake(opts = {}) {
       if (empty && !o.emptyOk) return err(400, '0x80040265', 'required');
       await Promise.resolve();   // lets concurrent inserts interleave
       if (o.enforce && [...rows.values()].some((r) => r.mwf_alertkey === k) && (!empty || o.enforceEmpty) && k !== null) return err(o.dupStatus, o.dupCode, 'A record that has the attribute values Alert Key already exists.');
-      const id = `id-${++seq}`; rows.set(id, { mwf_alertkey: k, mwf_name: body.mwf_name });
+      const id = gid(++seq); rows.set(id, { mwf_alertkey: k, mwf_name: body.mwf_name });
       if (o.lostAnswer === posts) return { ok: false, status: 0, j: null, text: '', id: null };
       return ok(null, 204, id);
     }
     if (method === 'GET' && /^mwf_alertlogs\(mwf_alertkey='/.test(path)) { const k = /'([^']*)'/.exec(path)[1]; const hit = [...rows.values()].find((r) => r.mwf_alertkey === k); return hit ? ok({ mwf_alertkey: k }) : err(404, '0x80040217'); }
+    if (method === 'GET' && path.startsWith('audits?')) {
+      if (o.auditStatus) return { ok: false, status: o.auditStatus, j: { error: { message: 'no privilege' } }, text: '' };
+      const ids = decodeURIComponent(/\$filter=([^&]*)/.exec(path)[1]).split(' or ').map((x) => x.replace('_objectid_value eq ', ''));
+      return ok({ value: (o.auditRows ? o.auditRows(ids) : []).map((r, i) => ({ auditid: `a${i}`, ...r })) });
+    }
     if (method === 'GET' && path.startsWith('mwf_alertlogs?')) return ok({ value: filterRows(path).map(([id, r]) => ({ mwf_alertlogid: id, mwf_alertkey: r.mwf_alertkey })) });
     if (method === 'DELETE') { if (o.failDelete) return err(500, '0x80040E00'); const id = /\(([^)]*)\)/.exec(path)[1]; return rows.delete(id) ? ok(null, 204) : err(404, '0x80040217'); }
     throw new Error(`unexpected call ${method} ${path}`);
@@ -178,7 +184,7 @@ test('every row the test writes has a key or name that starts with TEST-TMP-ALER
     assert.ok(String(w.body.mwf_name).startsWith('TEST-TMP-ALERT-'));
     if (w.body.mwf_alertkey) assert.ok(w.body.mwf_alertkey.startsWith('TEST-TMP-ALERT-'));
   }
-  assert.ok(f.log.filter((c) => c.method === 'DELETE').every((c) => /^mwf_alertlogs\(id-\d+\)$/.test(c.path)));
+  assert.ok(f.log.filter((c) => c.method === 'DELETE').every((c) => /^mwf_alertlogs\(00000000-0000-4000-8000-\d{12}\)$/.test(c.path)));
   assert.ok(!f.log.some((c) => /contract|workflow|counter|approvalstep/i.test(c.path)));
 });
 
@@ -197,4 +203,42 @@ test('the script source: no HTTP status is asserted, the status is printed as a 
   assert.doesNotMatch(CODE, /mwf_contracts|workflows|approvalsteps|contractnumbercounter/);
   const lib = fs.readFileSync(fileURLToPath(new URL('./alertlog-uniqueness.mjs', import.meta.url)), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   assert.doesNotMatch(lib, /\b(412|409)\b|status\s*[!=]==?\s*(412|409|500)/);   // the status of the duplicate rejection is never compared in the steps
+});
+
+// ---------------------------------------------------------------------------------------------------------------- 4b: the audit observation (read only, never an assertion)
+test('4b: the audit records of the test rows are COUNTED after the inserts and before the cleanup: an observation, with the operation names', async () => {
+  const f = fake({ auditRows: (ids) => ids.slice(0, 2).map((id) => ({ _objectid_value: id, operation: 1 })) }); const r = await go(f);
+  assert.equal(by(r, '4a').status, 'OBS'); assert.match(by(r, '4a').detail, /2 record\(s\)/); assert.match(by(r, '4a').detail, /"Create":2/);
+  assert.deepEqual(r.measured.audit, { rows: 2, byOperation: { Create: 2 } });
+  assert.equal(r.failed, 0);
+  const iAudit = f.log.findIndex((c) => c.path.startsWith('audits?')); const firstDelete = f.log.findIndex((c) => c.method === 'DELETE');
+  assert.ok(iAudit > 0 && iAudit < firstDelete, 'read before the cleanup');
+});
+
+test('4b: zero audit records is an observation, not a failure; the filter holds exactly the ids of the rows created', async () => {
+  const f = fake(); const r = await go(f);
+  assert.equal(by(r, '4a').status, 'OBS'); assert.match(by(r, '4a').detail, /0 record\(s\)/); assert.equal(r.failed, 0);
+  const reads = f.log.filter((c) => c.path.startsWith('audits?')); assert.ok(reads.length >= 1);
+  const ids = reads.flatMap((c) => decodeURIComponent(/\$filter=([^&]*)/.exec(c.path)[1]).split(' or ').map((x) => x.replace('_objectid_value eq ', '')));
+  assert.equal(ids.length, f.log.filter((c) => c.method === 'POST' && c.body).length - (f.log.filter((c) => c.method === 'POST').length - ids.length));   // one id per created row
+});
+
+test('4b: an audit read that fails (no privilege) is an observation too, and never fails the test', async () => {
+  const r = await go(fake({ auditStatus: 403 }));
+  assert.equal(by(r, '4a').status, 'OBS'); assert.match(by(r, '4a').detail, /could not be read: HTTP 403/); assert.equal(r.measured.audit.rows, null); assert.equal(r.failed, 0);
+});
+
+test('4b: the audit read is a GET only, and a run where nothing could be created has nothing to look at', async () => {
+  const f = fake(); await go(f);
+  assert.ok(f.log.filter((c) => c.path.startsWith('audits?')).every((c) => c.method === 'GET'));
+  const noRows = await runUniquenessTest({ call: async (m, p) => (p.startsWith("EntityDefinitions(LogicalName='mwf_alertlog')?") ? { ok: true, status: 200, j: { EntitySetName: 'mwf_alertlogs' } } : p.includes('/Keys') ? { ok: true, status: 200, j: { value: [{ SchemaName: 'mwf_AlertLogKey', EntityKeyIndexStatus: 'Active', KeyAttributes: ['mwf_alertkey'] }] } } : p.startsWith('mwf_alertlogs?') ? { ok: true, status: 200, j: { value: [] } } : m === 'POST' ? { ok: false, status: 500, j: null, text: '' } : { ok: true, status: 200, j: { value: [] } }), n: 2, suffix: () => 'X1' });
+  assert.equal(noRows.results.find((x) => x.id === '4a').status, 'OBS'); assert.match(noRows.results.find((x) => x.id === '4a').name, /nothing to look at/);
+});
+
+test('4b: the script prints the audit observation and the plan lists step 4b; the audit read uses the shared helper of lib/auditing.mjs', () => {
+  assert.match(CODE, /MEASURED: audit records of the test rows/);
+  assert.match(run().stdout, /4b +read only: count the audit records/);
+  const lib = fs.readFileSync(fileURLToPath(new URL('./alertlog-uniqueness.mjs', import.meta.url)), 'utf8');
+  assert.match(lib, /import \{ auditRowsPath, operationName \} from '\.\/auditing\.mjs'/);
+  assert.match(fs.readFileSync(fileURLToPath(new URL('../test-auditing.mjs', import.meta.url)), 'utf8'), /auditRowsPath\(ids\)/);   // test-auditing uses the same helper now
 });

@@ -34,6 +34,7 @@ if (MODE === 'plan') {
   console.log('  2      insert the same key: expect rejection with 0x80060892 in the BODY; RECORD the HTTP status (not asserted); expect one row for the key');
   console.log('  3      insert an EMPTY key twice and a NULL key twice: observations only (what the server does)');
   console.log(`  4      ${N} concurrent inserts of one fresh key: expect exactly one success; record the others (status and code)`);
+  console.log('  4b     read only: count the audit records of the rows created (observation, not an assertion)');
   console.log('  5      cleanup: delete every row created, then sweep by the TEST-TMP-ALERT prefix; report the leftover (also after a failure)');
   console.log('Use --mode=run with --env and --confirm-mutates-environment to go further. Nothing was written.');
   process.exit(0);
@@ -61,6 +62,7 @@ if (!has('--confirm-mutates-environment')) {
     console.log(`\nMEASURED: duplicate-key rejection HTTP ${m.duplicateStatus}, code ${m.duplicateCode || 'none'} (record both in ADR-011).`);
     console.log(`MEASURED: empty key ${m.empty.map((x) => (x.ok ? `accepted ${x.status}` : `rejected ${x.status}/${x.code || 'none'}`)).join(', ')}; null key ${m.nullKey.map((x) => (x.ok ? `accepted ${x.status}` : `rejected ${x.status}/${x.code || 'none'}`)).join(', ')}.`);
     console.log(`MEASURED: concurrent ${m.concurrent.map((x) => (x.ok ? `ok ${x.status}` : `${x.status}/${x.code || 'none'}`)).join(' ')}.`);
+    console.log(`MEASURED: audit records of the test rows ${m.audit ? (m.audit.rows === null ? `not readable (${m.audit.error})` : `${m.audit.rows} ${JSON.stringify(m.audit.byOperation)}`) : 'not looked at'} (observation only).`);
     console.log(`SUMMARY: ${r.failed} failed check(s); ${r.writes} insert(s) sent; cleanup leftover ${r.cleanup.leftover}.`);
     process.exit(r.failed || r.cleanup.leftover !== 0 ? 1 : 0);
   } catch (e) {

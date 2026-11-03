@@ -28,8 +28,9 @@ import { tmpdir } from 'node:os';
 import { parseArgs, openSession, noGuid, Stop } from './lib/dv-session.mjs';
 import { requireStableConnection } from './lib/counter-snapshot.mjs';
 import { allFlowsOff } from './lib/bulk-messages.mjs';
-import { AUDIT_TABLES, EXCLUDED_TABLES, COLUMN_ENABLE, COLUMN_EXCLUDE, SYSTEM_LEFT_AS_IS, READ_PRIVILEGES, PUT_HEADERS, orgDiff, setAuditValue, stripForPut, diffDeep, unexpectedDiffs, attributeCast, publishXmlBody, columnPlan, tableMeetsTarget, backupName, latestBackup, parseTarget, isNoopClean, relevantDiffs } from './lib/auditing.mjs';
+import { COLUMN_AUDIT_TARGETS, auditTargetValue, auditChange, auditTargetPlanLines, AUDIT_TABLES, EXCLUDED_TABLES, COLUMN_ENABLE, COLUMN_EXCLUDE, SYSTEM_LEFT_AS_IS, READ_PRIVILEGES, PUT_HEADERS, orgDiff, setAuditValue, stripForPut, diffDeep, unexpectedDiffs, attributeCast, publishXmlBody, columnPlan, tableMeetsTarget, backupName, latestBackup, parseTarget, isNoopClean, relevantDiffs } from './lib/auditing.mjs';
 
+if (process.argv.includes('--mode=plan')) { for (const l of auditTargetPlanLines()) console.log(l); process.exit(0); }   // offline: no sign-in, no --env
 const { argOf, env: ENV, auth: AUTH, has } = parseArgs();
 const MODE = argOf('mode');
 const DRY = has('--dry-run');
@@ -39,13 +40,13 @@ const TABLES_ARG = argOf('tables');
 const COLUMN_LIST = (argOf('column-list') || '').split(',').map((x) => x.trim()).filter(Boolean);
 const BACKUP_DIR = join(tmpdir(), 'muwafaqa-audit-backups');
 const q = encodeURIComponent;
-if (!['check', 'apply', 'verify', 'restore', 'revert-org'].includes(MODE)) { console.error('Missing or invalid --mode=check|apply|verify|restore|revert-org. Nothing was run.'); process.exit(2); }
+if (!['check', 'apply', 'verify', 'restore', 'revert-org'].includes(MODE)) { console.error('Missing or invalid --mode=check|apply|verify|restore|revert-org|plan. Nothing was run.'); process.exit(2); }
 const SELECTED = TABLES_ARG ? TABLES_ARG.split(',').map((x) => x.trim()).filter(Boolean) : [];
 for (const t of SELECTED) {
   if (t in EXCLUDED_TABLES) { console.error(`${t} is excluded on purpose: ${EXCLUDED_TABLES[t]}. Nothing was run.`); process.exit(2); }
   if (!AUDIT_TABLES.includes(t)) { console.error(`${t} is not one of the audited tables (${AUDIT_TABLES.join(', ')}). Nothing was run.`); process.exit(2); }
 }
-for (const c of COLUMN_LIST) { const [t, col] = c.split('.'); if (!COLUMN_ENABLE.some((x) => x.table === t && x.column === col)) { console.error(`${c} is not one of the columns of the plan. Nothing was run.`); process.exit(2); } }
+for (const c of COLUMN_LIST) { const [t, col] = c.split('.'); if (auditTargetValue(t, col) === undefined) { console.error(`${c} is not one of the columns of the plan (nor one of the two ADR-011 targets). Nothing was run.`); process.exit(2); } }
 const writes = ['apply', 'restore', 'revert-org'].includes(MODE);
 if (MODE === 'apply' && !DO_ORG && !SELECTED.length && !COLUMN_LIST.length) { console.error('apply needs --org, --tables=<table>[,<table>] (start with --tables=mwf_approvalmatrix) and/or --column-list=<table>.<column>. Nothing was run.'); process.exit(2); }
 let TARGET = null;
@@ -91,6 +92,14 @@ async function report(strict) {
     if (strict) check('table', `${t}: meets the target`, m.ok, line); else out('table', m.ok ? 'PASS' : 'OBS', `${t}`, line);
     const custom = attrs.filter((a) => a.IsCustomAttribute);
     console.log(`        custom columns audited: ${custom.filter((a) => a.IsAuditEnabled.Value).length} of ${custom.length}; off: ${custom.filter((a) => !a.IsAuditEnabled.Value).map((a) => a.LogicalName).join(', ') || 'none'}`);
+  }
+  for (const g of COLUMN_AUDIT_TARGETS) {
+    const r = await S.call('GET', `${ENT(g.table)}/Attributes(LogicalName='${g.column}')?$select=LogicalName,IsAuditEnabled`);
+    if (r.status === 404) { out('adr011', 'OBS', `${g.table}.${g.column}: the table or column does not exist (ADR-011 not applied)`); continue; }
+    if (!r.ok) { out('adr011', 'FAIL', `${g.table}.${g.column}: could not be read`, `HTTP ${r.status}`); continue; }
+    const now = !!r.j.IsAuditEnabled?.Value; const same = now === g.value;
+    if (strict) check('adr011', `${g.table}.${g.column}: IsAuditEnabled is ${g.value ? 'ON' : 'OFF'} (ADR-011 target)`, same, `now ${now ? 'ON' : 'OFF'}`);
+    else out('adr011', same ? 'PASS' : 'OBS', `${g.table}.${g.column}: IsAuditEnabled ${now ? 'ON' : 'OFF'}, ADR-011 target ${g.value ? 'ON' : 'OFF'}${same ? '' : '; apply --column-list would change it'}`);
   }
   for (const [t, why] of Object.entries(EXCLUDED_TABLES)) { const def = await readTable(t); out('excluded', def.IsAuditEnabled.Value ? 'FAIL' : 'PASS', `${t}: audit ${def.IsAuditEnabled.Value ? 'ON (it must stay off)' : 'off'}`, why.slice(0, 80)); }
   for (const c of COLUMN_EXCLUDE) console.log(`INFO  left off on purpose: ${c.table}.${c.column}: ${c.reason}`);
@@ -141,10 +150,12 @@ async function applyOrg() {
 }
 
 /** One definition: backup, no-op PUT + diff (must be empty), the real change + diff (only IsAuditEnabled.Value). On an unexpected difference: restore from the backup and stop. */
-async function applyDefinition(kind, table, column, cast) {
+async function applyDefinition(kind, table, column, cast, value = true) {
   const label = kind === 'entity' ? `table ${table}` : `column ${table}.${column}`;
   const before = await readDef(kind, table, column, cast);
-  if (before.IsAuditEnabled?.Value) { out('def', 'PASS', `${label}: audit already ON, no write`); return false; }
+  const ch = auditChange(before, value);
+  if (ch.action === 'none') { out('def', 'PASS', `${label}: audit already ${value ? 'ON' : 'OFF'}, no write`); return false; }
+  if (ch.action === 'blocked') throw new Stop(`${label}: cannot be changed (${ch.why}). Nothing written.`);
   const rec = { kind, table, column, cast, definition: before };
   saveBackup(kind, table, column, cast, before);
   const path = pathOf(kind, table, column);
@@ -161,8 +172,8 @@ async function applyDefinition(kind, table, column, cast) {
     }
   }
   // step 3: the real change
-  const want = setAuditValue(before, true);
-  const w2 = await write('PUT', path, bodyOf(kind, want, cast), { ...PUT_HEADERS }, `(IsAuditEnabled.Value true; ${label})`);
+  const want = setAuditValue(before, value);
+  const w2 = await write('PUT', path, bodyOf(kind, want, cast), { ...PUT_HEADERS }, `(IsAuditEnabled.Value ${value}; ${label})`);
   if (DRY) return true;
   if (!w2.ok) throw new Stop(`PUT of ${label} answered HTTP ${w2.status} ${noGuid(S.msgOf(w2))}. Not retried; nothing else is written. Read the state with --mode=check; the backup is kept.`);
   const after = await readDef(kind, table, column, cast);
@@ -177,14 +188,14 @@ async function applyDefinition(kind, table, column, cast) {
   return true;
 }
 
-async function publishAndCheck(t, needColumns, onlyColumn = null) {
+async function publishAndCheck(t, needColumns, onlyColumn = null, value = true) {
   const pub = await write('POST', 'PublishXml', publishXmlBody(t), undefined, `(${t})`);
   if (DRY) return;
   if (!pub.ok) throw new Stop(`PublishXml for ${t} answered HTTP ${pub.status} ${noGuid(S.msgOf(pub))}. Not retried. The audit setting is saved but not published: read the state with --mode=check.`);
   const fin = await readTable(t); const attrs = await readAttrs(t); const m = tableMeetsTarget(t, fin, attrs);
   const colOn = onlyColumn ? !!attrs.find((a) => a.LogicalName === onlyColumn)?.IsAuditEnabled?.Value : null;
-  const ok = onlyColumn ? colOn : needColumns ? m.ok : fin.IsAuditEnabled.Value;
-  check('table', onlyColumn ? `${t}.${onlyColumn}: after PublishXml the column is audited (read back)` : `${t}: after PublishXml the table${needColumns ? ' and its lookups meet' : ' is audited per'} the target (read back)`, ok, onlyColumn ? `column ${colOn ? 'ON' : 'off'}` : JSON.stringify(m.plan));
+  const ok = onlyColumn ? colOn === value : needColumns ? m.ok : fin.IsAuditEnabled.Value;
+  check('table', onlyColumn ? `${t}.${onlyColumn}: after PublishXml the column audit is ${value ? 'ON' : 'OFF'} (read back)` : `${t}: after PublishXml the table${needColumns ? ' and its lookups meet' : ' is audited per'} the target (read back)`, ok, onlyColumn ? `column ${colOn ? 'ON' : 'off'}` : JSON.stringify(m.plan));
   if (!ok) throw new Stop(`${t} does not meet the target after PublishXml. Stopped.`);
 }
 
@@ -210,8 +221,9 @@ async function applyColumns() {
     const attrs = await readAttrs(t); const a = attrs.find((x) => x.LogicalName === col);
     if (!a) throw new Stop(`${c} was not found. Nothing written.`);
     if (a.IsAuditEnabled?.CanBeChanged === false) throw new Stop(`${c} cannot be changed (CanBeChanged false). Nothing written.`);
-    const did = await applyDefinition('attr', t, col, attributeCast(a.AttributeType));
-    if (did || DRY) { await publishAndCheck(t, false, col); published.add(t); }
+    const value = auditTargetValue(t, col);
+    const did = await applyDefinition('attr', t, col, attributeCast(a.AttributeType), value);
+    if (did || DRY) { await publishAndCheck(t, false, col, value); published.add(t); }
   }
 }
 
