@@ -144,7 +144,7 @@ test('the script: the plan runs offline (exit 0) and prints the tables; the refu
   assert.equal(p.status, 0, p.stderr); assert.match(p.stdout, /^PLAN \(offline, nothing is sent\)/); assert.match(p.stdout, /TABLE mwf_alertlog/); assert.match(p.stdout, /Nothing was written\.$/m);
   assert.equal(run('--mode=delete').status, 2);
   const noConfirm = run('--mode=apply', '--env=https://example.invalid'); assert.equal(noConfirm.status, 2); assert.match(noConfirm.stderr, /--confirm-mutates-environment/); assert.match(noConfirm.stderr, /Nothing was run/);
-  const noEnv = run('--mode=verify'); assert.equal(noEnv.status, 2); assert.match(noEnv.stderr, /--env/);
+  const noEnv = run('--mode=verify', '--solution=TestSolution'); assert.equal(noEnv.status, 2); assert.match(noEnv.stderr, /--env/);
   assert.equal(run('--mode=apply', '--confirm-mutates-environment').status, 2);   // no --env
 });
 

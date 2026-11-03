@@ -6,8 +6,9 @@
  * Facts used: the Web API shapes are those of scripts/create-approval-chain-tables.mjs and scripts/lib/reminder-schema.mjs (both ran).
  * IsAuditEnabled in the creation body of a TABLE is the same managed property as for a column (Learn, "Create and update table definitions
  * using the Web API"); it has not been tested here (not tested), so the verify mode reads the flag back and the script never PUTs a definition.
- * A custom column can be ApplicationRequired at most (not SystemRequired), so "required" is NOT enforced by the server for a caller of the
- * Web API: that is why the key builder (alert-key.mjs) refuses null and empty and why the uniqueness test observes what the server does.
+ * A custom column can be ApplicationRequired at most (not SystemRequired). Whether the server enforces it for a caller of the Web API is UNVERIFIED
+ * for this column: it is to be measured by the empty-key case of scripts/test-alertlog-uniqueness.mjs. The key builder (alert-key.mjs) refuses null
+ * and empty regardless.
  */
 
 export const OPTION_VALUE_BASE = 867640000;   // the base of the Choice values of this publisher, as in the other tables
@@ -105,14 +106,15 @@ export function creationOrder() {
   return steps;
 }
 
-/** What `--mode=plan` prints: exactly what the apply mode would create. Pure. @returns {string[]} */
-export function planLines() {
+/** What `--mode=plan` prints: exactly what the apply mode would create. Pure. stage: 'tables' (tables, columns, lookup), 'key' (the alternate key only) or undefined (both, in this order). @returns {string[]} */
+export function planLines(stage) {
   const L = [];
+  const withTables = stage !== 'key'; const withKeys = stage !== 'tables';
   for (const t of Object.values(TABLES)) {
-    L.push(`TABLE ${t.logical} (${t.schema}) "${t.display}" / "${t.plural}": ${t.ownership}, no notes, no activities, table audit ${t.audit ? 'ON' : 'OFF'}, in the solution`);
-    L.push(`    ${t.description}`);
-    L.push(`  COLUMN ${t.logical}.mwf_name (primary name) String 200, required level ApplicationRequired, audit ${t.audit ? 'ON' : 'OFF'}`);
-    for (const c of COLUMNS.filter((x) => x.table === t.logical)) {
+    if (withTables) L.push(`TABLE ${t.logical} (${t.schema}) "${t.display}" / "${t.plural}": ${t.ownership}, no notes, no activities, table audit ${t.audit ? 'ON' : 'OFF'}, in the solution`);
+    if (withTables) L.push(`    ${t.description}`);
+    if (withTables) L.push(`  COLUMN ${t.logical}.mwf_name (primary name) String 200, required level ApplicationRequired, audit ${t.audit ? 'ON' : 'OFF'}`);
+    for (const c of withTables ? COLUMNS.filter((x) => x.table === t.logical) : []) {
       let shape;
       if (c.kind === 'lookup') shape = `Lookup to ${c.referenced}, relationship ${c.relationship}, DELETE ${c.delete}, assign/share/reparent NoCascade`;
       else if (c.kind === 'string') shape = `String ${c.maxLength}, text`;
@@ -121,9 +123,9 @@ export function planLines() {
       L.push(`  COLUMN ${c.table}.${c.logical} (${c.schema}) "${c.display}": ${shape}; required level ${c.required}; audit ${c.audit ? 'ON' : 'OFF'}`);
       L.push(`      ${c.description}`);
     }
-    for (const k of KEYS.filter((x) => x.table === t.logical)) L.push(`  KEY ${k.schema} on (${k.attributes.join(', ')}) "${k.display}"; the index is built asynchronously; --mode=verify fails until its status is Active`);
+    if (withKeys) for (const k of KEYS.filter((x) => x.table === t.logical)) L.push(`  KEY ${k.schema} on (${k.attributes.join(', ')}) "${k.display}"; the index is built asynchronously (EntityKeyIndexStatus: Pending, InProgress, Active, Failed); --stage=key polls it for a bounded time`);
   }
-  L.push('NOT created by this script: any security role or privilege (no project role gets anything on mwf_alertlog; the roles for mwf_obligation are not designed yet, ADR-011 open question).');
+  if (withTables) L.push('NOT created by this script: any security role or privilege (no project role gets anything on mwf_alertlog; the roles for mwf_obligation are not designed yet, ADR-011 open question).');
   return L;
 }
 
