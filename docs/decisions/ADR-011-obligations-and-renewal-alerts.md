@@ -1,6 +1,6 @@
 # ADR-011: Obligations and renewal / due alerts
 
-- **Status:** **Proposed.** The direction was decided with the owner in chat (2026-11-03); this document is not yet reviewed or approved, and **nothing in it has run against the environment**. The two tables do not exist. The scripts of the section "Offline implementation" are written and unit tested only.
+- **Status:** **Proposed.** The direction was decided with the owner in chat (2026-11-03); this document is not yet reviewed or approved. **Environment state (read back on 2026-11-03):** both tables, their columns, the lookup and the alternate key `mwf_AlertLogKey` exist in the solution Muwafaqa (stage `tables`, then stage `key`, each run once on the owner's approval); the key index reached Active; both tables hold 0 rows. **Not run:** the uniqueness test, any alert rule, any flow, the audit corrections of the section "Findings of the first apply".
 - **Date:** 2026-11-03
 - **Related:** [ADR-010](ADR-010-reminders-and-escalation.md) (claim-first, cap per run, overlapping runs), [ADR-004](ADR-004-contract-state-guard.md) (Contract State Guard), [ADR-009](ADR-009-auditing.md) (auditing), [ADR-008](ADR-008-security-roles.md) (roles), [ADR-007](ADR-007-approval-chain.md) (alternate keys on the chain tables).
 - Tags: (from Learn), (script), (unit), (assumption), (owner), (not tested). Statements tagged **(from Learn, as stated; not re-read in this session)** were given by the owner with a Learn reference and have not been fetched again while writing this document.
@@ -61,7 +61,7 @@ Learn: uniqueness of an alternate key is **not enforced on NULL** **(from Learn,
 - **A notice deadline already past** when a contract enters In Force (for example 20 days left: both the 90-day and the 30-day point are behind): not decided (open question 3).
 - **Overlapping runs** can still make two runs reach the same candidate; the alternate key rejects the second claim (**not tested**).
 
-## Offline implementation (written, unit tested, NOT run against the environment)
+## Offline implementation (written and unit tested; the schema script was applied in two stages on 2026-11-03, everything else was not run)
 
 | File | What it is |
 |---|---|
@@ -72,7 +72,7 @@ Learn: uniqueness of an alternate key is **not enforced on NULL** **(from Learn,
 
 ## Not proven
 
-**Nothing in this ADR has run against the environment.** In particular: that the tables can be created as defined (audit flag in the creation request of a table, a default value of the Choice), that the alternate key index becomes Active, that a duplicate is rejected and with which code and HTTP status, what the server does with an empty or a null key, that concurrent inserts give exactly one success, whether ApplicationRequired is enforced for a Web API write of an empty or null `mwf_alertkey`, that a flow can read the error code from the response, the effect of a solution import, and every alert rule (no flow exists).
+**The tables and the key were created (see "Findings of the first apply"); nothing else in this ADR has run.** Still unproven: the uniqueness behavior and everything after it. In particular: that the tables can be created as defined (this part is now measured, with the differences listed below) (audit flag in the creation request of a table, a default value of the Choice), that the alternate key index becomes Active, that a duplicate is rejected and with which code and HTTP status, what the server does with an empty or a null key, that concurrent inserts give exactly one success, whether ApplicationRequired is enforced for a Web API write of an empty or null `mwf_alertkey`, that a flow can read the error code from the response, the effect of a solution import, and every alert rule (no flow exists).
 
 ## Open questions
 
@@ -82,3 +82,15 @@ Learn: uniqueness of an alternate key is **not enforced on NULL** **(from Learn,
 4. **Roles for `mwf_obligation`** (who creates and edits obligations): not designed. The table is UserOwned like the contract; ADR-008 has no row for it.
 5. **The columns "renewal type" and "notice period"** on the contract: names, types and values are not designed (a "none" value of the renewal type is assumed by decision 7).
 6. **Who should receive alerts** if the contract owner leaves or is disabled: not decided (same kind of question as A1 in ADR-010).
+
+## Findings of the first apply (2026-11-03, read back from the environment's own metadata)
+
+- **Stage tables** (once): 7 objects created, each with the header `MSCRM.SolutionUniqueName`. **Differences from the definition, not overwritten:**
+  1. `mwf_name` (primary name) of **both** tables was stored with `RequiredLevel = None` (ApplicationRequired was in the creation body) and `MaxLength = 850` (200 was in the body). The primary name of `mwf_approvalstep`, created on 2026-10-22 by `create-approval-chain-tables.mjs`, kept ApplicationRequired and 200. The only difference in the primary-attribute body is the extra `IsAuditEnabled` property in `obligation-schema.mjs`; the cause is **not established** (read-only comparison of the three attributes: required level, MaxLength and DatabaseLength differ, nothing else). Learn's page on creating tables with the Web API ([create-update-entity-definitions-using-web-api](https://learn.microsoft.com/en-us/power-apps/developer/data-platform/webapi/create-update-entity-definitions-using-web-api)) uses `RequiredLevel None` and `MaxLength 100` in its own example and says properties you do not set get defaults; it does **not** say that a given required level or length of the primary name is ignored. [entity-metadata](https://learn.microsoft.com/en-us/power-apps/developer/data-platform/entity-metadata) says nothing about the required level of the primary name.
+  2. `mwf_alertlog.mwf_name` reads audit ON although the table is OFF (the creation body asked OFF for the attribute).
+  3. `mwf_obligation.mwf_contract` (the lookup) reads audit OFF although ON was requested (lookups are OFF by default, ADR-009).
+  Items 2 and 3 have an offline correction in `scripts/configure-auditing.mjs` (`--column-list`, the only two entries it accepts besides its old plan); it has **not** been run.
+- **Stage key** (once): the key `mwf_AlertLogKey` on `mwf_alertkey` was created and its index went Pending, then Active (EntityKeyIndexStatus; Learn: [entitykeymetadata](https://learn.microsoft.com/en-us/power-apps/developer/data-platform/webapi/reference/entitykeymetadata), [entitykeyindexstatus](https://learn.microsoft.com/en-us/power-apps/developer/data-platform/webapi/reference/entitykeyindexstatus)). 22 polls of 5 s showed Pending before the 23rd showed Active (about 110 s).
+- **Solution membership:** each table has a `solutioncomponent` row of type 1 (Entity) with `rootcomponentbehavior` 0 (Include Subcomponents, per Learn's table of the `solutioncomponent` choices). The key, the columns and the relationship have no row of their own, as for the existing key `mwf_ApprovalStepKey` and relationship `mwf_contract_approvalstep`; whether they travel with the table in an export is **not tested** (the solution has not been exported since).
+- **Required level of `mwf_alertkey`:** stored as ApplicationRequired. Whether the server enforces it for a Web API write stays **unverified** (the empty-key case of the uniqueness test).
+- **Baseline after both stages:** 11 contracts, 110 matrix rows, 5 assignments, 0 steps, 0 rows in both new tables, all five flows Off, counters [0,0,0,0,0]; `mwf_contract` equals its last export (no required-level or audit difference; the one new relationship is `mwf_contract_obligation`).
