@@ -19,7 +19,7 @@ export const DEPTH_LABEL = { Basic: 'User', Local: 'Business Unit', Deep: 'Paren
 const MASK_TO_DEPTH = { 1: 'Basic', 2: 'Local', 4: 'Deep', 8: 'Global' };
 export const FORBIDDEN_BYPASS = ['prvBypassCustomBusinessLogic', 'prvBypassCustomPlugins'];
 
-/** The six tables of the project. `ownership` is checked against the environment by the script (check mode). */
+/** The tables of the project: the six of ADR-008 and, since 2026-11-07, the obligation and the alert log (ADR-011). `ownership` is checked against the environment by the script (check mode). */
 export const TABLES = {
   contract: { logical: 'mwf_contract', ownership: 'UserOwned', title: 'Contract' },
   counterparty: { logical: 'mwf_counterparty', ownership: 'OrganizationOwned', title: 'Counterparty' },
@@ -27,6 +27,8 @@ export const TABLES = {
   matrix: { logical: 'mwf_approvalmatrix', ownership: 'OrganizationOwned', title: 'Approval Matrix' },
   assignment: { logical: 'mwf_approverassignment', ownership: 'OrganizationOwned', title: 'Approver Assignment' },
   counter: { logical: 'mwf_contractnumbercounter', ownership: 'OrganizationOwned', title: 'Contract Number Counter' },
+  obligation: { logical: 'mwf_obligation', ownership: 'UserOwned', title: 'Obligation' },   // ADR-008, update 2026-11-07
+  alertlog: { logical: 'mwf_alertlog', ownership: 'OrganizationOwned', title: 'Alert Log' },   // a service table: NO role holds any privilege on it (rule R9)
 };
 
 const ALL = ['Create', 'Read', 'Write', 'Delete', 'Append', 'AppendTo'];
@@ -49,23 +51,23 @@ export const AUDIT_READ = [
 export const ROLES = [
   {
     name: 'Muwafaqa Requester',
-    description: 'Creates and submits own contracts: Create, Read, Write and Delete of own contracts (User level), and picks a counterparty. No access to approval steps, the matrix, the assignments or the counter.',
-    grants: { contract: b(ALL), counterparty: { Read: 'Global', AppendTo: 'Global' } },
+    description: 'Creates and submits own contracts: Create, Read, Write and Delete of own contracts (User level), and picks a counterparty. Creates and edits obligations (User level, no Append To). No access to approval steps, the matrix, the assignments or the counter.',
+    grants: { contract: b(ALL), counterparty: { Read: 'Global', AppendTo: 'Global' }, obligation: b(['Create', 'Read', 'Write', 'Delete', 'Append']) },
   },
   {
     name: 'Muwafaqa Approver',
-    description: 'Reads all contracts, their counterparties and their approval steps (Organization level). Decisions are made in the approval requests, not through this role.',
-    grants: { contract: { Read: 'Global' }, counterparty: { Read: 'Global' }, step: { Read: 'Global' } },
+    description: 'Reads all contracts, their counterparties, their approval steps and their obligations (Organization level). Decisions are made in the approval requests, not through this role.',
+    grants: { contract: { Read: 'Global' }, counterparty: { Read: 'Global' }, step: { Read: 'Global' }, obligation: { Read: 'Global' } },
   },
   {
     name: 'Muwafaqa Finance',
-    description: 'Reads all contracts and approval steps, reads the matrix and the assignments, and maintains the counterparties (Organization level).',
-    grants: { contract: { Read: 'Global' }, counterparty: g(['Create', 'Read', 'Write', 'Append', 'AppendTo']), step: { Read: 'Global' }, matrix: { Read: 'Global' }, assignment: { Read: 'Global' } },
+    description: 'Reads all contracts, approval steps and obligations, reads the matrix and the assignments, and maintains the counterparties (Organization level).',
+    grants: { contract: { Read: 'Global' }, counterparty: g(['Create', 'Read', 'Write', 'Append', 'AppendTo']), step: { Read: 'Global' }, matrix: { Read: 'Global' }, assignment: { Read: 'Global' }, obligation: { Read: 'Global' } },
   },
   {
     name: 'Muwafaqa Admin',
-    description: 'Maintains the approval matrix, the approver assignments and the counterparties; reads contracts and approval steps (Organization level). Cannot assign or share records and has no bypass privilege.',
-    grants: { contract: { Read: 'Global' }, counterparty: g(ALL), step: { Read: 'Global' }, matrix: g(ALL), assignment: g(ALL) },
+    description: 'Maintains the approval matrix, the approver assignments, the counterparties and the obligations; reads contracts and approval steps (Organization level). Cannot assign or share records and has no bypass privilege.',
+    grants: { contract: { Read: 'Global' }, counterparty: g(ALL), step: { Read: 'Global' }, matrix: g(ALL), assignment: g(ALL), obligation: g(ALL) },
     extra: AUDIT_READ,
   },
 ];
@@ -86,7 +88,8 @@ export function flattenRole(role) {
  * Violations of the design rules, as text (an empty list means the design is acceptable):
  *  R1 no Assign or Share in any role;  R2 no privilege on the counter table in any role (the Admin role included);
  *  R3 a table that is OrganizationOwned only gets Global;  R4 the contract gets Basic only in the Requester role, every other role only Read at Global;
- *  R5 no Local or Deep depth anywhere;  R6 only known tables, actions and depths;  R7 the four role names are unique.
+ *  R5 no Local or Deep depth anywhere;  R6 only known tables, actions and depths;  R7 the four role names are unique;
+ *  R9 NO role holds any privilege on the alert log table (a service table, ADR-011);  R10 only the Requester has User level on the obligation.
  */
 export function validateDesign(roles = ROLES, tables = TABLES) {
   const v = [];
@@ -100,6 +103,8 @@ export function validateDesign(roles = ROLES, tables = TABLES) {
       if (!(depth in DEPTH_VALUE)) { v.push(`R6 unknown depth in ${where}`); continue; }
       if (action === 'Assign' || action === 'Share') v.push(`R1 ${action} is not allowed (${where})`);
       if (table === 'counter') v.push(`R2 no privilege on the counter table is allowed (${where})`);
+      if (table === 'alertlog') v.push(`R9 no privilege on the alert log table is allowed (${where})`);
+      if (table === 'obligation' && depth === 'Basic' && r.name !== 'Muwafaqa Requester') v.push(`R10 only the Requester has User level on the obligation (${where})`);
       if (tables[table].ownership === 'OrganizationOwned' && depth !== 'Global') v.push(`R3 an organization-owned table only gets Global (${where})`);
       if (depth === 'Local' || depth === 'Deep') v.push(`R5 Local and Deep are not used (${where})`);
       if (table === 'contract' && depth === 'Basic' && r.name !== 'Muwafaqa Requester') v.push(`R4 only the Requester has User level on the contract (${where})`);
@@ -165,15 +170,16 @@ export function compareRolePrivileges(desired, actual, tolerated = []) {
   return { missing, extra, wrongDepth, tolerated: toleratedCount, same: !missing.length && !extra.length && !wrongDepth.length };
 }
 
-/** The negative check on real roles: any bypass privilege, and any privilege on the counter table, in any role. actualByRole: { roleName: [{ name }] } */
+/** The negative check on real roles: any bypass privilege, any privilege on the counter table and any privilege on the alert log table, in any role. actualByRole: { roleName: [{ name }] } */
 export function negativeFindings(actualByRole) {
   const hits = [];
-  const counter = TABLES.counter.logical.toLowerCase();
+  const counter = TABLES.counter.logical.toLowerCase(); const alertlog = TABLES.alertlog.logical.toLowerCase();
   for (const [role, privs] of Object.entries(actualByRole)) {
     for (const p of privs) {
       const n = String(p.name).toLowerCase();
       if (n.startsWith('prvbypass')) hits.push(`${role}: ${p.name}`);
       if (n.includes(counter)) hits.push(`${role}: ${p.name}`);
+      if (n.includes(alertlog)) hits.push(`${role}: ${p.name}`);   // R9: no role holds any privilege on the alert log
       if (/^prv(assign|share)mwf_/.test(n)) hits.push(`${role}: ${p.name}`);
     }
   }
@@ -305,4 +311,65 @@ export function compareProjectRolesOnTables(actualByRole, logicals, roles = ROLE
   }
   for (const [role, set] of designed) for (const n of set) if (!(seen.get(role) || new Set()).has(n)) missing.push({ role, name: n });
   return { ok: !unknownRoles.length && !extra.length && !missing.length, unknownRoles, extra, missing };
+}
+
+// ---------------------------------------------------------------------------------------------------------------- the obligation (ADR-008, update 2026-11-07)
+
+/**
+ * The number of privileges each role holds by design (ADR-008, update 2026-11-07): Requester 13 (8 + 5 on the obligation), Approver 4 (3 + 1), Finance 10 (9 + 1), Admin 28 (22 + 6).
+ * A fixed table, so that an accidental edit of the design is caught: countCheck compares it with the design (desiredPrivileges, which counts every grant and every extra privilege)
+ * and, in verify, with what is STORED in the role (the roleprivileges rows, minus the nine platform-baseline privileges tolerated at Global).
+ */
+export const EXPECTED_COUNTS = Object.freeze({ 'Muwafaqa Requester': 13, 'Muwafaqa Approver': 4, 'Muwafaqa Finance': 10, 'Muwafaqa Admin': 28 });
+
+/**
+ * The count of one role, from the design and from what is stored.
+ * designed = number of designed privileges; expected = the fixed number above; stored = every privilege stored in the role; storedWithoutBaseline = stored, minus the
+ * baseline privileges that are tolerated (by name, only at Global; at another depth they count as stored).
+ */
+export function countCheck(role, stored, tolerated = PLATFORM_BASELINE) {
+  const designed = desiredPrivileges(role).length; const expected = EXPECTED_COUNTS[role.name];
+  const tol = new Set(tolerated.map((n) => String(n).toLowerCase()));
+  const all = stored || [];
+  const storedWithoutBaseline = all.filter((s) => !(tol.has(String(s.name).toLowerCase()) && s.depth === 'Global')).length;
+  return { designed, expected, stored: all.length, storedWithoutBaseline, tolerated: all.length - storedWithoutBaseline, designOk: designed === expected, storedOk: storedWithoutBaseline === expected };
+}
+
+/**
+ * What verify says about ONE role, from the design and the stored privileges (pure, so that it is unit tested without an environment): the comparison with the design (missing, extra, wrong
+ * depth; the nine baseline privileges tolerated at Global), the privileges with an unknown depth mask, the counts, and the negative findings (bypass, counter, alert log, assign / share).
+ */
+export function roleVerdict(role, stored) {
+  const diff = compareRolePrivileges(desiredPrivileges(role), stored, PLATFORM_BASELINE);
+  const unknown = (stored || []).filter((x) => x.depth === null);
+  const count = countCheck(role, stored);
+  const negative = negativeFindings({ [role.name]: stored || [] });
+  return { diff, unknown, count, negative, ok: diff.same && unknown.length === 0 && count.designOk && count.storedOk && negative.length === 0 };
+}
+
+/** The tables whose privileges the mode add-obligation puts into the existing roles: only the obligation (the alert log gets none, rule R9). */
+export const ADDED_TABLES = Object.freeze(['obligation']);
+
+/** A role as it was designed before the added tables: the grants of those tables removed (the extra audit read privileges stay). */
+export const roleWithoutTables = (role, keys = ADDED_TABLES) => ({ ...role, grants: Object.fromEntries(Object.entries(role.grants).filter(([t]) => !keys.includes(t))) });
+
+/**
+ * What the mode add-obligation would do for one role, from the privileges stored in it (pure). stored: [{ name, depth }].
+ *  rest      the privileges that are NOT on the added tables must equal the design of before (plus the tolerated platform baseline); any privilege on the alert log, or any other extra, is "extra" here
+ *  missing   the designed privileges on the added tables that are not stored  -> the only thing that is sent
+ *  wrongDepth / extra   privileges on the added tables that are stored at another depth, or that the design does not list (for example Append To for the Requester)
+ *  ok        true when it is safe to send: the rest is intact and nothing on the added tables is wrong; missing may be empty (idempotent: nothing is sent)
+ */
+export function addedTablesPlan(role, stored, keys = ADDED_TABLES, tables = TABLES) {
+  const logicals = new Set(keys.map((k) => tables[k].logical.toLowerCase()));
+  const onAdded = (name) => { const p = parsePrivilegeName(name, tables); return !!p && logicals.has(p.logical); };
+  const old = (stored || []).filter((s) => !onAdded(s.name));
+  const fresh = (stored || []).filter((s) => onAdded(s.name));
+  const rest = compareRolePrivileges(desiredPrivileges(roleWithoutTables(role, keys)), old, PLATFORM_BASELINE);
+  const want = desiredPrivileges(role).filter((d) => keys.includes(d.table));
+  const have = new Map(fresh.map((s) => [String(s.name).toLowerCase(), s.depth]));
+  const missing = want.filter((d) => !have.has(d.key));
+  const wrongDepth = want.filter((d) => have.has(d.key) && have.get(d.key) !== d.depth);
+  const extra = fresh.filter((s) => !want.some((d) => d.key === String(s.name).toLowerCase())).map((s) => String(s.name).toLowerCase());
+  return { rest, missing, wrongDepth, extra, ok: rest.same && !wrongDepth.length && !extra.length };
 }

@@ -3,7 +3,7 @@
  * Creates and verifies the four project security roles (ADR-008): Muwafaqa Requester / Approver / Finance / Admin. The design is in
  * scripts/lib/security-roles.mjs (pure, unit tested). This script assigns NO role to any user, touches NO flow and NO plug-in.
  *
- *   --mode=check    read only: every approval flow OFF (v2, and v1 while it exists), the ownership of the six tables, every privilege of the design found BY NAME in the `privileges`
+ *   --mode=check    read only: every approval flow OFF (v2, and v1 while it exists), the ownership of the eight tables (six, the obligation and the alert log), every privilege of the design found BY NAME in the `privileges`
  *                   table (never typed in) and allowed at the planned depth, the design rules, the existing roles, the root business unit, the solution
  *   --mode=create   check first, then for each role that does not exist: POST roles (into the solution) and AddPrivilegesRole. An existing role is left
  *                   alone if it already equals the design; a role that differs STOPS the run (nothing is replaced). Needs --confirm-mutates-environment
@@ -15,6 +15,11 @@
  *   --mode=restore-baseline --role=...   one AddPrivilegesRole call that puts the missing baseline privileges back at Global (idempotent)
  *   --mode=add-missing --role=Admin   one AddPrivilegesRole call for the designed audit-read privileges the role lacks (never removes anything; refuses if the role differs in anything else)
  *   verify takes --expect-baseline=none|all|any (default none: any of the nine that appears again fails): how many of the nine must be there
+ *   --mode=add-obligation --role=<Requester|Approver|Finance|Admin>   (ADR-008, update 2026-11-07; ONE role per run) one AddPrivilegesRole call for the designed privileges on mwf_obligation that the role lacks.
+ *                   It touches no other table, removes nothing and is idempotent (nothing missing: no call). It refuses, without writing, when an approval flow is ON, the role has a member that
+ *                   is not allowed, the role differs from its design on the OTHER tables or holds any privilege on mwf_alertlog, an obligation privilege is stored at another depth or is not
+ *                   designed, a privilege name is not found exactly once, a grant is not allowed at its depth, or mwf_obligation / mwf_alertlog is not owned as expected. Needs --confirm-mutates-environment (or --dry-run).
+ *                   NO privilege on mwf_alertlog is ever added (rule R9). It does not link any role to an app (a manual step, docs/rebuild-runbook.md R16d).
  *   --mode=cleanup  deletes ONLY the four roles named in the design, and only if no user and no team is a member of it. Needs --confirm-mutates-environment
  *
  * Before every write: 3 consecutive successful reads. A write is never retried. If the result of a write is unknown the script stops and says so.
@@ -25,17 +30,17 @@
 import { parseArgs, openSession, noGuid, Stop } from './lib/dv-session.mjs';
 import { requireStableConnection } from './lib/counter-snapshot.mjs';
 import { allFlowsOff } from './lib/bulk-messages.mjs';
-import { resolveDesired, describeExtras, missingDesigned, addPrivilegesBody, AUDIT_READ, membersVerdict, baselineState, checkBaselineExpectation, removePrivilegeBody, restoreBaselineBody, roleFromArg, TABLES, ROLES, ROLE_NAMES, DEPTH_VALUE, DEPTH_LABEL, FORBIDDEN_BYPASS, ACTIONS, validateDesign, resolvePrivilege, depthAllowed, depthOfMask, compareRolePrivileges, negativeFindings, desiredPrivileges, describeRole, parsePrivilegeName, PLATFORM_BASELINE } from './lib/security-roles.mjs';
+import { roleVerdict, addedTablesPlan, ADDED_TABLES, resolveDesired, describeExtras, missingDesigned, addPrivilegesBody, AUDIT_READ, membersVerdict, baselineState, checkBaselineExpectation, removePrivilegeBody, restoreBaselineBody, roleFromArg, TABLES, ROLES, ROLE_NAMES, DEPTH_VALUE, DEPTH_LABEL, FORBIDDEN_BYPASS, ACTIONS, validateDesign, resolvePrivilege, depthAllowed, depthOfMask, compareRolePrivileges, negativeFindings, desiredPrivileges, describeRole, parsePrivilegeName, PLATFORM_BASELINE } from './lib/security-roles.mjs';
 
 const { argOf, env: ENV, auth: AUTH, has } = parseArgs();
 const MODE = argOf('mode');
 const DRY = has('--dry-run');
 const SOLUTION = 'Muwafaqa';
 const q = encodeURIComponent;
-if (!['check', 'create', 'verify', 'cleanup', 'remove-baseline', 'restore-baseline', 'add-missing'].includes(MODE)) { console.error('Missing or invalid --mode=check|create|verify|cleanup|remove-baseline|restore-baseline|add-missing. Nothing was run.'); process.exit(2); }
+if (!['check', 'create', 'verify', 'cleanup', 'remove-baseline', 'restore-baseline', 'add-missing', 'add-obligation'].includes(MODE)) { console.error('Missing or invalid --mode=check|create|verify|cleanup|remove-baseline|restore-baseline|add-missing|add-obligation. Nothing was run.'); process.exit(2); }
 const EXPECT = argOf('expect-baseline') || 'none';
 try { checkBaselineExpectation(EXPECT, 0); } catch (e) { console.error(`${e.message}. Nothing was run.`); process.exit(2); }
-if (['create', 'cleanup', 'remove-baseline', 'restore-baseline', 'add-missing'].includes(MODE) && !DRY && !has('--confirm-mutates-environment')) {
+if (['create', 'cleanup', 'remove-baseline', 'restore-baseline', 'add-missing', 'add-obligation'].includes(MODE) && !DRY && !has('--confirm-mutates-environment')) {
   console.error(`WARNING: --mode=${MODE} writes security roles to the environment. Add --confirm-mutates-environment to run it on purpose, or --dry-run to see what it would send. Nothing was run.`);
   process.exit(2);
 }
@@ -100,11 +105,11 @@ async function modeCheck() {
   check('flows', `every approval flow is OFF (${f.line})`, f.ok);
   if (!f.ok) throw new Stop('An approval flow is ON or not readable. Nothing was changed.');
   const v = validateDesign();
-  check('design', 'the design rules R1 to R8 hold (no Assign / Share, no counter privilege, organization-owned tables only Global, User level only for the Requester on the contract, audit read only for the Admin)', v.length === 0, v.join('; ') || `${ROLES.length} roles`);
+  check('design', 'the design rules R1 to R10 hold (no Assign / Share, no counter privilege, organization-owned tables only Global, User level only for the Requester on the contract and the obligation, audit read only for the Admin, no privilege on the alert log)', v.length === 0, v.join('; ') || `${ROLES.length} roles`);
   const meta = await tableMeta();
   for (const [key, t] of Object.entries(TABLES)) check('table', `${t.logical}: ${meta[key].ownership}`, meta[key].ownership === t.ownership, `expected ${t.ownership}`);
   const rows = await privilegeRows();
-  console.log(`INFO  privilege rows found for the six tables: ${rows.length}`);
+  console.log(`INFO  privilege rows found for the eight tables: ${rows.length}`);
   let bad = 0;
   for (const role of ROLES) {
     for (const d of desiredPrivileges(role)) {
@@ -173,9 +178,11 @@ async function modeVerify() {
     const id = rows[0].roleid;
     const stored = await storedPrivileges(id);
     actualByRole[role.name] = stored;
-    const unknown = stored.filter((x) => x.depth === null);
-    const diff = compareRolePrivileges(desiredPrivileges(role), stored, PLATFORM_BASELINE);
+    const rv = roleVerdict(role, stored);   // pure, unit tested: the comparison with the design, the unknown masks, the counts, the negative findings
+    const unknown = rv.unknown; const diff = rv.diff;
     check('role', `${role.name}: privileges and depths equal the design, plus only the platform baseline at Global (${stored.length} stored: ${desiredPrivileges(role).length} designed + ${diff.tolerated} tolerated)`, diff.same && unknown.length === 0, `missing ${diff.missing.length}, extra ${diff.extra.length}${diff.extra.length ? ` (${diff.extra.join(', ')})` : ''}, wrong depth ${diff.wrongDepth.length}, unknown mask ${unknown.length}${unknown.length ? ` (${[...new Set(unknown.map((x) => x.mask))].join(',')})` : ''}, tolerated baseline ${diff.tolerated} of ${PLATFORM_BASELINE.length}`);
+    // the counts: EXPECTED (a fixed table of ADR-008), by DESIGN (grants and extra privileges the design lists) and STORED (the roleprivileges rows, minus the tolerated baseline at Global)
+    check('count', `${role.name}: ${rv.count.expected} privileges expected; the design lists ${rv.count.designed}; ${rv.count.storedWithoutBaseline} stored without the ${rv.count.tolerated} tolerated baseline at Global (${rv.count.stored} stored in all)`, rv.count.designOk && rv.count.storedOk, `expected ${rv.count.expected}, design ${rv.count.designed}, stored without baseline ${rv.count.storedWithoutBaseline}`);
     const be = checkBaselineExpectation(EXPECT, baselineState(stored).present.length);
     check('role', `${role.name}: the platform baseline matches --expect-baseline=${EXPECT} (${be.expected})`, be.ok, `${baselineState(stored).present.length} of ${PLATFORM_BASELINE.length} present at Global, ${baselineState(stored).wrongDepth.length} at another depth`);
     check('role', `${role.name}: in the solution ${SOLUTION}`, comp.has(String(id).toLowerCase()));
@@ -196,7 +203,7 @@ async function modeVerify() {
     if (other.length) console.log(`         platform baseline (tolerated by name, Global only): ${other.map((x) => `${x.name}:${DEPTH_LABEL[x.depth] ?? '?'}`).join(', ')}`);
   }
   const hits = negativeFindings(actualByRole);
-  check('NEG', 'no role holds a bypass privilege (prvBypassCustomBusinessLogic, prvBypassCustomPlugins, any prvBypass*), any privilege on the counter table, or any Assign / Share', hits.length === 0, hits.join('; ') || 'none found');
+  check('NEG', 'no role holds a bypass privilege (prvBypassCustomBusinessLogic, prvBypassCustomPlugins, any prvBypass*), any privilege on the counter table or on the alert log table, or any Assign / Share', hits.length === 0, hits.join('; ') || 'none found');
   const bad = results.filter((x) => x.status === 'FAIL').length;
   console.log(`\nVERIFY: ${results.filter((x) => x.status === 'PASS').length} PASS, ${bad} FAIL, ${results.filter((x) => x.status === 'OBS').length} OBS.`);
   return bad === 0;
@@ -292,6 +299,51 @@ async function modeAddMissing() {
   return !results.some((x) => x.status === 'FAIL');
 }
 
+// ---------------------------------------------------------------------------------------------------------------- add-obligation (the privileges on mwf_obligation, ADR-008 update 2026-11-07)
+/**
+ * One AddPrivilegesRole call (ONE role per run) for the designed privileges on mwf_obligation that the role lacks. The decision is made by the pure function addedTablesPlan (unit tested):
+ * the privileges that are not on the obligation must equal the design of before (plus the tolerated platform baseline; any privilege on mwf_alertlog is an extra and refuses), nothing on the
+ * obligation may be at another depth or outside the design, and only the missing ones are sent. Nothing missing: no call (idempotent). The same guards as the other write modes: every approval flow OFF,
+ * the member rule, the connection gate before the write (write()), no retry, no other form tried, --confirm-mutates-environment or --dry-run.
+ */
+async function modeAddObligation() {
+  const r = await oneRole();
+  const f = await flowsOff(); check('flows', `every approval flow is OFF (${f.line})`, f.ok);
+  if (!f.ok) throw new Stop('An approval flow is ON or not readable. Nothing was changed.');
+  const m = await membersOf(r.id); const mv = membersVerdict(r.name, m.userRows, m.teams, process.env.MWF_TEST_CLIENT_ID);
+  check('role', `${r.name}: no member except, for the Requester, the application user`, mv.ok, `${m.users} user(s), ${m.teams} team(s)`);
+  if (!mv.ok) throw new Stop('The role has a member that is not allowed. Nothing was changed.');
+  const meta = await tableMeta();
+  for (const key of [...ADDED_TABLES, 'alertlog']) {
+    check('table', `${TABLES[key].logical}: ${meta[key].ownership}`, meta[key].ownership === TABLES[key].ownership, `expected ${TABLES[key].ownership}`);
+    if (meta[key].ownership !== TABLES[key].ownership) throw new Stop(`${TABLES[key].logical} is not ${TABLES[key].ownership}. Nothing was changed.`);
+  }
+  const stored = await storedPrivileges(r.id);
+  const plan = addedTablesPlan(r.role, stored);
+  check('role', `${r.name}: the privileges that are not on the obligation equal the design of before (plus the tolerated platform baseline); none on the alert log`, plan.rest.same, `missing ${plan.rest.missing.length}, extra ${plan.rest.extra.length}, wrong depth ${plan.rest.wrongDepth.length}`);
+  if (!plan.rest.same) throw new Stop(`${r.name} differs from its design on the other tables (missing ${plan.rest.missing.length}, extra ${plan.rest.extra.length}${plan.rest.extra.length ? ': ' + plan.rest.extra.join(', ') : ''}, wrong depth ${plan.rest.wrongDepth.length}). Nothing was changed.`);
+  if (plan.wrongDepth.length || plan.extra.length) throw new Stop(`${r.name}: ${plan.wrongDepth.length} privilege(s) on the obligation are stored at another depth (${plan.wrongDepth.map((d) => d.key).join(', ')}) and ${plan.extra.length} are not designed (${plan.extra.join(', ')}). Nothing was changed.`);
+  const rows = await privilegeRows();
+  const todo = plan.missing.map((d) => {
+    const x = resolveDesired(rows, d); if (!x.ok) throw new Stop(x.error);   // by name, exactly one row: the same lookup as every other mode
+    if (!depthAllowed(x.row, d.depth)) throw new Stop(`${x.row.name} is not allowed at ${d.depth}. Nothing was changed.`);
+    return { name: x.row.name, privilegeid: x.row.privilegeid, depth: d.depth };
+  });
+  console.log(`INFO  ${r.name}: ${todo.length} designed privilege(s) on ${TABLES.obligation.logical} missing${todo.length ? ': ' + todo.map((x) => x.name + '=' + DEPTH_LABEL[x.depth]).join(', ') : ''}`);
+  if (!todo.length) { out('add', 'OBS', `${r.name}: nothing to add, the privileges on the obligation are already as designed (no call was sent)`); return true; }
+  const w = await write('POST', `roles(${r.id})/Microsoft.Dynamics.CRM.AddPrivilegesRole`, addPrivilegesBody(todo), undefined, `[add ${todo.length} privilege(s) on ${TABLES.obligation.logical}]`);
+  if (DRY) { console.log('\nDRY-RUN: nothing was sent.'); return true; }
+  if (!w.ok) throw new Stop(`AddPrivilegesRole answered HTTP ${w.status} ${S.msgOf(w)}. Not retried; read the state with --mode=verify.`);
+  const after = await storedPrivileges(r.id);
+  const rv = roleVerdict(r.role, after);
+  check('role', `${r.name}: after the call the privileges and depths equal the design (plus only the tolerated baseline at Global)`, rv.diff.same && rv.unknown.length === 0, `missing ${rv.diff.missing.length}, extra ${rv.diff.extra.length}, wrong depth ${rv.diff.wrongDepth.length}`);
+  check('count', `${r.name}: ${rv.count.expected} privileges expected; ${rv.count.storedWithoutBaseline} stored without the tolerated baseline (${rv.count.stored} in all)`, rv.count.storedOk, `design ${rv.count.designed}`);
+  const bl = baselineState(after).present.length;
+  out('baseline', bl === 0 ? 'PASS' : 'OBS', `${r.name}: ${bl} of ${PLATFORM_BASELINE.length} platform-baseline privileges present after the call (the platform may add them again by itself: untested)`);
+  console.log('\nNEXT: --mode=verify (reads what the platform really stored), then the next role.');
+  return !results.some((x) => x.status === 'FAIL');
+}
+
 // ---------------------------------------------------------------------------------------------------------------- cleanup
 async function modeCleanup() {
   const existing = await rolesByName();
@@ -312,7 +364,7 @@ async function modeCleanup() {
   try {
     S = await openSession({ env: ENV, auth: AUTH });
     await requireStableConnection(S.call);
-    const ok = MODE === 'check' ? await modeCheck() : MODE === 'create' ? await modeCreate() : MODE === 'verify' ? await modeVerify() : MODE === 'remove-baseline' ? await modeRemoveBaseline() : MODE === 'restore-baseline' ? await modeRestoreBaseline() : MODE === 'add-missing' ? await modeAddMissing() : await modeCleanup();
+    const ok = MODE === 'check' ? await modeCheck() : MODE === 'create' ? await modeCreate() : MODE === 'verify' ? await modeVerify() : MODE === 'remove-baseline' ? await modeRemoveBaseline() : MODE === 'restore-baseline' ? await modeRestoreBaseline() : MODE === 'add-missing' ? await modeAddMissing() : MODE === 'add-obligation' ? await modeAddObligation() : await modeCleanup();
     process.exit(ok ? 0 : 1);
   } catch (e) {
     console.error(`\nSTOPPED: ${noGuid(e.message)}`);
