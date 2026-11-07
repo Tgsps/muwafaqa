@@ -39,7 +39,18 @@ Run over **every commit that is ahead of `origin/main`**: the patches (added lin
 | Environment | The environment name or any real host. The generic placeholder `https://<org>.crm4.dynamics.com` in usage comments is acceptable; anything that is not generic is not |
 | Tokens | A JWT-like or `Bearer` literal |
 | Session | Any link or id of an assistant session, in a file or in a commit message |
-| Trailers | Any trailer other than the one `Co-Authored-By` line that names the assistant model (the owner's rule; its address is not written here) |
+| Trailers | Any trailer other than the one `Co-Authored-By` line that names the assistant model (the owner's rule; its address is not written here). **Counted with git's own parser, per commit, and never by matching "key: value" lines**: a subject such as `docs: ...` or a body line such as `Note: ...` is not a trailer (on 2026-11-07 the first pattern counted exactly such a subject; the owner classified it a false positive). The command is under the table |
 | Identity | One author and committer identity, a GitHub noreply address |
 
 GUIDs are allowed only inside `src/`; outside it, any GUID in an added line is listed and judged (made-up values in unit tests are expected). The local pre-commit hook (item 3) stops most of this at commit time but is not versioned and is not a substitute for the scan.
+
+**The trailer count (the command).** The allowed line is held in a shell variable so that its address is not written in this document.
+
+```bash
+ALLOWED='<the one Co-Authored-By line that names the assistant model>'
+for c in $(git rev-list origin/main..HEAD); do git log -1 --format=%B "$c" | git interpret-trailers --parse; done > trailers.txt
+grep -vxF "$ALLOWED" trailers.txt | grep -c .     # trailers other than the allowed one: must be 0
+grep -cxF "$ALLOWED" trailers.txt                  # must equal the number of commits ahead (a missing trailer is caught here)
+```
+
+`git interpret-trailers --parse` reads only the trailer block at the end of a message. **Tested offline on 2026-11-07** on made-up messages: a `docs: ...` subject with the allowed trailer gives 0 other trailers (the old pattern gave 1); a body line `Note: ...` gives 0 (old: 2); a second real trailer and a session trailer give 1 each; a message with no trailer gives 0 allowed. On the last 8 real commits: 0 other trailers and the allowed one in 8 of 8. The local `commit-msg` hook only rejects a session link or a session trailer; it does not enforce "only the allowed trailer" (the hook is not versioned).
