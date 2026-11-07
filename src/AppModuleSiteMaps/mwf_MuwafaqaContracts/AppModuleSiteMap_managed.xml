@@ -30,6 +30,7 @@
           </Titles>
         </SubArea>
         <SubArea Id="subarea_05add781" Icon="/_imgs/imagestrips/transparent_spacer.gif" Entity="mwf_approvalmatrix" Client="All,Outlook,OutlookLaptopClient,OutlookWorkstationClient,Web" AvailableOffline="true" PassParams="false" Sku="All,OnPremise,Live,SPLA" />
+        <SubArea Id="subarea_82a83a78" Icon="/_imgs/imagestrips/transparent_spacer.gif" Entity="mwf_obligation" Client="All,Outlook,OutlookLaptopClient,OutlookWorkstationClient,Web" AvailableOffline="true" PassParams="false" Sku="All,OnPremise,Live,SPLA" />
       </Group>
     </Area>
   </SiteMap>

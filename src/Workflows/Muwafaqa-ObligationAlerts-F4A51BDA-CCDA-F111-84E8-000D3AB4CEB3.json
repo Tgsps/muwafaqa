@@ -1,0 +1,600 @@
+{
+  "properties": {
+    "connectionReferences": {
+      "shared_commondataserviceforapps": {
+        "api": {
+          "name": "shared_commondataserviceforapps"
+        },
+        "connection": {
+          "connectionReferenceLogicalName": "new_sharedcommondataserviceforapps_43184"
+        },
+        "runtimeSource": "embedded"
+      },
+      "shared_office365": {
+        "api": {
+          "name": "shared_office365"
+        },
+        "connection": {
+          "connectionReferenceLogicalName": "mwf_sharedoffice365_reminders"
+        },
+        "runtimeSource": "embedded"
+      }
+    },
+    "definition": {
+      "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+      "contentVersion": "1.0.0.0",
+      "parameters": {
+        "$authentication": {
+          "defaultValue": {},
+          "type": "SecureObject"
+        },
+        "$connections": {
+          "defaultValue": {},
+          "type": "Object"
+        }
+      },
+      "triggers": {
+        "Recurrence": {
+          "type": "Recurrence",
+          "recurrence": {
+            "frequency": "Minute",
+            "interval": 1
+          }
+        }
+      },
+      "actions": {
+        "Init_runStartedAt": {
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "runStartedAt",
+                "type": "string",
+                "value": "@{utcNow()}"
+              }
+            ]
+          },
+          "runAfter": {}
+        },
+        "Init_noticesSent": {
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "noticesSent",
+                "type": "integer",
+                "value": 0
+              }
+            ]
+          },
+          "runAfter": {
+            "Init_runStartedAt": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Init_claimFailures": {
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "claimFailures",
+                "type": "integer",
+                "value": 0
+              }
+            ]
+          },
+          "runAfter": {
+            "Init_noticesSent": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Init_errors": {
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "errors",
+                "type": "integer",
+                "value": 0
+              }
+            ]
+          },
+          "runAfter": {
+            "Init_claimFailures": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Init_proceed": {
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "proceed",
+                "type": "string",
+                "value": ""
+              }
+            ]
+          },
+          "runAfter": {
+            "Init_errors": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Init_alertType": {
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "alertType",
+                "type": "string",
+                "value": ""
+              }
+            ]
+          },
+          "runAfter": {
+            "Init_proceed": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Init_alertKey": {
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "alertKey",
+                "type": "string",
+                "value": ""
+              }
+            ]
+          },
+          "runAfter": {
+            "Init_alertType": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Init_recipientEmail": {
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "recipientEmail",
+                "type": "string",
+                "value": ""
+              }
+            ]
+          },
+          "runAfter": {
+            "Init_alertKey": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Get_open_obligations": {
+          "type": "OpenApiConnection",
+          "inputs": {
+            "parameters": {
+              "entityName": "mwf_obligations",
+              "$select": "mwf_obligationid,mwf_name,mwf_duedate,_mwf_contract_value",
+              "$filter": "mwf_status eq 867640000 and mwf_duedate ge @{formatDateTime(addMinutes(variables('runStartedAt'), -30), 'yyyy-MM-ddTHH:mm:ssZ')} and mwf_duedate le @{formatDateTime(addMinutes(variables('runStartedAt'), 5), 'yyyy-MM-ddTHH:mm:ssZ')}",
+              "$orderby": "mwf_duedate asc",
+              "$top": 50
+            },
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps",
+              "operationId": "ListRecords",
+              "connectionName": "shared_commondataserviceforapps"
+            }
+          },
+          "runAfter": {
+            "Init_recipientEmail": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Apply_to_each_obligation": {
+          "type": "Foreach",
+          "foreach": "@outputs('Get_open_obligations')?['body/value']",
+          "actions": {
+            "Set_proceed": {
+              "type": "SetVariable",
+              "inputs": {
+                "name": "proceed",
+                "value": "@{if(less(variables('noticesSent'), 5), 'yes', 'no')}"
+              }
+            },
+            "Reset_alertType": {
+              "type": "SetVariable",
+              "inputs": {
+                "name": "alertType",
+                "value": "@string('')"
+              },
+              "runAfter": {
+                "Set_proceed": [
+                  "Succeeded"
+                ]
+              }
+            },
+            "Reset_alertKey": {
+              "type": "SetVariable",
+              "inputs": {
+                "name": "alertKey",
+                "value": "@string('')"
+              },
+              "runAfter": {
+                "Reset_alertType": [
+                  "Succeeded"
+                ]
+              }
+            },
+            "Reset_recipientEmail": {
+              "type": "SetVariable",
+              "inputs": {
+                "name": "recipientEmail",
+                "value": "@string('')"
+              },
+              "runAfter": {
+                "Reset_alertKey": [
+                  "Succeeded"
+                ]
+              }
+            },
+            "Gate_prepare": {
+              "type": "If",
+              "expression": {
+                "equals": [
+                  "@variables('proceed')",
+                  "yes"
+                ]
+              },
+              "actions": {
+                "Set_alertType": {
+                  "type": "SetVariable",
+                  "inputs": {
+                    "name": "alertType",
+                    "value": "@if(less(ticks(items('Apply_to_each_obligation')?['mwf_duedate']), ticks(variables('runStartedAt'))), 'OBLIGATION-OVERDUE', 'OBLIGATION-DUESOON')"
+                  }
+                },
+                "Get_contract": {
+                  "type": "OpenApiConnection",
+                  "inputs": {
+                    "parameters": {
+                      "entityName": "mwf_contracts",
+                      "$select": "mwf_contractid,mwf_name,mwf_contractnumber,_ownerid_value",
+                      "$filter": "mwf_contractid eq @{items('Apply_to_each_obligation')?['_mwf_contract_value']}",
+                      "$top": 1
+                    },
+                    "host": {
+                      "apiId": "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps",
+                      "operationId": "ListRecords",
+                      "connectionName": "shared_commondataserviceforapps"
+                    }
+                  },
+                  "runAfter": {
+                    "Set_alertType": [
+                      "Succeeded"
+                    ]
+                  }
+                },
+                "Check_contract_found": {
+                  "type": "If",
+                  "expression": {
+                    "greater": [
+                      "@length(outputs('Get_contract')?['body/value'])",
+                      0
+                    ]
+                  },
+                  "actions": {
+                    "Get_owner_user_list": {
+                      "type": "OpenApiConnection",
+                      "inputs": {
+                        "parameters": {
+                          "entityName": "systemusers",
+                          "$select": "internalemailaddress",
+                          "$filter": "systemuserid eq @{first(outputs('Get_contract')?['body/value'])?['_ownerid_value']}",
+                          "$top": 1
+                        },
+                        "host": {
+                          "apiId": "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps",
+                          "operationId": "ListRecords",
+                          "connectionName": "shared_commondataserviceforapps"
+                        }
+                      }
+                    },
+                    "Set_recipient_owner": {
+                      "type": "SetVariable",
+                      "inputs": {
+                        "name": "recipientEmail",
+                        "value": "@{coalesce(first(outputs('Get_owner_user_list')?['body/value'])?['internalemailaddress'], '')}"
+                      },
+                      "runAfter": {
+                        "Get_owner_user_list": [
+                          "Succeeded"
+                        ]
+                      }
+                    }
+                  },
+                  "else": {
+                    "actions": {}
+                  },
+                  "runAfter": {
+                    "Get_contract": [
+                      "Succeeded"
+                    ]
+                  }
+                },
+                "Set_alertKey": {
+                  "type": "SetVariable",
+                  "inputs": {
+                    "name": "alertKey",
+                    "value": "@concat(toLower(string(items('Apply_to_each_obligation')?['mwf_obligationid'])), '-', variables('alertType'), '-', formatDateTime(items('Apply_to_each_obligation')?['mwf_duedate'], 'yyyyMMdd'))"
+                  },
+                  "runAfter": {
+                    "Check_contract_found": [
+                      "Succeeded"
+                    ]
+                  }
+                },
+                "Gate_guard": {
+                  "type": "If",
+                  "expression": {
+                    "and": [
+                      {
+                        "not": {
+                          "equals": [
+                            "@empty(variables('recipientEmail'))",
+                            true
+                          ]
+                        }
+                      },
+                      {
+                        "not": {
+                          "equals": [
+                            "@empty(variables('alertKey'))",
+                            true
+                          ]
+                        }
+                      },
+                      {
+                        "equals": [
+                          "@length(variables('alertKey'))",
+                          64
+                        ]
+                      },
+                      {
+                        "equals": [
+                          "@contains(variables('alertKey'), concat('-', variables('alertType'), '-'))",
+                          true
+                        ]
+                      }
+                    ]
+                  },
+                  "actions": {
+                    "Get_obligation_before_claim": {
+                      "type": "OpenApiConnection",
+                      "inputs": {
+                        "parameters": {
+                          "entityName": "mwf_obligations",
+                          "recordId": "@items('Apply_to_each_obligation')?['mwf_obligationid']",
+                          "$select": "mwf_status,mwf_duedate"
+                        },
+                        "host": {
+                          "apiId": "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps",
+                          "operationId": "GetItem",
+                          "connectionName": "shared_commondataserviceforapps"
+                        }
+                      }
+                    },
+                    "Check_obligation_still_due": {
+                      "type": "If",
+                      "expression": {
+                        "and": [
+                          {
+                            "equals": [
+                              "@outputs('Get_obligation_before_claim')?['body/mwf_status']",
+                              867640000
+                            ]
+                          },
+                          {
+                            "equals": [
+                              "@outputs('Get_obligation_before_claim')?['body/mwf_duedate']",
+                              "@items('Apply_to_each_obligation')?['mwf_duedate']"
+                            ]
+                          }
+                        ]
+                      },
+                      "actions": {
+                        "Try_claim": {
+                          "type": "Scope",
+                          "actions": {
+                            "Insert_claim": {
+                              "type": "OpenApiConnection",
+                              "inputs": {
+                                "parameters": {
+                                  "entityName": "mwf_alertlogs",
+                                  "item/mwf_alertkey": "@variables('alertKey')",
+                                  "item/mwf_name": "@variables('alertKey')"
+                                },
+                                "host": {
+                                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps",
+                                  "operationId": "CreateRecord",
+                                  "connectionName": "shared_commondataserviceforapps"
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "Claim_succeeded": {
+                          "type": "If",
+                          "expression": {
+                            "equals": [
+                              "@actions('Try_claim')?['status']",
+                              "Succeeded"
+                            ]
+                          },
+                          "actions": {
+                            "Increment_noticesSent": {
+                              "type": "IncrementVariable",
+                              "inputs": {
+                                "name": "noticesSent",
+                                "value": 1
+                              }
+                            },
+                            "Send_alert_email": {
+                              "type": "OpenApiConnection",
+                              "inputs": {
+                                "parameters": {
+                                  "emailMessage/To": "@variables('recipientEmail')",
+                                  "emailMessage/Subject": "[Muwafaqa test] @{if(equals(variables('alertType'), 'OBLIGATION-OVERDUE'), 'Obligation overdue: ', 'Obligation due soon: ')}@{items('Apply_to_each_obligation')?['mwf_name']} (contract @{first(outputs('Get_contract')?['body/value'])?['mwf_name']})",
+                                  "emailMessage/Body": "<p>This is an informational notice from the Muwafaqa contract system (sample text).</p><p>The obligation \"@{items('Apply_to_each_obligation')?['mwf_name']}\" of contract @{first(outputs('Get_contract')?['body/value'])?['mwf_contractnumber']} (@{first(outputs('Get_contract')?['body/value'])?['mwf_name']}) is @{if(equals(variables('alertType'), 'OBLIGATION-OVERDUE'), 'overdue: the due date has passed and it is still open', 'due soon')}.</p><p>Due date: @{items('Apply_to_each_obligation')?['mwf_duedate']} (UTC).</p><p>Nothing was changed by this notice and nobody has to answer it.</p><p><a href=\"https://<ORG_HOST>/main.aspx?etn=mwf_obligation&pagetype=entityrecord&id=@{items('Apply_to_each_obligation')?['mwf_obligationid']}\">Open the obligation</a></p>"
+                                },
+                                "host": {
+                                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_office365",
+                                  "operationId": "SendEmailV2",
+                                  "connectionName": "shared_office365"
+                                }
+                              },
+                              "runAfter": {
+                                "Increment_noticesSent": [
+                                  "Succeeded"
+                                ]
+                              }
+                            }
+                          },
+                          "else": {
+                            "actions": {
+                              "Compose_claim_failure": {
+                                "type": "Compose",
+                                "inputs": {
+                                  "scopeStatus": "@actions('Try_claim')?['status']",
+                                  "result": "@result('Try_claim')",
+                                  "obligationId": "@items('Apply_to_each_obligation')?['mwf_obligationid']",
+                                  "key": "@variables('alertKey')"
+                                }
+                              },
+                              "Check_claim_duplicate": {
+                                "type": "If",
+                                "expression": {
+                                  "equals": [
+                                    "@contains(string(outputs('Compose_claim_failure')), '0x80060892')",
+                                    true
+                                  ]
+                                },
+                                "actions": {},
+                                "else": {
+                                  "actions": {
+                                    "Increment_claimFailures": {
+                                      "type": "IncrementVariable",
+                                      "inputs": {
+                                        "name": "claimFailures",
+                                        "value": 1
+                                      }
+                                    }
+                                  }
+                                },
+                                "runAfter": {
+                                  "Compose_claim_failure": [
+                                    "Succeeded"
+                                  ]
+                                }
+                              }
+                            }
+                          },
+                          "runAfter": {
+                            "Try_claim": [
+                              "Succeeded",
+                              "Failed",
+                              "TimedOut"
+                            ]
+                          }
+                        }
+                      },
+                      "else": {
+                        "actions": {}
+                      },
+                      "runAfter": {
+                        "Get_obligation_before_claim": [
+                          "Succeeded"
+                        ]
+                      }
+                    }
+                  },
+                  "else": {
+                    "actions": {
+                      "Increment_errors": {
+                        "type": "IncrementVariable",
+                        "inputs": {
+                          "name": "errors",
+                          "value": 1
+                        }
+                      }
+                    }
+                  },
+                  "runAfter": {
+                    "Set_alertKey": [
+                      "Succeeded"
+                    ]
+                  }
+                }
+              },
+              "else": {
+                "actions": {}
+              },
+              "runAfter": {
+                "Reset_recipientEmail": [
+                  "Succeeded"
+                ]
+              }
+            }
+          },
+          "runtimeConfiguration": {
+            "concurrency": {
+              "repetitions": 1
+            }
+          },
+          "runAfter": {
+            "Get_open_obligations": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Check_errors": {
+          "type": "If",
+          "expression": {
+            "greater": [
+              "@add(variables('errors'), variables('claimFailures'))",
+              0
+            ]
+          },
+          "actions": {
+            "Terminate_run_failed": {
+              "type": "Terminate",
+              "inputs": {
+                "runStatus": "Failed",
+                "runError": {
+                  "code": "ObligationAlertErrors",
+                  "message": "@{concat('Obligation alerts finished with ', string(variables('errors')), ' error(s) and ', string(variables('claimFailures')), ' claim failure(s) (a duplicate claim is not one); see the run history')}"
+                }
+              }
+            }
+          },
+          "else": {
+            "actions": {}
+          },
+          "runAfter": {
+            "Apply_to_each_obligation": [
+              "Succeeded"
+            ]
+          }
+        }
+      }
+    },
+    "templateName": null
+  },
+  "schemaVersion": "1.0.0.0"
+}

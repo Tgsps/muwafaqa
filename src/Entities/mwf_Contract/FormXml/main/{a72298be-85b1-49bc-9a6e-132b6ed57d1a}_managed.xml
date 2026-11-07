@@ -165,6 +165,38 @@
                     </row>
                   </rows>
                 </section>
+                <section name="general_section_6" id="548fbe64-4db2-48b0-90a3-0ad29fc9b4f2" IsUserDefined="0" locklevel="0" showlabel="true" showbar="false" layout="varwidth" celllabelalignment="Left" celllabelposition="Left" columns="1" labelwidth="115">
+                  <labels>
+                    <label description="Obligations" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row />
+                    <row>
+                      <cell locklevel="0" id="{5aa61095-7589-4299-aa4f-5dd5b23adbce}" rowspan="4" colspan="1" auto="false">
+                        <labels>
+                          <label description="" languagecode="1033" />
+                        </labels>
+                        <control indicationOfSubgrid="true" id="Subgrid_new_1" classid="{E7A81278-8635-4D9E-8D4D-59480B391C5B}">
+                          <parameters>
+                            <RecordsPerPage>4</RecordsPerPage>
+                            <AutoExpand>Fixed</AutoExpand>
+                            <EnableQuickFind>false</EnableQuickFind>
+                            <EnableViewPicker>false</EnableViewPicker>
+                            <EnableChartPicker>true</EnableChartPicker>
+                            <ChartGridMode>All</ChartGridMode>
+                            <RelationshipName>mwf_contract_obligation</RelationshipName>
+                            <TargetEntityType>mwf_obligation</TargetEntityType>
+                            <ViewId>{8A828B0F-E56E-4962-A813-13D365B28517}</ViewId>
+                            <ViewIds>{8A828B0F-E56E-4962-A813-13D365B28517}</ViewIds>
+                          </parameters>
+                        </control>
+                      </cell>
+                    </row>
+                    <row />
+                    <row />
+                    <row />
+                  </rows>
+                </section>
               </sections>
             </column>
           </columns>

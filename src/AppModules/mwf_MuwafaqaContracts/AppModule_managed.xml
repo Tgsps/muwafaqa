@@ -13,6 +13,7 @@
     <AppModuleComponent type="1" schemaName="mwf_approvalmatrix" />
     <AppModuleComponent type="1" schemaName="mwf_contract" />
     <AppModuleComponent type="1" schemaName="mwf_counterparty" />
+    <AppModuleComponent type="1" schemaName="mwf_obligation" />
     <AppModuleComponent type="26" id="{21fc3229-e8f5-4e9c-be4c-247461e7390d}" />
     <AppModuleComponent type="26" id="{e23a2f82-446b-4b57-863d-26ee1925ca45}" />
     <AppModuleComponent type="26" id="{c0c547d1-dee9-4c0c-b689-43bb5ec15aa3}" />
