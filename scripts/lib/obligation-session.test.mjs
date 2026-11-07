@@ -1,4 +1,4 @@
-// Tests of the session of the obligation alerts flow against a MOCKED, stateful environment. Nothing here talks to an environment (the flow exists and is Off, but no window has been run).
+// Tests of the session of the obligation alerts flow against a MOCKED, stateful environment. Nothing here talks to an environment (one window has been run against the real environment on 2026-11-03/04; these tests are not it).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -65,7 +65,7 @@ test('the key of a seed is the key alert-key.mjs builds (also the pre-inserted o
 test('the plan: offline, lists every case with expectation and observer, both controls, the margins, the counters it will consume and how they are restored, and what only the owner can read', () => {
   const t = planLines().join('\n');
   for (const id of CASE_ORDER) assert.ok(t.includes(id), id);
-  for (const n of ['POSITIVE', 'positive controls', 'INCONCLUSIVE', 'MARGINS', 'LATE ON', 'EXPECTED ALERTS', 'COUNTERS', `contract type ${CONTRACT_TYPE}`, 'consumes ONE number', '--counters-approved', '29 October restore', 'never below a number that still exists', 'THE SCRIPT MEASURES', 'ONLY THE OWNER CAN READ', 'never reads it in any way', 'THE FLOW EXISTS AND IS OFF', 'Check_obligation_still_due', 'observed by']) assert.ok(t.includes(n) || t.toLowerCase().includes(n.toLowerCase()), n);
+  for (const n of ['POSITIVE', 'positive controls', 'INCONCLUSIVE', 'MARGINS', 'LATE ON', 'EXPECTED ALERTS', 'COUNTERS', `contract type ${CONTRACT_TYPE}`, 'consumes ONE number', '--counters-approved', '29 October restore', 'never below a number that still exists', 'THE SCRIPT MEASURES', 'ONLY THE OWNER CAN READ', 'never reads it in any way', 'STATE OF THE FLOW at the time of writing', 'Check_obligation_still_due', 'observed by']) assert.ok(t.includes(n) || t.toLowerCase().includes(n.toLowerCase()), n);
   assert.doesNotMatch(t, /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}|https?:/i);
 });
 
@@ -428,6 +428,46 @@ test('cleanup refuses while the flow is ON and deletes nothing', async () => {
   assert.equal(ok, false); assert.equal(env.writes().length, before); assert.match(env.text(), /STILL ON/); assert.match(env.text(), /nothing was deleted/);
 });
 
+test('cleanup with NO flow row of this name: continues, says so in one log line, and deletes this session\'s rows (the flow was deleted by the owner)', async () => {
+  const env = fakeEnv(); await env.session(approved).setup(); env.flows.splice(0, 1);   // the alerts flow row is gone; the other flow is still Off
+  assert.equal(env.flows.filter((f) => f.name === FLOW_NAME).length, 0);
+  const ok = await env.session({ ...approved, handoff: { before: { MNT: 0 }, consumed: { MNT: 1 } } }).cleanup();
+  assert.equal(ok, true); assert.equal(env.text().split('\n').filter((l) => /no "Muwafaqa - Obligation Alerts" flow row exists: treated as Off/.test(l)).length, 1);
+  assert.equal(env.obligations.size, 0); assert.equal(env.contracts.size, 0); assert.equal(env.counter.last, 0);
+  assert.doesNotMatch(env.text(), /STILL ON/);
+});
+
+test('cleanup with exactly one flow row that is Off continues (no "treated as Off" line)', async () => {
+  const env = fakeEnv(); await env.session(approved).setup();
+  const ok = await env.session({ ...approved, handoff: { before: { MNT: 0 }, consumed: { MNT: 1 } } }).cleanup();
+  assert.equal(ok, true); assert.doesNotMatch(env.text(), /treated as Off/); assert.match(env.text(), /the alerts flow is OFF and every other flow row is OFF/);
+});
+
+test('cleanup with exactly one flow row that is ON refuses and deletes nothing (also when no alerts row exists but ANOTHER flow is ON)', async () => {
+  const on = fakeEnv(); await on.session(approved).setup(); on.flows[0].statecode = 1; const w = on.writes().length;
+  assert.equal(await on.session({ ...approved, handoff: { before: { MNT: 0 }, consumed: { MNT: 1 } } }).cleanup(), false);
+  assert.equal(on.writes().length, w); assert.match(on.text(), /the alerts flow is still ON: nothing was deleted/);
+  const other = fakeEnv(); await other.session(approved).setup(); other.flows[1].statecode = 1; const w2 = other.writes().length;   // the alerts flow is Off, ANOTHER flow is On
+  assert.equal(await other.session({ ...approved, handoff: { before: { MNT: 0 }, consumed: { MNT: 1 } } }).cleanup(), false);
+  assert.equal(other.writes().length, w2); assert.match(other.text(), /another flow is ON \(Some other flow\)/); assert.match(other.text(), /another flow is ON: nothing was deleted/);
+  const none = fakeEnv(); await none.session(approved).setup(); none.flows.splice(0, 1); none.flows[0].statecode = 1; const w3 = none.writes().length;   // no alerts row, another flow On
+  assert.equal(await none.session({ ...approved, handoff: { before: { MNT: 0 }, consumed: { MNT: 1 } } }).cleanup(), false);
+  assert.equal(none.writes().length, w3); assert.doesNotMatch(none.text(), /treated as Off/);
+});
+
+test('cleanup with TWO flow rows of this name refuses (a Stop) and deletes nothing', async () => {
+  const env = fakeEnv(); await env.session(approved).setup(); env.flows.push({ ...env.flows[0], workflowid: gid(7003) }); const w = env.writes().length;
+  await assert.rejects(() => env.session({ ...approved, handoff: { before: { MNT: 0 }, consumed: { MNT: 1 } } }).cleanup(), (e) => e instanceof Stop && /at most one flow row.*found 2/.test(e.message));
+  assert.equal(env.writes().length, w);
+});
+
+test('only cleanup accepts a missing alerts flow: baseline, setup, await and verdict still stop when no flow row of this name exists', async () => {
+  const mk = () => { const e = fakeEnv({ flows: [{ name: 'Some other flow', statecode: 0, workflowid: gid(7002), modifiedon: iso(0) }] }); return e; };
+  const b = mk(); assert.equal(await b.session(approved).baseline(), false); assert.match(b.text(), /exactly one flow row/);
+  const s = mk(); await assert.rejects(() => s.session(approved).setup(), Stop); assert.equal(s.writes().length, 0);
+  const a = mk(); await assert.rejects(() => a.session(approved).awaitWindow(), (e) => /Expected exactly one flow row/.test(e.message)); assert.equal(a.writes().length, 0);
+});
+
 test('cleanup without the counter approval refuses before deleting; with it, it deletes by the ids of THIS session only, restores the counter, and leaves the baseline', async () => {
   const env = fakeEnv(); await env.session(approved).setup(); const writes = env.writes().length;
   await assert.rejects(() => env.session({ expectContracts: 11 }).cleanup(), (e) => /counters-approved/.test(e.message)); assert.equal(env.writes().length, writes);
@@ -477,7 +517,7 @@ test('the code never writes to the table of flows, never reads a mailbox, never 
   }
   assert.match(lib, /WRITE_TABLES = \/\^\(mwf_contracts\|mwf_counterparties\|mwf_obligations\|mwf_alertlogs\)/);
   assert.doesNotMatch(lib.replace(/Plug|\[\^\)]/g, ''), /WRITE_TABLES[^;]*workflows/);
-  assert.match(read('./obligation-session.mjs'), /NO WINDOW HAS BEEN RUN/);
+  assert.match(read('./obligation-session.mjs'), /ONE WINDOW HAS BEEN RUN/);
   assert.match(read('./obligation-session.mjs'), /never reads a mailbox|never reads (a|your) mailbox|never read a mailbox|does NOT read|never reads it in any way/i);
 });
 

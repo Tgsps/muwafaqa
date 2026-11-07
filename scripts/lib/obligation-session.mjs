@@ -1,7 +1,6 @@
 /**
  * The test session of the flow "Muwafaqa - Obligation Alerts" (test variant): pure parts (the cases, the seeds with their due dates and margins, the plan, the
- * verdict) and the modes that read and write through an injected `call` (baseline, setup, await, verdict, cleanup). NO WINDOW HAS BEEN RUN. The flow
- * exists (created OFF on 2026-11-03, never turned on). `plan` (offline) and `baseline` (read only, 2026-11-04, passed) have been run against the environment; setup, await, verdict and cleanup are covered only
+ * verdict) and the modes that read and write through an injected `call` (baseline, setup, await, verdict, cleanup). ONE WINDOW HAS BEEN RUN (the night of 2026-11-03/04: setup, await and verdict; cleanup was not run). State of the flow at the time of writing (2026-11-07): the first flow was deleted by the owner after the window of 2026-11-03/04; the Try/catch definition (generator commit cb9ac80) has not been created yet. The modes read the real state themselves: baseline, setup, await and verdict stop unless exactly one flow row of this name exists and every flow is OFF; cleanup accepts no such row (a missing flow cannot run) but still refuses while any flow is ON. The modes are also covered
  * by unit tests against a mocked environment. scripts/test-flow-obligation-alerts.mjs is the command line.
  *
  * What the script MEASURES itself: alert log rows (key, creation time), obligation and contract state, flow rows (ON / OFF and when it changed), flow run records
@@ -97,7 +96,7 @@ export const keyFor = (obligationId, type, dueIso) => buildAlertKey({ sourceId: 
 // ---------------------------------------------------------------------------------------------------------------- the plan (offline)
 export function planLines() {
   const L = [];
-  L.push(`PLAN (offline, no sign-in, no network). Flow: ${FLOW_NAME} (test variant: lead ${PARAMS.leadMinutes} min, lookback ${PARAMS.lookbackMinutes} min, interval ${PARAMS.intervalMinutes} min). THE FLOW EXISTS AND IS OFF (created 2026-11-03 and verified identical to the generated definition; it has never been turned on). A window still needs the owner's explicit approval, and setup and cleanup also need --counters-approved.`);
+  L.push(`PLAN (offline, no sign-in, no network). Flow: ${FLOW_NAME} (test variant: lead ${PARAMS.leadMinutes} min, lookback ${PARAMS.lookbackMinutes} min, interval ${PARAMS.intervalMinutes} min). STATE OF THE FLOW at the time of writing (2026-11-07): the first flow was deleted by the owner after the window of 2026-11-03/04; the Try/catch definition (generator commit cb9ac80) has not been created yet. The modes read the real state themselves. A window still needs the owner's explicit approval, and setup and cleanup also need --counters-approved.`);
   L.push(`WINDOW  one window, the flow ON for about ${ON_MINUTES} minutes. Every row has a name starting ${FAMILY}-. The script never turns a flow on or off. The owner turns it ON no later than ${ARM_LIMIT_MS / MIN} minutes after setup prints READY, and OFF when the await step says so.`);
   L.push('SEEDS  (BASE = the moment the seeds are written; every due date is relative to the real clock, seconds precision)');
   for (const id of CASE_ORDER) {
@@ -113,7 +112,7 @@ export function planLines() {
   L.push('COUNTERS  setup creates ONE Draft contract (no approval): it consumes ONE number of the contract-number counter row of contract type ' + CONTRACT_TYPE + ' (the prefix is read from the environment at setup and printed; the reminders sessions consumed type 867640000 and restored it). setup prints --counters-before=<prefix>:<n> --counters-consumed=<prefix>:1. cleanup restores the counter with the same guards as the 29 October restore: only if the counter now equals the snapshot plus the numbers this session consumed, and never below a number that still exists on a contract; otherwise it refuses and says so. NO mode touches the counters without --counters-approved (your explicit approval for the window); without it setup and cleanup refuse before writing anything.');
   L.push('THE SCRIPT MEASURES  alert log rows (keys, creation times, counts per key), obligation and contract state (status, owner, modifiedon), the flow row (ON / OFF, when it changed), flow run records (start, end, status; claims are attributed to runs by containment, ambiguous and unattributed claims are reported), the key index status, counters.');
   L.push('ONLY THE OWNER CAN READ  the mailbox (how many emails, to whom, subject and body: the script never reads it in any way) and the run history in the designer (the real output of the failed insert of case 13, the Compose_claim_failure output, whether the connector retried, whether a handled failure marked the run Failed).');
-  L.push('MODES  plan (offline, no network) | baseline (read only) | setup (WRITES) | await (read only) | verdict (read only) | cleanup (WRITES). plan and baseline have been run; setup and cleanup need the owner\'s explicit approval; no window has been run.');
+  L.push('MODES  plan (offline, no network) | baseline (read only) | setup (WRITES) | await (read only) | verdict (read only) | cleanup (WRITES). plan, baseline, setup, await and verdict have been run (one window, 2026-11-03/04); cleanup has not been run; setup and cleanup need the owner\'s explicit approval.');
   return L;
 }
 
@@ -420,9 +419,29 @@ export function createSession(d) {
   }
 
   // ------------------------------------------------------------------------------------------------ cleanup
+  /**
+   * The gate of cleanup (the only mode that accepts a missing flow): every flow row must be OFF; the alerts flow may be absent (no flow of this name exists, so nothing of this session can run:
+   * treated as Off, said in one log line); two or more rows of that name refuse. Polls like waitForOff. Returns { ok, why }.
+   */
+  async function cleanupFlowGate(maxSeconds, every) {
+    const end = d.now() + maxSeconds * 1000;
+    for (;;) {
+      const flows = await flowRows(); const mine = flows.filter((r) => r.name === FLOW_NAME);
+      if (mine.length > 1) throw new Stop(`Expected at most one flow row named "${FLOW_NAME}", found ${mine.length}. Nothing was deleted.`);
+      const alertsOn = mine.some((r) => r.statecode !== 0); const othersOn = flows.filter((r) => r.name !== FLOW_NAME && r.statecode !== 0);
+      if (!alertsOn && !othersOn.length) {
+        log(mine.length === 0 ? `INFO  no "${FLOW_NAME}" flow row exists: treated as Off (no flow of this session can run). Every other flow row is Off.` : 'INFO  the alerts flow is OFF and every other flow row is OFF (read only)');
+        return { ok: true };
+      }
+      if (alertsOn) log(`STILL ON: the alerts flow is ON. The owner must turn it OFF (Power Automate > "${FLOW_NAME}" > Turn off). This script cannot and will not do it.`);
+      if (othersOn.length) log(`STILL ON: another flow is ON (${othersOn.map((f) => f.name.slice(0, 40)).join('; ')}). The owner must turn it OFF; cleanup deletes nothing while any flow is ON.`);
+      if (d.now() >= end) return { ok: false, why: alertsOn ? 'the alerts flow is still ON' : 'another flow is ON' };
+      await d.sleep(every * 1000);
+    }
+  }
   async function cleanup() {
-    const off = await waitForOff(120, 10);
-    if (!off) { outLine('flow', 'FAIL', 'the alerts flow is still ON: nothing was deleted (turn it OFF first)'); return false; }
+    const gate = await cleanupFlowGate(120, 10);
+    if (!gate.ok) { outLine('flow', 'FAIL', `${gate.why}: nothing was deleted (turn it OFF first)`); return false; }
     if (!flags.dry && !flags.countersApproved) throw new Stop('cleanup restores the contract-number counter: add --counters-approved (your explicit approval) with --counters-before=<prefix>:<n> --counters-consumed=<prefix>:<n>. Nothing was deleted.');
     const obligations = await obligationsRead(); const ids = obligations.map((o) => o.mwf_obligationid);
     const contractsRead = (await get(`mwf_contracts?$select=mwf_contractid,mwf_name&$filter=${q(`startswith(mwf_name,'${FAMILY}-')`)}`)).value;
