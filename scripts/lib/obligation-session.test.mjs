@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   FAMILY, FLOW_NAME, CASES, CASE_ORDER, PARAMS, ARM_LIMIT_MS, FIRST_SCAN_MS, MIN_MARGIN_S, ON_MINUTES, CONTRACT_TYPE, Stop,
-  seedPlan, margins, keyFor, planLines, verdict, claimableAtRunStart, caseOfName, nameOf, createSession, describeFailure, maskText, runStatus, RUNS_READ_GAP_MS, RUNS_READ_MAX,
+  seedPlan, margins, keyFor, planLines, verdict, claimableAtRunStart, caseOfName, nameOf, createSession, describeFailure, maskText, runStatus, expectedRuns, runsLag, RUNS_READ_GAP_MS, RUNS_WAIT_BOUND_MS, RUN_GRACE_MS,
 } from './obligation-session.mjs';
 import { TYPE_DUE_SOON, TYPE_OVERDUE } from '../build-flow-obligation-alerts.mjs';
 import { OBLIGATION_STATUS } from './obligation-schema.mjs';
@@ -93,7 +93,7 @@ test('a good window: no FAIL, both controls PASS, every "no alert" case PASS, 8 
   assert.deepEqual(res.filter((x) => x.status === 'FAIL'), []);
   for (const id of ['ctl.duesoon', 'ctl.overdue', 'duesoon.one', 'overdue.each', 'no.overdueout', 'no.beyondlead', 'no.disputed', 'no.done', 'case13.row', 'keys.valid', 'keys.unique', 'rows.stray', 'rows.count', 'cap.max', 'cap.five.then.two', 'obl.untouched', 'contract.owner', 'flow.off', 'key.active']) assert.equal(r[id]?.status, 'PASS', `${id}: ${JSON.stringify(r[id])}`);
   assert.match(r['rows.count'].detail, /8 row/); assert.match(r['emails.expected'].name, /EXPECTED EMAILS = .* 8/);
-  assert.equal(r['runs.status'].status, 'PASS'); assert.match(r['runs.counts'].detail, /total 3: \{"Succeeded":3\}/); assert.equal(r['case13.runs'], undefined);   // renamed: it counted ALL runs
+  assert.equal(r['runs.status'].status, 'PASS'); assert.match(r['runs.counts'].detail, /recorded 3: \{"Succeeded":3\}/); assert.equal(r['case13.runs'], undefined);   // renamed: it counted ALL runs
   assert.equal(r['cap.five.then.two'].status, 'PASS'); assert.match(r['cap.five.then.two'].detail, /\{"0":5,"1":2\}/);
   assert.match(r['recipient.byeye'].name, /NOT measured/); assert.match(r.byeye.name, /BY YOUR EYE/);
 });
@@ -130,72 +130,146 @@ test('case 13: a row created by the flow for the pre-inserted obligation is a FA
   const w2 = { ...w, rows: w.rows.filter((x) => !x.key.startsWith(s.id)) }; assert.equal(byId(verdict(w2))['case13.row'].status, 'FAIL');
 });
 
-test('RUN STATUS (verdict): every run Failed (the first design, 2026-11-03/04) is now a FAIL of runs.status and of nothing else; the counts item is an observation of ALL runs after the oldest seed', () => {
+test('RUN STATUS (verdict): every run Failed is a FAIL of runs.status and of nothing else; the counts, the expected runs and the lag are observations; case13.runs is gone', () => {
   const w = goodWindow(); w.runs = w.runs.map((r) => ({ ...r, status: 'Failed' }));
   const res = verdict(w); const r = byId(res);
-  assert.equal(r['runs.counts'].status, 'OBS'); assert.match(r['runs.counts'].detail, /total 3: \{"Failed":3\}/); assert.match(r['runs.counts'].name, /ALL flow runs after the oldest seed \(not only case 13\)/);
+  assert.equal(r['runs.counts'].status, 'OBS'); assert.match(r['runs.counts'].detail, /recorded 3: \{"Failed":3\}/); assert.match(r['runs.counts'].name, /ALL flow runs after the oldest seed \(not only case 13\)/);
   assert.equal(r['runs.status'].status, 'FAIL'); assert.match(r['runs.status'].detail, /3 run\(s\) ended Failed/);
-  assert.deepEqual(res.filter((x) => x.status === 'FAIL').map((x) => x.id), ['runs.status']);   // the 21 other checks are untouched
+  assert.equal(r['runs.expected'].status, 'OBS'); assert.equal(r['runs.lag'].status, 'OBS'); assert.match(r['runs.lag'].detail, /not measurable/);
+  assert.deepEqual(res.filter((x) => x.status === 'FAIL').map((x) => x.id), ['runs.status']);   // the other checks are untouched
   assert.equal(r['case13.runs'], undefined);
 });
 
-test('runStatus: Failed, TimedOut or Cancelled is a FAIL (also next to a Running run); Running, Waiting, another status, no run, or a read that did not settle is INCONCLUSIVE; PASS only when at least one run exists, all Succeeded and the read settled', () => {
-  const R = (...s) => s.map((status) => ({ status }));
-  const ok = runStatus(R('Succeeded', 'Succeeded', 'Succeeded')); assert.equal(ok.status, 'PASS'); assert.equal(ok.detail, 'total 3: {"Succeeded":3} (1 read(s) of flowruns, settled)');
-  for (const bad of ['Failed', 'TimedOut', 'Cancelled']) { const x = runStatus(R('Succeeded', bad)); assert.equal(x.status, 'FAIL', bad); assert.match(x.why, new RegExp(bad)); assert.match(x.detail, new RegExp('"' + bad + '":1')); }
-  assert.equal(runStatus(R('Running', 'Failed')).status, 'FAIL');
-  assert.equal(runStatus(R('Succeeded', 'Failed'), { stable: false, reads: 10, why: 'x' }).status, 'FAIL');   // a bad run is real whatever the read says
-  for (const open of ['Running', 'Waiting']) assert.equal(runStatus(R('Succeeded', open)).status, 'INCONCLUSIVE', open);
-  const other = runStatus(R('Succeeded', 'Aborted')); assert.equal(other.status, 'INCONCLUSIVE'); assert.match(other.why, /Aborted/);
-  const none = runStatus([]); assert.equal(none.status, 'INCONCLUSIVE'); assert.match(none.why, /no run was found/);
-  const lag = runStatus(R('Succeeded'), { stable: false, reads: 10, why: 'flowruns did not settle' }); assert.equal(lag.status, 'INCONCLUSIVE'); assert.match(lag.detail, /NOT settled/); assert.match(lag.why, /did not settle/);
+test('expectedRuns: floor((OFF - ON) / interval) and the minimum one less (the window of 2026-11-07 gives 9 and 8); a missing ON time, a missing OFF time or an OFF not after the ON is "cannot compute", never a guess', () => {
+  const on = Date.parse('2026-11-07T17:21:25Z'); const off = Date.parse('2026-11-07T17:30:28Z');
+  assert.deepEqual(expectedRuns({ onAtMs: on, offAtMs: off, intervalMinutes: 1 }), { ok: true, max: 9, min: 8, onAtMs: on, offAtMs: off, intervalMinutes: 1 });
+  assert.deepEqual([expectedRuns({ onAtMs: on, offAtMs: on + 59000, intervalMinutes: 1 }).max, expectedRuns({ onAtMs: on, offAtMs: on + 59000, intervalMinutes: 1 }).min], [0, 0]);
+  assert.equal(expectedRuns({ onAtMs: on, offAtMs: on + 600000, intervalMinutes: 5 }).max, 2);
+  const miss = expectedRuns({ onAtMs: NaN, offAtMs: off, intervalMinutes: 1 }); assert.equal(miss.ok, false); assert.match(miss.why, /--on-at is missing \(the ON time is never estimated from the first recorded run\)/);
+  assert.match(expectedRuns({ onAtMs: on, offAtMs: null, intervalMinutes: 1 }).why, /the OFF time is not known/);
+  assert.match(expectedRuns({ onAtMs: on, offAtMs: on, intervalMinutes: 1 }).why, /not after the ON time/); assert.match(expectedRuns({ onAtMs: on, offAtMs: on - 1000, intervalMinutes: 1 }).why, /not after the ON time/);
 });
 
-test('runs.status in a mocked window: all Succeeded PASS (two reads 30 s apart at least); one Failed FAIL; the verdict exit value is false for FAIL and for INCONCLUSIVE', async () => {
-  const good = fakeEnv(); await windowed(good); const t0 = good.t;
-  assert.equal(await good.session(approved).runVerdict(), true); assert.match(good.text(), /PASS +runs\.status .*total 2: \{"Succeeded":2\} \(2 read\(s\) of flowruns, settled\)/);
-  assert.ok(good.t - t0 >= RUNS_READ_GAP_MS); assert.match(good.text(), /VERDICT: \d+ PASS, 0 FAIL, 0 INCONCLUSIVE, \d+ OBS\./);
-  assert.equal(good.log.filter((c) => c.path.startsWith('flowruns?')).length, 2);
-  const bad = fakeEnv(); await windowed(bad); bad.runs[1].status = 'Failed';
-  assert.equal(await bad.session(approved).runVerdict(), false); assert.match(bad.text(), /FAIL +runs\.status .*"Failed":1/); assert.match(bad.text(), /VERDICT: \d+ PASS, 1 FAIL, 0 INCONCLUSIVE/);
-  assert.equal(bad.writes().length, 16);   // still read only: the 16 writes are the setup's
+test('runStatus: Failed, TimedOut or Cancelled is a FAIL at any time (also below the minimum, also with no expected count); INCONCLUSIVE for no expected count, an open run, another status, no run, or fewer than the minimum; PASS above, at, or at the minimum of the expected maximum, with the note', () => {
+  const R = (...s) => s.map((status) => ({ status })); const E = (min, max) => ({ ok: true, min, max }); const S = (n) => R(...Array(n).fill('Succeeded'));
+  const above = runStatus(S(10), { expected: E(8, 9) }); assert.equal(above.status, 'PASS'); assert.match(above.why, /recorded 10 is above the expected maximum 9/); assert.match(above.detail, /recorded 10: \{"Succeeded":10\}; expected 8 to 9/);
+  const atMax = runStatus(S(9), { expected: E(8, 9) }); assert.equal(atMax.status, 'PASS'); assert.equal(atMax.why, '');
+  const atMin = runStatus(S(8), { expected: E(8, 9), boundHit: true, waitedMs: 700000, reads: 24 }); assert.equal(atMin.status, 'PASS'); assert.match(atMin.why, /BOUNDARY TOLERANCE USED: recorded 8 is below the expected maximum 9 \(minimum 8\)/); assert.match(atMin.detail, /the bound of 12 minutes after the OFF time was reached; the bound is a guess/);
+  const below = runStatus(S(7), { expected: E(8, 9) }); assert.equal(below.status, 'INCONCLUSIVE'); assert.match(below.why, /recorded 7 is below the expected minimum 8 \(maximum 9\)/);
+  const noExp = runStatus(S(9), { expected: { ok: false, why: 'cannot compute expected runs: --on-at is missing (x)' } }); assert.equal(noExp.status, 'INCONCLUSIVE'); assert.match(noExp.why, /--on-at is missing/); assert.match(noExp.detail, /expected unknown/);
+  for (const bad of ['Failed', 'TimedOut', 'Cancelled']) { assert.equal(runStatus([...S(3), ...R(bad)], { expected: E(8, 9) }).status, 'FAIL', bad); assert.equal(runStatus(R(bad), { expected: { ok: false, why: 'x' } }).status, 'FAIL', bad + ' with no expected count'); }
+  assert.equal(runStatus([...S(8), ...R('Running')], { expected: E(8, 9) }).status, 'INCONCLUSIVE'); assert.equal(runStatus([...R('Running'), ...R('Failed')], { expected: E(8, 9) }).status, 'FAIL');
+  const odd = runStatus([...S(8), ...R('Aborted')], { expected: E(8, 9) }); assert.equal(odd.status, 'INCONCLUSIVE'); assert.match(odd.why, /Aborted/);
+  assert.match(runStatus([], { expected: E(0, 0) }).why, /no run was found/);
 });
 
-test('runs.status: a run still Running is INCONCLUSIVE (not PASS) after the bound of re-reads, with the reason; Failed next to it is still a FAIL', async () => {
-  const env = fakeEnv(); await windowed(env); env.runs[1].status = 'Running'; env.runs[1].endMs = null;
-  assert.equal(await env.session(approved).runVerdict(), false);
-  assert.match(env.text(), /INCONCLUSIVE +runs\.status .*1 run\(s\) still Running or Waiting; flowruns did not settle in 10 reads 30 s apart \(a run is still Running or Waiting\)/);
-  assert.equal(env.log.filter((c) => c.path.startsWith('flowruns?')).length, RUNS_READ_MAX); assert.match(env.text(), /VERDICT: \d+ PASS, 0 FAIL, 1 INCONCLUSIVE/);
-  const both = fakeEnv(); await windowed(both); both.runs[0].status = 'Failed'; both.runs[1].status = 'Running'; both.runs[1].endMs = null;
-  await both.session(approved).runVerdict(); assert.match(both.text(), /FAIL +runs\.status/);
+test('runsLag: the largest start-to-row delay in seconds over the rows that carry both times; null without any', () => {
+  assert.deepEqual(runsLag([{ startMs: 0, createdMs: 100000 }, { startMs: 0, createdMs: 310000 }, { startMs: 5, createdMs: null }]), { maxS: 310, n: 2 });
+  assert.deepEqual(runsLag([{ startMs: 0 }]), { maxS: null, n: 0 });
 });
 
-test('runs.status, the lag of flowruns: the count changes between reads (a run record arrives late), then stabilises; the final count is the one reported', async () => {
-  const env = fakeEnv(); const { onAt } = await windowed(env); let ticks = 0;
-  env.onTick = (e) => { ticks++; if (ticks === 1) e.runs.push({ startMs: onAt + 200000, endMs: onAt + 240000, status: 'Succeeded' }); };   // the 3rd run record shows up after the first wait
-  const t0 = env.t; assert.equal(await env.session(approved).runVerdict(), true);
-  assert.match(env.text(), /PASS +runs\.status .*total 3: \{"Succeeded":3\} \(3 read\(s\) of flowruns, settled\)/); assert.match(env.text(), /PASS +runs\.status/);
-  assert.ok(env.t - t0 >= 2 * RUNS_READ_GAP_MS); assert.equal(env.log.filter((c) => c.path.startsWith('flowruns?')).length, 3);
-  const late = fakeEnv(); const w = await windowed(late); late.onTick = (e) => { if (e.runs.length < 3) e.runs.push({ startMs: w.onAt + 200000, endMs: w.onAt + 240000, status: 'Failed' }); };   // a late record that is a FAILED run
-  assert.equal(await late.session(approved).runVerdict(), false); assert.match(late.text(), /FAIL +runs\.status .*"Failed":1/);
+// ---- the mocked window: ON at base + 3 min, OFF (the flow row modifiedon) at base + 13 min, one run per minute: expected 9 to 10 runs
+const runsOf = (onAt, n, status = 'Succeeded') => Array.from({ length: n }, (_, k) => ({ startMs: onAt + 5000 + k * 60000, endMs: onAt + 45000 + k * 60000, status }));
+const onFlags = (onAt, extra = {}) => ({ ...approved, onAt: iso(onAt), ...extra });
+const flowrunReads = (env) => env.log.filter((c) => c.path.startsWith('flowruns?')).length;
+
+test('runs.status in a mocked window, recorded == expected maximum: PASS at once (one read, no wait), with the expected runs and the source of the OFF time printed; the verdict stays read only', async () => {
+  const env = fakeEnv(); const { onAt } = await windowed(env); const w0 = env.writes().length; const t0 = env.t;
+  assert.equal(await env.session(onFlags(onAt)).runVerdict(), true, env.text());
+  assert.match(env.text(), /PASS +runs\.status .*recorded 10: \{"Succeeded":10\}; expected 9 to 10; 1 read\(s\) of flowruns, waited 0 s/); assert.doesNotMatch(env.text(), /BOUNDARY TOLERANCE/);
+  assert.match(env.text(), /OBS +runs\.expected .*ON .* \(--on-at\), OFF .* from the modifiedon of the flow row .*expected 9 to 10, recorded 10/); assert.equal(flowrunReads(env), 1); assert.equal(env.t, t0); assert.equal(env.writes().length, w0);
+  assert.match(env.text(), /VERDICT: \d+ PASS, 0 FAIL, 0 INCONCLUSIVE, \d+ OBS\./);
 });
 
-test('runs.status, the bound: when the count keeps changing, the verdict reads at most 10 times and reports INCONCLUSIVE with the reason (never PASS)', async () => {
-  const env = fakeEnv(); const { onAt } = await windowed(env); let n = 0;
-  env.onTick = (e) => { n++; e.runs.push({ startMs: onAt + 200000 + n * 1000, endMs: onAt + 200500 + n * 1000, status: 'Succeeded' }); };   // a new run record after every wait
-  assert.equal(await env.session(approved).runVerdict(), false);
-  assert.match(env.text(), /INCONCLUSIVE +runs\.status .*NOT settled\); flowruns did not settle in 10 reads 30 s apart \(the number of runs kept changing\)/);
-  assert.equal(env.log.filter((c) => c.path.startsWith('flowruns?')).length, RUNS_READ_MAX); assert.doesNotMatch(env.text(), /PASS +runs\.status/);
+test('runs.status, recorded above the expected maximum (an OFF time given with --off-at): PASS, the source is --off-at, and the note says the expected number is an estimate', async () => {
+  const env = fakeEnv(); const { onAt } = await windowed(env);   // 10 runs, the last one starts 5 s after the given OFF time (inside the 5 s tolerance)
+  assert.equal(await env.session(onFlags(onAt, { offAt: iso(onAt + 540000) })).runVerdict(), true, env.text());
+  assert.match(env.text(), /PASS +runs\.status .*recorded 10: .*expected 8 to 9;.*recorded 10 is above the expected maximum 9/); assert.match(env.text(), /OFF .* from --off-at \(given by the owner\)/);
+});
+
+test('runs.status, recorded == expected minimum after the bound: PASS with the visible note "BOUNDARY TOLERANCE USED"; the verdict waited until 12 minutes after the OFF time', async () => {
+  const env = fakeEnv(); const { base, onAt } = await windowed(env); env.runs = runsOf(onAt, 9); const t0 = env.t;
+  assert.equal(await env.session(onFlags(onAt)).runVerdict(), true, env.text());
+  assert.match(env.text(), /PASS +runs\.status .*recorded 9: .*expected 9 to 10; \d+ read\(s\) of flowruns, waited \d+ s \(the bound of 12 minutes after the OFF time was reached; the bound is a guess\); BOUNDARY TOLERANCE USED: recorded 9 is below the expected maximum 10 \(minimum 9\)/);
+  assert.ok(env.t >= base + 13 * MIN + RUNS_WAIT_BOUND_MS); assert.ok(env.t - t0 >= RUNS_WAIT_BOUND_MS - 30000); assert.ok(flowrunReads(env) > 20);
+});
+
+test('runs.status, recorded below the expected minimum after the bound: INCONCLUSIVE with the numbers (never PASS), and the verdict returns false', async () => {
+  const env = fakeEnv(); const { onAt } = await windowed(env); env.runs = runsOf(onAt, 8);
+  assert.equal(await env.session(onFlags(onAt)).runVerdict(), false);
+  assert.match(env.text(), /INCONCLUSIVE +runs\.status .*recorded 8: .*expected 9 to 10;.*recorded 8 is below the expected minimum 9 \(maximum 10\): the run records are incomplete/); assert.doesNotMatch(env.text(), /PASS +runs\.status/);
   assert.match(env.text(), /VERDICT: \d+ PASS, 0 FAIL, 1 INCONCLUSIVE/);
 });
 
-test('the verdict keeps its other checks and does not touch the link check: the LINK CHECK pause text is unchanged, and no verdict item names the link', async () => {
-  const env = fakeEnv(); await windowed(env); await env.session(approved).runVerdict();
-  assert.match(env.text(), /LINK CHECK WINDOW: obligations still exist, say 'link checked' to continue/);
-  const items = env.text().split('\n').filter((l) => /^(PASS|FAIL|OBS|INCONCLUSIVE)/.test(l)); assert.ok(items.length >= 27);
-  assert.ok(!items.some((l) => /link/i.test(l.replace(/LINK CHECK/g, ''))));
+test('runs.status without --on-at: INCONCLUSIVE "cannot compute expected runs" even though every recorded run Succeeded; nothing is waited for; the ON time is never estimated from the first run', async () => {
+  const env = fakeEnv(); await windowed(env); const t0 = env.t;
+  assert.equal(await env.session(approved).runVerdict(), false);
+  assert.match(env.text(), /INCONCLUSIVE +runs\.status .*recorded 10: \{"Succeeded":10\}; expected unknown;.*cannot compute expected runs: --on-at is missing \(the ON time is never estimated from the first recorded run\)/);
+  assert.equal(flowrunReads(env), 1); assert.equal(env.t, t0); assert.match(env.text(), /OBS +runs\.expected .*cannot compute expected runs/);
 });
 
+test('runs.status, a lag that clears inside the bound: the verdict keeps reading (30 s apart) until the count reaches the expected maximum, then judges', async () => {
+  const env = fakeEnv(); const { onAt } = await windowed(env); env.runs = runsOf(onAt, 7); let ticks = 0; const all = runsOf(onAt, 10);
+  env.onTick = (e) => { ticks++; if (ticks <= 3) e.runs.push(all[6 + ticks]); };   // the runs 8, 9 and 10 are written after 30, 60 and 90 s
+  const t0 = env.t; assert.equal(await env.session(onFlags(onAt)).runVerdict(), true, env.text());
+  assert.match(env.text(), /PASS +runs\.status .*recorded 10: \{"Succeeded":10\}; expected 9 to 10; 4 read\(s\) of flowruns, waited 90 s/); assert.doesNotMatch(env.text(), /bound of 12 minutes/);
+  assert.equal(env.t - t0, 3 * RUNS_READ_GAP_MS); assert.equal(flowrunReads(env), 4);
+});
+
+test('runs.status, a lag that does not clear: after 12 minutes past the OFF time the verdict stops waiting and is INCONCLUSIVE with the numbers; a bad run is still reported first', async () => {
+  const env = fakeEnv(); const { base, onAt } = await windowed(env); env.runs = runsOf(onAt, 7);
+  assert.equal(await env.session(onFlags(onAt)).runVerdict(), false);
+  assert.match(env.text(), /INCONCLUSIVE +runs\.status .*recorded 7: .*expected 9 to 10;.*the bound of 12 minutes after the OFF time was reached; the bound is a guess\).*below the expected minimum 9/);
+  assert.ok(env.t >= base + 13 * MIN + RUNS_WAIT_BOUND_MS); assert.ok(env.t < base + 13 * MIN + RUNS_WAIT_BOUND_MS + 2 * RUNS_READ_GAP_MS + 60000);
+  const withFail = fakeEnv(); const w = await windowed(withFail); withFail.runs = [...runsOf(w.onAt, 6), { startMs: w.onAt + 5000 + 6 * 60000, endMs: w.onAt + 45000 + 6 * 60000, status: 'TimedOut' }];
+  assert.equal(await withFail.session(onFlags(w.onAt)).runVerdict(), false); assert.match(withFail.text(), /FAIL +runs\.status .*"TimedOut":1/);
+});
+
+test('runs.status, a Failed run that appears DURING the wait ends the wait at once and is a FAIL (it beats INCONCLUSIVE), without waiting for the bound', async () => {
+  const env = fakeEnv(); const { onAt } = await windowed(env); env.runs = runsOf(onAt, 7); let ticks = 0;
+  env.onTick = (e) => { ticks++; if (ticks === 2) e.runs.push({ ...runsOf(onAt, 8, 'Failed')[7] }); };
+  const t0 = env.t; assert.equal(await env.session(onFlags(onAt)).runVerdict(), false);
+  assert.match(env.text(), /FAIL +runs\.status .*recorded 8: .*"Failed":1.*1 run\(s\) ended Failed/); assert.equal(env.t - t0, 2 * RUNS_READ_GAP_MS); assert.equal(flowrunReads(env), 3);
+});
+
+test('runs.status, an OFF time that is earlier than a recorded run is not believed: INCONCLUSIVE "give the real OFF time with --off-at"', async () => {
+  const env = fakeEnv(); const { onAt } = await windowed(env);   // the row says OFF at ON + 10 min; --off-at says ON + 5 min but runs go on until ON + 9 min
+  assert.equal(await env.session(onFlags(onAt, { offAt: iso(onAt + 300000) })).runVerdict(), false);
+  assert.match(env.text(), /INCONCLUSIVE +runs\.status .*cannot compute expected runs: the OFF time .* is earlier than the start of a recorded run .*give the real OFF time with --off-at/);
+});
+
+test('the observed lag of flowruns is printed (the largest start-to-row delay, in minutes and seconds) so that the 12-minute bound can be revisited with data', async () => {
+  const env = fakeEnv(); const { onAt } = await windowed(env); env.runs.forEach((r, i) => { r.createdMs = r.startMs + (i === 3 ? 310 : 40 + i) * 1000; });
+  await env.session(onFlags(onAt)).runVerdict();
+  assert.match(env.text(), /OBS +runs\.lag .*max 310 s \(5:10\) over 10 run\(s\); this verdict waited 0 s in 1 read\(s\); the bound of 12 minutes after the OFF time is a GUESS from two samples \(largest lag seen 5:10\)/);
+});
+
+test('cap.claims.attribution stays an observation: the pre-inserted row of case 13 (created before the ON) is never an unattributed claim; with fewer runs recorded than expected an unattributed claim says that the run records may be incomplete', () => {
+  const good = byId(verdict(goodWindow())); assert.doesNotMatch(good['cap.claims.attribution'].detail, /unattributed/); assert.notEqual(good['cap.claims.attribution'].status, 'FAIL');
+  const w = goodWindow(); const s = w.seeds.find((x) => x.caseId === 'duesoon');
+  w.rows.push({ id: gid(55), key: keyFor(s.id, TYPE_OVERDUE, iso(s.dueMs)), createdMs: w.flow.onAtMs + 400000 });   // inside no recorded run
+  const lagging = byId(verdict({ ...w, runsRead: { reads: 5, expected: { ok: true, min: 9, max: 10 }, boundHit: true, waitedMs: 1, offSource: 'x', lagMaxS: null, lagN: 0 } }))['cap.claims.attribution'];
+  assert.equal(lagging.status, 'OBS'); assert.match(lagging.detail, /unattributed/); assert.match(lagging.detail, /run records may be incomplete \(recorded 3 of an expected 9 to 10\)/); assert.match(lagging.detail, /pre-inserted row of case 13 is not a claim of the flow/);
+  assert.doesNotMatch(byId(verdict(w))['cap.claims.attribution'].detail, /may be incomplete/);   // the default read has no expected count
+});
+
+test('duesoon.overdue wording follows the real interval (60 s) and the run time, not the 150 s of the first-scan margin: OFF before the due date, less than one interval after it, and longer', () => {
+  const w = goodWindow(); const s = w.seeds.find((x) => x.caseId === 'duesoon'); const at = (off, rows = w.rows) => byId(verdict({ ...w, rows, flow: { ...w.flow, offAtMs: off } }))['duesoon.overdue'];
+  assert.match(at(s.dueMs - 10000).name, /the flow was OFF before the due date: none expected/);
+  assert.match(at(s.dueMs + 40000).name, /less than one interval after the due date: an OVERDUE row may or may not exist/);
+  const none = at(s.dueMs + 60000 + RUN_GRACE_MS); assert.match(none.name, /more than one interval after the due date but no OVERDUE row exists: unexpected/); assert.equal(none.status, 'OBS');
+  const over = [...w.rows, { id: gid(2), key: keyFor(s.id, TYPE_OVERDUE, iso(s.dueMs)), createdMs: s.dueMs + 46000 }];
+  assert.match(at(s.dueMs + 100000, over).name, /an OVERDUE row is expected/); assert.doesNotMatch(at(s.dueMs + 100000, over).name, /although/);
+  assert.match(at(s.dueMs - 10000, over).name, /an OVERDUE row appeared although the flow was OFF before the due date: unexpected/);
+  assert.match(at(null).name, /switched off at an unknown time/);
+});
+
+test('the verdict keeps its other checks and does not touch the link check: the LINK CHECK pause text is unchanged, and no verdict item names the link', async () => {
+  const env = fakeEnv(); const { onAt } = await windowed(env); await env.session(onFlags(onAt)).runVerdict();
+  assert.match(env.text(), /LINK CHECK WINDOW: obligations still exist, say 'link checked' to continue/);
+  const items = env.text().split('\n').filter((l) => /^(PASS|FAIL|OBS|INCONCLUSIVE)/.test(l)); assert.ok(items.length >= 29);
+  assert.ok(!items.some((l) => /link/i.test(l.replace(/LINK CHECK/g, ''))));
+});
 
 test('the cap: 6 claims inside one run window FAIL; a first run with only 4 claims fails the "5 then 2" check; overlapping runs are reported and the check is not evaluated', () => {
   const w = goodWindow(); const extra = w.seeds.filter((s) => s.caseId === 'overduein')[5];
@@ -317,7 +391,7 @@ function fakeEnv(o = {}) {
     if (path === 'WhoAmI') return ok({ UserId: env.me });
     if (path.startsWith('systemusers(')) return ok({ internalemailaddress: o.noEmail ? null : ADDR });
     if (path.startsWith('workflows?')) return ok({ value: env.flows.map((f) => ({ ...f })) });
-    if (path.startsWith('flowruns?')) return o.runsFail ? { ok: false, status: 500, j: null, text: '' } : ok({ value: env.runs.map((r) => ({ status: r.status, starttime: iso(r.startMs), endtime: r.endMs ? iso(r.endMs) : null })) });
+    if (path.startsWith('flowruns?')) return o.runsFail ? { ok: false, status: 500, j: null, text: '' } : ok({ value: env.runs.map((r) => ({ status: r.status, starttime: iso(r.startMs), endtime: r.endMs ? iso(r.endMs) : null, createdon: r.createdMs ? iso(r.createdMs) : undefined })) });
     if (path.startsWith("EntityDefinitions(LogicalName='mwf_alertlog')/Keys")) return ok({ value: [{ SchemaName: 'mwf_AlertLogKey', KeyAttributes: ['mwf_alertkey'], EntityKeyIndexStatus: env.keyStatus }] });
     if (path.includes("LogicalName='mwf_counterparty')/Attributes")) return ok({ OptionSet: { Options: [{ Value: 867640000 }] } });
     if (path.startsWith("EntityDefinitions(LogicalName='mwf_contractnumbercounter')")) return ok({ EntitySetName: 'mwf_contractnumbercounters' });
@@ -450,7 +524,7 @@ async function windowed(env, { claimCap = true, off = true, extraRows = () => {}
   for (let i = 5; i < 7; i++) claim(nameOf('overduein', i), TYPE_OVERDUE, onAt + 70000 + i * 1000);
   claim(nameOf('duesoon', 0), TYPE_DUE_SOON, onAt + 78000);
   extraRows(claim, onAt);
-  env.runs = [{ startMs: onAt + 5000, endMs: onAt + 45000, status: 'Succeeded' }, { startMs: onAt + 65000, endMs: onAt + 105000, status: 'Succeeded' }];
+  env.runs = runsOf(onAt, 10);   // one run per minute until the OFF time (base + 13 min = ON + 10 min): expected 9 to 10
   env.flows[0].statecode = off ? 0 : 1; env.flows[0].modifiedon = iso(base + 13 * MIN);
   return { base, onAt };
 }

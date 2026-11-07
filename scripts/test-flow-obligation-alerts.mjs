@@ -15,7 +15,11 @@
  *   --mode=setup                   needs --confirm-mutates-environment and --counters-approved (or --dry-run, which still signs in and reads). Creates the counterparty, one Draft contract, the obligations
  *                                  (due dates relative to the real clock) and the pre-inserted alert log row of case 13; reads everything back; prints READY with the time limit for the ON and the counters hand-off
  *   --mode=await                   READ ONLY: waits until the owner turns the flow ON, prints ON-AT and each claim as it appears, then DONE and TURN THE FLOW OFF NOW, and STILL ON until it is OFF
- *   --mode=verdict [--on-at=<ISO>] read only: waits for the flow to be OFF, re-reads flowruns until two reads 30 s apart agree (at most 10 reads), then PASS / FAIL / INCONCLUSIVE / OBS. runs.status is FAIL for any Failed, TimedOut or Cancelled run after BASE, INCONCLUSIVE for a run still open, no run or a read that did not settle, PASS only when every run Succeeded. Exit code 0 only without FAIL and without INCONCLUSIVE. A "no alert" result counts only if both positive controls fired. Ends with the LINK CHECK pause
+ *   --mode=verdict --on-at=<ISO> [--off-at=<ISO>]   read only: waits for the flow to be OFF, then PASS / FAIL / INCONCLUSIVE / OBS. --on-at is NEEDED for runs.status (without it that item is INCONCLUSIVE: the ON time is never estimated
+ *                                  from the first recorded run). The OFF time is --off-at if given, else the modifiedon of the flow row if the flow is Off now (the source is printed). expected_max = floor((OFF - ON) / interval of the test
+ *                                  variant), expected_min = expected_max - 1. The verdict keeps re-reading flowruns (the records arrive late) until the count reaches expected_max, or a run has failed, or 12 minutes after the OFF time (a GUESS).
+ *                                  runs.status: FAIL for any Failed, TimedOut or Cancelled run at any time; INCONCLUSIVE for an open run, an unknown expected count, or fewer runs than expected_min; PASS when every recorded run Succeeded and the
+ *                                  count is at least expected_min (a count below expected_max is noted as BOUNDARY TOLERANCE USED). Exit code 0 only without FAIL and without INCONCLUSIVE. A "no alert" result counts only if both positive controls fired. Ends with the LINK CHECK pause
  *   --mode=cleanup                 REFUSES while ANY flow is ON (the alerts flow row may be absent: a missing flow cannot run, it is logged and treated as Off; two rows of that name refuse). Needs --confirm-mutates-environment (or --dry-run) and --counters-approved with --counters-before=<prefix>:<n> --counters-consumed=<prefix>:<n>.
  *                                  Deletes the alert log rows whose key starts with the id of an obligation this session created, the contract (the obligations go by the cascade) and the counterparty,
  *                                  restores the counter by the rule of lib/counter-snapshot.mjs, checks that nothing is left
@@ -50,7 +54,7 @@ export function parseCounters(text) {
 }
 
 /** The refusals before any sign-in. @returns {string[]} reasons (empty = go) */
-export function refusals({ mode, dry, confirm, countersApproved, auth, onAt, before, consumed, expect }) {
+export function refusals({ mode, dry, confirm, countersApproved, auth, onAt, offAt, before, consumed, expect }) {
   const why = [];
   if (!MODES.includes(mode)) { why.push(`Missing or invalid --mode=${MODES.join('|')}`); return why; }
   if (mode === 'plan') return why;
@@ -59,6 +63,7 @@ export function refusals({ mode, dry, confirm, countersApproved, auth, onAt, bef
   if (WRITES.includes(mode) && !dry && !countersApproved) why.push(`--mode=${mode} touches the contract-number counter (setup consumes one number, cleanup restores it): add --counters-approved (your explicit approval for this window)`);
   if (mode === 'cleanup' && !dry && countersApproved && (!before || !consumed)) why.push('cleanup needs --counters-before=<prefix>:<n> and --counters-consumed=<prefix>:<n> (printed by setup)');
   if (onAt && Number.isNaN(Date.parse(onAt))) why.push('--on-at must be an ISO UTC time such as 2027-01-01T10:00:00Z');
+  if (offAt && Number.isNaN(Date.parse(offAt))) why.push('--off-at must be an ISO UTC time such as 2027-01-01T10:09:00Z');
   if (expect !== undefined && expect !== '' && !/^\d+$/.test(String(expect))) why.push('--expect-contracts must be a whole number');
   return why;
 }
@@ -67,7 +72,7 @@ if (isMain) {
   const MODE = argOf('mode'); const DRY = has('--dry-run');
   let before = null; let consumed = null;
   try { before = parseCounters(argOf('counters-before')); consumed = parseCounters(argOf('counters-consumed')); } catch (e) { console.error(`${e.message}. Nothing was run.`); process.exit(2); }
-  const why = refusals({ mode: MODE, dry: DRY, confirm: has('--confirm-mutates-environment'), countersApproved: has('--counters-approved'), auth: argOf('auth'), onAt: argOf('on-at'), before, consumed, expect: argOf('expect-contracts') });
+  const why = refusals({ mode: MODE, dry: DRY, confirm: has('--confirm-mutates-environment'), countersApproved: has('--counters-approved'), auth: argOf('auth'), onAt: argOf('on-at'), offAt: argOf('off-at'), before, consumed, expect: argOf('expect-contracts') });
   if (why.length) { console.error(`REFUSED. ${why.join('; ')}. Nothing was run.`); process.exit(2); }
   if (MODE === 'plan') { console.log(planLines().join('\n')); process.exit(0); }
   const argv = process.argv.some((a) => a.startsWith('--auth=')) ? process.argv : [...process.argv, '--auth=az'];
@@ -87,7 +92,7 @@ if (isMain) {
       const call = async (m, p, b, x) => { if (m === 'DELETE') enterCleanupPhase(); return S.call(m, p, b, x); };
       const session = createSession({
         call, now: () => Date.now(), sleep, log: (l) => console.log(noGuid(l)), gate: () => requireStableConnection(S.call),
-        flags: { dry: DRY, countersApproved: has('--counters-approved'), expectContracts: EXPECT.value, onAt: argOf('on-at'), handoff: before && consumed ? { before, consumed } : null },
+        flags: { dry: DRY, countersApproved: has('--counters-approved'), expectContracts: EXPECT.value, onAt: argOf('on-at'), offAt: argOf('off-at'), handoff: before && consumed ? { before, consumed } : null },
       });
       let ok = true;
       if (MODE === 'baseline') ok = await session.baseline();

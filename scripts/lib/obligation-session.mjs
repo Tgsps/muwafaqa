@@ -122,27 +122,59 @@ const out = (id, status, name, detail = '') => ({ id, status, name, detail });
 /** The statuses of a flow run that end it badly, and the ones that mean it has not ended. */
 export const RUN_BAD = Object.freeze(['Failed', 'TimedOut', 'Cancelled']);
 export const RUN_OPEN = Object.freeze(['Running', 'Waiting']);
+/** The pause between two reads of flowruns while the verdict waits for the run records. */
+export const RUNS_READ_GAP_MS = 30000;
 /**
- * The run-status check over the runs after BASE. FAIL beats everything (a bad run is real whatever the read says); then INCONCLUSIVE (a run still open, a status of another kind,
- * no run at all, or flowruns that did not settle); PASS only when there is at least one run, every run Succeeded and the read settled.
- * @param {{status:string}[]} runs   @param {{stable:boolean, reads:number, why?:string}} read
+ * How long after the OFF time the verdict keeps waiting for the run records of flowruns. A GUESS, not a measured limit: the records arrive late and out of order, the largest lag seen was
+ * 5 minutes 10 seconds, in TWO samples (the window of 2026-11-03/04 and the one of 2026-11-07). The bound is twice that and a little more; revisit it with the `runs.lag` item of the verdicts.
+ */
+export const RUNS_WAIT_BOUND_MS = 12 * MIN;
+/** A run takes about 10 to 17 s (measured 2026-11-07); 30 s is a GUESS used only to word the duesoon.overdue observation. */
+export const RUN_GRACE_MS = 30000;
+
+/**
+ * The number of runs a recurrence of `intervalMinutes` should have made between the ON and the OFF time, from EXPLICIT times only: the ON time is never estimated from the first recorded
+ * run (a missing first run would then hide itself). expected_max = floor((off - on) / interval); expected_min = expected_max - 1, because the run that would start exactly at the OFF time
+ * may or may not have happened (2026-11-07: ON 17:21:25, OFF 17:30:28, the tenth tick would have been at 17:30:28; 9 runs were made).
+ * @returns {{ok:true, min:number, max:number, onAtMs:number, offAtMs:number, intervalMinutes:number}|{ok:false, why:string}}
+ */
+export function expectedRuns({ onAtMs, offAtMs, intervalMinutes }) {
+  if (!Number.isFinite(onAtMs)) return { ok: false, why: 'cannot compute expected runs: --on-at is missing (the ON time is never estimated from the first recorded run)' };
+  if (!Number.isFinite(offAtMs)) return { ok: false, why: 'cannot compute expected runs: the OFF time is not known (no --off-at, and the flow is not Off with a readable modifiedon)' };
+  if (offAtMs <= onAtMs) return { ok: false, why: `cannot compute expected runs: the OFF time (${clock(offAtMs)}) is not after the ON time (${clock(onAtMs)})` };
+  const max = Math.floor((offAtMs - onAtMs) / (intervalMinutes * MIN));
+  return { ok: true, max, min: Math.max(0, max - 1), onAtMs, offAtMs, intervalMinutes };
+}
+
+/**
+ * The run-status check over the runs after BASE. FAIL beats everything (a bad run is real at any time and whatever the read says). Then INCONCLUSIVE: the expected number of runs cannot be
+ * computed, a run is still open, a status of another kind, no run at all, or fewer runs recorded than the expected minimum (the run records are incomplete, the statuses prove nothing).
+ * PASS only when every recorded run Succeeded and the recorded count is at least the expected minimum; a count below the expected maximum says so ("BOUNDARY TOLERANCE USED").
+ * @param {{status:string}[]} runs
+ * @param {{reads?:number, expected?:object, boundHit?:boolean, waitedMs?:number}} read
  * @returns {{status:'PASS'|'FAIL'|'INCONCLUSIVE', detail:string, why:string}}
  */
-export function runStatus(runs, read = { stable: true, reads: 1, why: '' }) {
-  const counts = runs.reduce((m, r) => { m[r.status] = (m[r.status] || 0) + 1; return m; }, {});
-  const detail = `total ${runs.length}: ${JSON.stringify(counts)} (${read.reads} read(s) of flowruns${read.stable ? ', settled' : ', NOT settled'})`;
+export function runStatus(runs, read = {}) {
+  const { reads = 1, expected = { ok: true, min: 0, max: 0 }, boundHit = false, waitedMs = 0 } = read;
+  const counts = runs.reduce((m, r) => { m[r.status] = (m[r.status] || 0) + 1; return m; }, {}); const n = runs.length;
+  const detail = `recorded ${n}: ${JSON.stringify(counts)}; ${expected.ok ? `expected ${expected.min} to ${expected.max}` : 'expected unknown'}; ${reads} read(s) of flowruns, waited ${Math.round(waitedMs / 1000)} s${boundHit ? ` (the bound of ${RUNS_WAIT_BOUND_MS / MIN} minutes after the OFF time was reached; the bound is a guess)` : ''}`;
   const bad = runs.filter((r) => RUN_BAD.includes(r.status)).length;
   if (bad) return { status: 'FAIL', detail, why: `${bad} run(s) ended ${RUN_BAD.filter((s) => counts[s]).join('/')}` };
-  const open = runs.filter((r) => RUN_OPEN.includes(r.status)).length; const other = runs.filter((r) => ![...RUN_BAD, ...RUN_OPEN, 'Succeeded'].includes(r.status)).length;
-  if (open) return { status: 'INCONCLUSIVE', detail, why: `${open} run(s) still Running or Waiting${read.stable ? '' : `; ${read.why}`}` };
-  if (other) return { status: 'INCONCLUSIVE', detail, why: `${other} run(s) with a status that is neither Succeeded nor a failure (${Object.keys(counts).filter((s) => ![...RUN_BAD, ...RUN_OPEN, 'Succeeded'].includes(s)).join(', ')})` };
-  if (!runs.length) return { status: 'INCONCLUSIVE', detail, why: 'no run was found after the oldest seed' };
-  if (!read.stable) return { status: 'INCONCLUSIVE', detail, why: read.why };
-  return { status: 'PASS', detail, why: '' };
+  if (!expected.ok) return { status: 'INCONCLUSIVE', detail, why: expected.why };
+  const open = runs.filter((r) => RUN_OPEN.includes(r.status)).length; const known = [...RUN_BAD, ...RUN_OPEN, 'Succeeded'];
+  const other = runs.filter((r) => !known.includes(r.status));
+  if (open) return { status: 'INCONCLUSIVE', detail, why: `${open} run(s) still Running or Waiting${boundHit ? ' when the bound was reached' : ''}` };
+  if (other.length) return { status: 'INCONCLUSIVE', detail, why: `${other.length} run(s) with a status that is neither Succeeded nor a failure (${[...new Set(other.map((r) => r.status))].join(', ')})` };
+  if (n < expected.min) return { status: 'INCONCLUSIVE', detail, why: `recorded ${n} is below the expected minimum ${expected.min} (maximum ${expected.max}): the run records are incomplete, so the statuses prove nothing` };
+  if (!n) return { status: 'INCONCLUSIVE', detail, why: 'no run was found after the oldest seed' };
+  const note = n < expected.max ? `BOUNDARY TOLERANCE USED: recorded ${n} is below the expected maximum ${expected.max} (minimum ${expected.min}); the run that would start at the OFF time may not have happened` : (n > expected.max ? `recorded ${n} is above the expected maximum ${expected.max}: the expected number is an estimate, not a problem for the status` : '');
+  return { status: 'PASS', detail, why: note };
 }
-/** The re-reads of flowruns: the records come late, so the count is only believed when two reads at least this far apart agree and no run is open. */
-export const RUNS_READ_GAP_MS = 30000;
-export const RUNS_READ_MAX = 10;   // at most 10 reads = 9 waits = 4.5 minutes
+/** The largest lag between the start of a run and the creation of its flowruns row, in seconds, over the rows that carry both times; null when no row does. */
+export function runsLag(runs) {
+  const lags = runs.filter((r) => Number.isFinite(r.createdMs) && Number.isFinite(r.startMs)).map((r) => Math.round((r.createdMs - r.startMs) / 1000));
+  return { maxS: lags.length ? Math.max(...lags) : null, n: lags.length };
+}
 
 /** How many seeded, eligible obligations were still unclaimed and in the window at the start of a run. Used for the exact-cap check. */
 export function claimableAtRunStart({ seeds, rows, startMs, params = PARAMS }) {
@@ -161,7 +193,7 @@ export function claimableAtRunStart({ seeds, rows, startMs, params = PARAMS }) {
  * @param {object}   p.contract  { found, status, ownerIsMe, ownerHasEmail }
  * @param {boolean}  p.keyActive
  */
-export function verdict({ seeds, rows, strayRows = [], runs, runsRead = { stable: true, reads: 1, why: '' }, flow, contract, keyActive, params = PARAMS }) {
+export function verdict({ seeds, rows, strayRows = [], runs, runsRead = { reads: 1, expected: { ok: true, min: 0, max: 0 }, boundHit: false, waitedMs: 0, offSource: '', lagMaxS: null, lagN: 0 }, flow, contract, keyActive, params = PARAMS }) {
   const R = []; const add = (...a) => R.push(out(...a));
   const byId = new Map(seeds.map((s) => [s.id, s]));
   const parsed = rows.map((r) => { let p = null; try { p = parseAlertKey(r.key); } catch (e) { if (!(e instanceof AlertKeyError)) throw e; } return { ...r, parsed: p, obligationId: p?.source ?? String(r.key).slice(0, 36) }; });
@@ -193,8 +225,15 @@ export function verdict({ seeds, rows, strayRows = [], runs, runsRead = { stable
   if (one) {
     const t = typesOf(one); const due = t.filter((x) => x === TYPE_DUE_SOON).length; const over = t.filter((x) => x === TYPE_OVERDUE).length;
     add('duesoon.one', due === 1 ? 'PASS' : (duesoonFired ? 'FAIL' : 'OBS'), 'the due-soon obligation has exactly ONE DUESOON row', `${due} DUESOON row(s)`);
-    const afterDue = flow.offAtMs != null && flow.offAtMs > one.dueMs + FIRST_SCAN_MS;
-    add('duesoon.overdue', over === 0 || over === 1 ? 'OBS' : 'FAIL', `after its due date the same obligation may get ONE OVERDUE alert (a different key): ${over} row(s); the flow was ${flow.offAtMs == null ? 'switched off at an unknown time' : `ON until ${clock(flow.offAtMs)} (due date ${clock(one.dueMs)})`}${afterDue ? ': an OVERDUE row is expected' : over ? ': an OVERDUE row appeared although the flow was off before the due date + one scan' : ''}`);
+    const intervalMs = params.intervalMinutes * MIN;
+    const when = flow.offAtMs == null ? 'switched off at an unknown time' : `ON until ${clock(flow.offAtMs)} (due date ${clock(one.dueMs)})`;
+    // an OVERDUE alert for the due-soon obligation needs a run AFTER its due date: the flow runs every interval and a run takes about RUN_GRACE_MS, so it is expected only when the flow stayed ON longer than that
+    const hint = flow.offAtMs == null ? '' : flow.offAtMs <= one.dueMs
+      ? (over ? ': an OVERDUE row appeared although the flow was OFF before the due date: unexpected' : ': the flow was OFF before the due date: none expected')
+      : flow.offAtMs >= one.dueMs + intervalMs + RUN_GRACE_MS
+        ? (over ? ': the flow stayed ON for more than one interval after the due date: an OVERDUE row is expected' : ': the flow stayed ON for more than one interval after the due date but no OVERDUE row exists: unexpected')
+        : ': the flow was ON for less than one interval after the due date: an OVERDUE row may or may not exist';
+    add('duesoon.overdue', over === 0 || over === 1 ? 'OBS' : 'FAIL', `after its due date the same obligation may get ONE OVERDUE alert (a different key): ${over} row(s); the flow was ${when}${hint}`);
   }
   const over = of('overduein');
   const exactlyOne = over.map((s) => ({ s, n: typesOf(s).filter((x) => x === TYPE_OVERDUE).length }));
@@ -213,9 +252,13 @@ export function verdict({ seeds, rows, strayRows = [], runs, runsRead = { stable
     add('case13.row', pre.length === 1 && later.length === 0 ? (controls ? 'PASS' : 'OBS') : 'FAIL', 'case 13: exactly ONE alert log row for the pre-inserted key (the one setup wrote), no row created by the flow', `${pre.length} before the window, ${later.length} created later${pre.length === 1 && later.length === 0 && !controls ? '; INCONCLUSIVE because a positive control did not fire' : ''}`);
   }
   // ---- the runs after BASE (ALL runs since the oldest seed, not only the runs that met case 13)
-  const rs = runStatus(runs, runsRead);
+  const rs = runStatus(runs, runsRead); const ex = runsRead.expected; const mmss = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
   add('runs.counts', 'OBS', 'ALL flow runs after the oldest seed (not only case 13): the total and the counts by status. With the Try/catch design every already claimed obligation, case 13 included, meets the duplicate error in every run, and that must NOT fail a run', rs.detail);
-  add('runs.status', rs.status, 'RUN STATUS: every flow run after BASE ended Succeeded (Failed, TimedOut or Cancelled is a FAIL; Running, Waiting, any other status, no run, or a flowruns read that did not settle is INCONCLUSIVE)', rs.why ? `${rs.detail}; ${rs.why}` : rs.detail);
+  add('runs.status', rs.status, 'RUN STATUS: every recorded flow run after BASE ended Succeeded and enough runs were recorded (Failed, TimedOut or Cancelled is a FAIL at any time; INCONCLUSIVE: an open run, another status, no --on-at or no known OFF time, or fewer runs than the expected minimum after waiting)', rs.why ? `${rs.detail}; ${rs.why}` : rs.detail);
+  add('runs.expected', 'OBS', 'EXPECTED RUNS from explicit times: expected_max = floor((OFF - ON) / interval), expected_min = expected_max - 1 (the run that would start at the OFF time may not have happened)',
+    ex.ok ? (Number.isFinite(ex.onAtMs) ? `ON ${clock(ex.onAtMs)} (--on-at), OFF ${clock(ex.offAtMs)} ${runsRead.offSource}; interval ${ex.intervalMinutes} min (the PARAMS the flow was generated from): expected ${ex.min} to ${ex.max}, recorded ${runs.length}` : `expected ${ex.min} to ${ex.max}, recorded ${runs.length} (no times were given to the verdict)`) : ex.why);
+  add('runs.lag', 'OBS', 'OBSERVED LAG of flowruns: the largest time between the start of a run and the creation of its flowruns row, over the rows read (rows not yet written cannot be measured, so the real maximum is at least this)',
+    runsRead.lagMaxS == null ? 'not measurable: no flowruns row carried a createdon' : `max ${runsRead.lagMaxS} s (${mmss(runsRead.lagMaxS)}) over ${runsRead.lagN} run(s); this verdict waited ${Math.round(runsRead.waitedMs / 1000)} s in ${runsRead.reads} read(s); the bound of ${RUNS_WAIT_BOUND_MS / MIN} minutes after the OFF time is a GUESS from two samples (largest lag seen 5:10)`);
   // ---- keys and counts
   const keyBad = [];
   for (const r of flowRows) {
@@ -238,7 +281,8 @@ export function verdict({ seeds, rows, strayRows = [], runs, runsRead = { stable
   const claims = flowRows.map((r) => ({ atMs: r.createdMs, key: `${r.obligationId}:${r.parsed?.type ?? 'claim'}` }));
   const att = claimAttribution(runs, claims);
   const dues = att.runs.map((r) => claimableAtRunStart({ seeds, rows: flowRows, startMs: r.startMs, params }));
-  for (const x of capVerdict({ runs, claims, dues })) add(`cap.${x.id.replace(/^cap\./, '')}`, x.status, x.name, x.detail);
+  const incomplete = runsRead.expected.ok && runs.length < runsRead.expected.max;   // fewer runs recorded than expected: an unattributed claim may belong to a run that is not recorded (yet)
+  for (const x of capVerdict({ runs, claims, dues })) add(`cap.${x.id.replace(/^cap\./, '')}`, x.status === 'FAIL' && /claims\.attribution/.test(x.id) ? 'OBS' : x.status, x.name, /claims\.attribution/.test(x.id) && incomplete ? `${x.detail}; the run records may be incomplete (recorded ${runs.length} of an expected ${runsRead.expected.min} to ${runsRead.expected.max}): an unattributed claim may belong to a run that is not recorded yet. The pre-inserted row of case 13 is not a claim of the flow and is never counted here` : x.detail);
   const overClaimsByRun = att.attributed.filter((c) => /OVERDUE/.test(c.key) && byId.get(c.key.split(':')[0])?.caseId === 'overduein').reduce((m, c) => { m[c.run] = (m[c.run] || 0) + 1; return m; }, {});
   const firstRun = Math.min(...Object.keys(overClaimsByRun).map(Number));
   const lone = att.attributed.length > 0 && !att.overlaps[firstRun]?.length;
@@ -424,23 +468,37 @@ export function createSession(d) {
     const rows = rowsRaw.map((r) => ({ key: r.mwf_alertkey, createdMs: Date.parse(r.createdon) }));
     const baseMs = Math.min(...seeds.map((s) => s.createdMs));
     const reported = flags.onAt ? Date.parse(flags.onAt) : NaN;
+    const offReported = flags.offAt ? Date.parse(flags.offAt) : NaN;
+    const flowOffNow = off && fl.statecode === 0;
+    // the OFF time: --off-at if given, else the modifiedon of the flow row ONLY when the flow is Off now. The script cannot tell whether the row was changed in another way after it was turned off;
+    // it only checks, below, that no recorded run started after this time.
+    const offAtMs = Number.isFinite(offReported) ? offReported : (flowOffNow ? Date.parse(fl.modifiedon) : null);
+    const offSource = Number.isFinite(offReported) ? 'from --off-at (given by the owner)' : (flowOffNow ? 'from the modifiedon of the flow row (the flow is Off now; the script cannot tell whether the row was changed in another way after it was turned off, it only checks that no recorded run started after it)' : 'unknown (the flow is not Off and no --off-at was given)');
+    let expected = expectedRuns({ onAtMs: reported, offAtMs, intervalMinutes: PARAMS.intervalMinutes });   // the ON time is the reported one ONLY: never estimated from the first run
     const earliestRun = baseMs - MIN;
     const readRuns = async () => {
-      const rr = await d.call('GET', `flowruns?$filter=${q(`workflowid eq ${fl.workflowid} and starttime ge ${new Date(earliestRun).toISOString()}`)}&$orderby=starttime&$select=status,starttime,endtime&$top=500`);
+      const rr = await d.call('GET', `flowruns?$filter=${q(`workflowid eq ${fl.workflowid} and starttime ge ${new Date(earliestRun).toISOString()}`)}&$orderby=starttime&$select=status,starttime,endtime,createdon&$top=500`);
       if (!rr.ok) throw new Stop(`flowruns not readable: HTTP ${rr.status}`);
-      return (rr.j.value || []).map((r) => ({ startMs: Date.parse(r.starttime), endMs: r.endtime ? Date.parse(r.endtime) : null, status: r.status }));
+      return (rr.j.value || []).map((r) => ({ startMs: Date.parse(r.starttime), endMs: r.endtime ? Date.parse(r.endtime) : null, status: r.status, createdMs: r.createdon ? Date.parse(r.createdon) : null }));
     };
-    // the run records arrive late (2026-11-03: the verdict saw 12 runs, a later read 14): read again until two reads at least RUNS_READ_GAP_MS apart agree on the count and no run is open
-    let runs = await readRuns(); let reads = 1; let runsRead = { stable: false, reads, why: '' };
-    for (;;) {
-      await d.sleep(RUNS_READ_GAP_MS); const next = await readRuns(); reads++;
-      const same = next.length === runs.length; const open = next.some((r) => RUN_OPEN.includes(r.status)); runs = next;
-      if (same && !open) { runsRead = { stable: true, reads, why: '' }; break; }
-      if (reads >= RUNS_READ_MAX) { runsRead = { stable: false, reads, why: `flowruns did not settle in ${reads} reads ${RUNS_READ_GAP_MS / 1000} s apart (${open ? 'a run is still Running or Waiting' : 'the number of runs kept changing'})` }; break; }
+    // The run records arrive late and out of order (2026-11-03: the verdict saw 12 runs, a later read 14; 2026-11-07: 7 and 9, rows created 1 to 5 minutes after the run started). Keep reading until the
+    // recorded count reaches the expected maximum and no run is open, or a run has failed (a bad run is a FAIL at any time), or RUNS_WAIT_BOUND_MS after the OFF time. Without an expected count nothing is waited for.
+    const t0 = d.now(); let runs = await readRuns(); let reads = 1; let boundHit = false;
+    const deadline = (offAtMs ?? t0) + RUNS_WAIT_BOUND_MS;
+    const settled = () => runs.some((r) => RUN_BAD.includes(r.status)) || !expected.ok || (runs.length >= expected.max && !runs.some((r) => RUN_OPEN.includes(r.status)));
+    while (!settled()) {
+      if (d.now() >= deadline) { boundHit = true; break; }
+      await d.sleep(RUNS_READ_GAP_MS); runs = await readRuns(); reads++;
     }
+    const waitedMs = d.now() - t0;
+    if (expected.ok) {   // an OFF time that is earlier than a recorded run is wrong (a run cannot start after the flow was turned off)
+      const late = runs.filter((r) => r.startMs > expected.offAtMs + 5000);
+      if (late.length) expected = { ok: false, why: `cannot compute expected runs: the OFF time (${clock(expected.offAtMs)}, ${offSource.split(' (')[0]}) is earlier than the start of a recorded run (${clock(Math.max(...late.map((r) => r.startMs)))}): give the real OFF time with --off-at` };
+    }
+    const lag = runsLag(runs);
+    const runsRead = { reads, expected, boundHit, waitedMs, offSource, lagMaxS: lag.maxS, lagN: lag.n };
     const onAtMs = Number.isFinite(reported) ? reported : (runs.length ? Math.min(...runs.map((r) => r.startMs)) - MIN : null);
-    const onAtSource = Number.isFinite(reported) ? 'reported' : 'estimated from the first run';
-    const offAtMs = off && fl.statecode === 0 ? Date.parse(fl.modifiedon) : null;
+    const onAtSource = Number.isFinite(reported) ? 'reported' : 'estimated from the first run (used only for the late-ON note and the stray-row window, never for the expected runs)';
     const strayRaw = (await get(`mwf_alertlogs?$select=mwf_alertkey,createdon&$filter=${q(`createdon ge ${new Date(onAtMs ?? baseMs).toISOString()}`)}&$top=500`)).value;
     const stray = strayRaw.filter((r) => !ids.some((i) => String(r.mwf_alertkey ?? '').toLowerCase().startsWith(i.toLowerCase()))).map((r) => ({ key: r.mwf_alertkey ?? '', createdMs: Date.parse(r.createdon) }));
     const key = (await get("EntityDefinitions(LogicalName='mwf_alertlog')/Keys?$select=SchemaName,KeyAttributes,EntityKeyIndexStatus")).value;

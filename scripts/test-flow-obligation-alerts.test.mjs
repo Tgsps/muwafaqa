@@ -31,6 +31,7 @@ test('the refusals come first (exit 2, before any sign-in): a bad mode, no mode,
   assert.equal(run('--mode=cleanup', `--env=${ENV}`, '--counters-approved').status, 2);   // no confirmation
   const device = run('--mode=baseline', `--env=${ENV}`, '--auth=device'); assert.equal(device.status, 2); assert.match(device.stderr, /Only --auth=az/);
   assert.equal(run('--mode=verdict', `--env=${ENV}`, '--on-at=yesterday').status, 2);
+  const badOff = run('--mode=verdict', `--env=${ENV}`, '--on-at=2027-01-01T10:00:00Z', '--off-at=later'); assert.equal(badOff.status, 2); assert.match(badOff.stderr, /--off-at must be an ISO UTC time/);
   assert.equal(run('--mode=baseline', `--env=${ENV}`, '--expect-contracts=eleven').status, 2);
   assert.equal(run('--mode=cleanup', `--env=${ENV}`, '--counters-before=MNT:x').status, 2);
 });
