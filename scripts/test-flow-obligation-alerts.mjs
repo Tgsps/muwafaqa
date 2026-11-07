@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Test session of the flow "Muwafaqa - Obligation Alerts" (test variant), ONE window (docs/flow-obligation-alerts.md, section 15).
- * ONE WINDOW HAS BEEN RUN (night of 2026-11-03/04); its cleanup ran on 2026-11-07. At the time of writing (2026-11-07) the first flow was deleted by the owner and the Try/catch definition was created OFF and read back identical; it has never been turned on. `--mode=plan` is offline (no network call); `--mode=baseline` is read only (run on 2026-11-04, passed);
+ * TWO WINDOWS HAVE BEEN RUN (night of 2026-11-03/04 and 2026-11-07); both were cleaned up on 2026-11-07. At the time of writing (2026-11-07) the first flow was deleted by the owner; the Try/catch definition was created OFF, read back identical, and ran in the second window (9 runs, all Succeeded, read by script); it is Off. `--mode=plan` is offline (no network call); `--mode=baseline` is read only (run on 2026-11-04, passed);
  * `setup` and `cleanup` WRITE and need the owner's explicit approval for a window; `await` and `verdict` are read only.
  * The logic is in scripts/lib/obligation-session.mjs; every other mode is covered by unit tests against a mocked environment only.
  *
@@ -24,7 +24,7 @@
  *                                  Deletes the alert log rows whose key starts with the id of an obligation this session created, the contract (the obligations go by the cascade) and the counterparty,
  *                                  restores the counter by the rule of lib/counter-snapshot.mjs, checks that nothing is left
  *
- * Usage (plan, baseline, setup, await and verdict have been run, in one window; its cleanup ran on 2026-11-07):
+ * Usage (plan, baseline, setup, await and verdict have been run, in two windows; both cleanups ran on 2026-11-07):
  *   node scripts/test-flow-obligation-alerts.mjs --mode=plan
  *   node scripts/test-flow-obligation-alerts.mjs --mode=baseline --env=https://<org>.crm4.dynamics.com --auth=az
  *   node scripts/test-flow-obligation-alerts.mjs --mode=setup --env=... --auth=az --confirm-mutates-environment --counters-approved

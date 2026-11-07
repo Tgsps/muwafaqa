@@ -93,6 +93,27 @@ Learn: uniqueness of an alternate key is **not enforced on NULL** **(from Learn,
 
 **Cleanup of the second window (2026-11-07, by the owner's command, after the window):** it deleted the 10 alert log rows, the Draft contract (the 13 obligations went by the cascade) and the counterparty of the session, and restored the contract-number counter `MNT` from 1 to 0. **Read back afterwards by the assistant:** 11 contracts, 110 active matrix rows, 5 active assignments, 0 steps, 0 obligations, 0 alert log rows, 5 counterparties, all five counters 0, no row named `TEST-TMP-OBL-...`, all six flow rows OFF (the alerts flow created on 2026-11-07 exists once and was not changed). The flow itself was not part of the cleanup.
 
+## Owner decisions of 2026-11-07, and the state of the app and of `src/`
+
+**Owner decisions (stated in the chat on 2026-11-07; not verified by the assistant, they are decisions):**
+1. **The Requester (the owner of the contract) and the Admin create obligations.**
+2. **The Requester reads obligations at User level, like the contract, not at Organization level.**
+3. **Adding obligations to an In Force contract is allowed.**
+
+**Known limitation that follows from decision 2 (inferred, not tried):** an obligation is owned by the user who creates it (read: the 13 obligations of both test windows were owned by the account that created them; the relationship `mwf_contract_obligation` cascades only the delete, not the owner). If an Admin creates an obligation on a Requester's contract, the contract owner receives the alert email (the flow sends to the owner of the contract) but, with Read at User level, **cannot open the link**. The alternatives (Read at a wider level for the Requester, an owner that follows the contract, a parental relationship) were not chosen.
+
+**Proposed privileges (designed, NOT implemented; the matrix and the counts are in ADR-008, "Update 2026-11-07"):** Requester Create, Read, Write, Delete, Append at User; Approver and Finance Read at Organization; Admin Create, Read, Write, Delete, Append, AppendTo at Organization; **nothing on `mwf_alertlog` for any role** (a service table). Resulting counts: Requester 13, Approver 4, Finance 10, Admin 28.
+
+**Read by the assistant (files and the environment, 2026-11-07):**
+- `src/` was synchronized (commits `61b2f23` and `ac1ba11`, pushed): `mwf_Obligation` and `mwf_AlertLog` are in `src/` for the first time. **The relationship `mwf_contract_obligation` is exported** (`src/Other/Relationships/mwf_Contract.xml`) and **so is the definition of the alternate key `mwf_AlertLogKey`** (`src/Entities/mwf_AlertLog/Entity.xml`, `EntityKeys`). **The index status of the key (`EntityKeyIndexStatus`) is NOT exported** (no match in `src/`); so after an import the key may not be Active at once (inferred, not tried). The Obligation Alerts flow (Try/catch definition) is in `src/Workflows`, exported Off (StateCode 0, StatusCode 1).
+- The app module lists `mwf_obligation` as a table component and the site map has a sub-area for it **under "Reference data"** (the owner could not drag it under "Contracts"; cosmetic). The Obligation main form holds Owner, Name, Contract, Party, Due Date and Obligation Status (the default of the status is the value of Open). The Contract main form has a new last section with a read-only grid of the obligations (relationship `mwf_contract_obligation`, view Active Obligations); the form library and the onload handler of `mwf_contract_form.js` are unchanged.
+- **The four project roles are not linked to the app** (only System Administrator and System Customizer open it) **and hold 0 of the 14 privileges on `mwf_obligation` and `mwf_alertlog`.** This was not visible earlier because the role tests used a non-interactive application user (the owner's statement; consistent with ADR-008, which lists the interactive case as not tested).
+- **The Active Obligations view shows only Name and Created On.** Name is not required, so an obligation created by hand may look blank. Changing the view columns is a **pending step**.
+
+**Reported by the owner, NOT verified by the assistant:** the work was done as System Administrator; the first two attempts to add the grid to the Contract form failed with "We ran into a problem adding the component" (cause unknown) and it worked after discarding and reopening the form in a fresh session; in the running app, on an In Force contract the script banner and the five locks still work, the Obligations section shows a New Obligation button and Rows 0, and the Contract lookup on the Obligation form lists contracts; the Obligation form was saved and published and is visible in the live app.
+
+**NOT tested:** creating an obligation (deliberately, to keep the baseline at 0), opening the app as a non-admin user, the email link. **The status stays Proposed.**
+
 ## Not proven
 
 **Measured: the tables and the key (see "Findings of the first apply") and the uniqueness behavior through the direct Web API (see "Measured results of the uniqueness test"), each from ONE run.** Still unproven: that a flow can read the error code of a failed insert and take the duplicate branch (the 412 was captured by `Compose_claim_failure` in the first window; the code text and the duplicate branch of the new design have not been seen), concurrent inserts from two real flow runs (the test used 5 parallel requests from one client), the behavior with more than 5 parallel inserts or on repeated runs, the effect of a solution import, and the items listed under "Second window (2026-11-07)", "Still unproven" (the alert rules passed in two windows, with the first design and with the Try/catch design).
@@ -102,7 +123,7 @@ Learn: uniqueness of an alternate key is **not enforced on NULL** **(from Learn,
 1. **Production due-soon lead time, lookback window and recurrence interval** (owner). No numbers are proposed. The lookback decides which downtimes lose alerts.
 2. **Overdue behavior:** the key gives **one** OVERDUE alert per due date. Whether the owner wants repeated overdue reminders is not decided; repeats would need a different key (for example a week number), not designed here.
 3. **A notice deadline that is already past** when the contract enters In Force: alert once for the latest missed point, for both, or for none?
-4. **Roles for `mwf_obligation`** (who creates and edits obligations): not designed. The table is UserOwned like the contract; ADR-008 has no row for it.
+4. **Roles for `mwf_obligation`** (who creates and edits obligations): **decided in part by the owner on 2026-11-07** (see "Owner decisions of 2026-11-07"): the Requester (the contract owner) and the Admin create obligations; the Requester reads obligations at User level, like the contract; adding obligations to an In Force contract is allowed. **The privileges are designed but NOT implemented** (ADR-008, "Update 2026-11-07"). The proposed matrix has not been reviewed in writing by the owner; there is a known limitation (below).
 5. **The columns "renewal type" and "notice period"** on the contract: names, types and values are not designed (a "none" value of the renewal type is assumed by decision 7).
 6. **Who should receive alerts** if the contract owner leaves or is disabled: not decided (same kind of question as A1 in ADR-010).
 

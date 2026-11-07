@@ -164,6 +164,25 @@ Every allowed case of every role worked without the nine (including R1, the crea
 - **Share and Assign**, **secured columns**, **users with several roles at once**, and a **business unit other than the root**;
 - the **re-reading after 30 minutes and on the next day**, which has not been done.
 
+## Update 2026-11-07: privileges on the obligation (designed, NOT implemented), and the roles are not linked to the app
+
+**Finding (read from the environment on 2026-11-07):** the app `Muwafaqa Contracts` can be opened only by the roles System Administrator and System Customizer. **None of the four project roles is linked to the app**, and the four roles hold **0 of the 14 privileges** on `mwf_obligation` and `mwf_alertlog` (the System Administrator role holds all of them). The role list of the app in `src/AppModules/mwf_MuwafaqaContracts/AppModule.xml` (`AppModuleRoleMaps`) names two role ids that are not the ids of the project roles. This was not visible in the tests above because they used a non-interactive application user (the owner's statement; this ADR already listed the interactive user in a model-driven app as not tested).
+
+**Owner decisions (2026-11-07):** the Requester (the contract owner) and the Admin create obligations; the Requester reads obligations at User level, like the contract; adding obligations to an In Force contract is allowed (ADR-011, "Owner decisions of 2026-11-07").
+
+**Proposed design, NOT implemented, NOT reviewed in writing by the owner** (U = User, O = Organization, - = none; `mwf_obligation` is user-owned, so all four depths exist for it; `mwf_alertlog` is a service table and has Organization depth only):
+
+| Table | Requester | Approver | Finance | Admin |
+|---|---|---|---|---|
+| Obligation (user-owned) | C R W D A: **U** | R: **O** | R: **O** | C R W D A AT: **O** |
+| Alert Log (service table, ADR-011) | - | - | - | - |
+
+- **Resulting counts (arithmetic on the counts above, not read):** Requester 8 + 5 = **13**, Approver 3 + 1 = **4**, Finance 9 + 1 = **10**, Admin 22 + 6 = **28**.
+- **Append To is not proposed for the Requester** because nothing is attached to an obligation (inferred from the model, not tested); Append is (the lookup to the contract needs Append on the obligation and Append To on the contract, which the Requester already has at User level). **Assign and Share stay granted to no role** (rule 3 above). Rule 1 above would need new wording: **User level is used for the Requester on the Contract and on the Obligation.**
+- **Known limitation (ADR-011):** with Read at User level the contract owner cannot open an obligation that another user (an Admin) created on the contract, although the alert email goes to the contract owner.
+- **Not done:** `scripts/create-security-roles.mjs` and `scripts/lib/security-roles.mjs` have **no entry for the obligation or the alert log** (`TABLES` lists six tables), no mode adds these privileges, and the verification does not look at them. Linking the roles to the app is a separate step (`docs/rebuild-runbook.md`, R16d). Both would be written offline first and applied with the owner's approval.
+- **Not tested:** the roles with an interactive user in the app (the basic privileges such a user needs besides the project role are still open, see above).
+
 ## Implementation
 
 `scripts/create-security-roles.mjs`, modes:

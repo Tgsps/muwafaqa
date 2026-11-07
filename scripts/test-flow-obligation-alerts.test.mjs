@@ -19,7 +19,7 @@ test('the modes, and which of them write: only setup and cleanup (await and verd
 
 test('plan runs offline (exit 0, no --env, no sign-in) and prints the cases, the margins and the counters it would consume; it states the state of the flow at the time of writing and that one window has been run', () => {
   const r = run('--mode=plan'); assert.equal(r.status, 0, r.stderr);
-  for (const n of ['PLAN (offline', 'STATE OF THE FLOW at the time of writing', 'deleted by the owner', 'MARGINS', 'consumes ONE number', 'preinserted', 'ONLY THE OWNER CAN READ', 'plan, baseline, setup, await and verdict have been run', 'the cleanup of that window ran on 2026-11-07', 'setup (WRITES)', 'cleanup (WRITES)']) assert.ok(r.stdout.includes(n), n);
+  for (const n of ['PLAN (offline', 'STATE OF THE FLOW at the time of writing', 'deleted by the owner', 'MARGINS', 'consumes ONE number', 'preinserted', 'ONLY THE OWNER CAN READ', 'plan, baseline, setup, await and verdict have been run', 'in two windows (2026-11-03/04 and 2026-11-07)', 'cleanup ran after both (2026-11-07)', 'ran in the second window: 9 runs, all Succeeded', 'setup (WRITES)', 'cleanup (WRITES)']) assert.ok(r.stdout.includes(n), n);
   assert.equal(r.stderr, '');
 });
 
@@ -58,7 +58,7 @@ test('parseCounters: PREFIX:number pairs; nothing for an empty value; a bad shap
 test('the source: the session never turns a flow on or off, never reads a mailbox, no token or address is printed, and it says that nothing has been run', () => {
   assert.doesNotMatch(CODE, /\bmessages\b|office365|Outlook|mailbox|SendEmail|inbox|statecode|SetState|activate|Publish|turnOn|workflows/i);
   assert.doesNotMatch(CODE, /console\.log\([^)]*(token|password|secret)/i);
-  assert.match(SOURCE, /ONE WINDOW HAS BEEN RUN/); assert.match(SOURCE, /THE OWNER ALONE TURNS FLOWS ON AND OFF/); assert.match(SOURCE, /never reads a mailbox/);
+  assert.match(SOURCE, /TWO WINDOWS HAVE BEEN RUN/); assert.doesNotMatch(SOURCE, /ONE WINDOW HAS BEEN RUN|never been turned on|no window has been run/i); assert.match(SOURCE, /THE OWNER ALONE TURNS FLOWS ON AND OFF/); assert.match(SOURCE, /never reads a mailbox/);
   assert.match(CODE, /argOf\('auth'\)|auth: argOf\('auth'\)/);
   assert.doesNotMatch(SOURCE, /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.[A-Za-z]{2,}/);   // no address literal
 });
@@ -74,5 +74,5 @@ test('no text about the obligation alerts flow still says that it does not exist
     const hit = text.split('\n').map((l, i) => [i + 1, l]).filter(([, l]) => mine.test(l) && stale.test(l)).map(([i]) => i);
     assert.deepEqual(hit, [], f + ' lines ' + hit.join(','));
   }
-  const plan = run('--mode=plan').stdout; assert.doesNotMatch(plan, stale); assert.match(plan, /STATE OF THE FLOW at the time of writing/);
+  const plan = run('--mode=plan').stdout; assert.doesNotMatch(plan, stale); assert.doesNotMatch(plan, /never been turned on|has no run|ONE WINDOW HAS BEEN RUN|no window has been run/i); assert.match(plan, /STATE OF THE FLOW at the time of writing/);
 });

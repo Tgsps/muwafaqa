@@ -24,7 +24,7 @@ Everything the form does to restrict users is **client-side only** (read-only, h
 |---|---|
 | Name | Muwafaqa Contracts |
 | Type | Model-driven app (modern app designer), created inside solution `Muwafaqa` |
-| Tables added | Contract (`mwf_contract`), Counterparty (`mwf_counterparty`) |
+| Tables added | Contract (`mwf_contract`), Counterparty (`mwf_counterparty`) (the Phase 1 scope of this document). Read from `src/AppModules/mwf_MuwafaqaContracts/AppModule.xml` on 2026-11-07: the app module also lists `mwf_approvalmatrix` and, since 2026-11-07, `mwf_obligation` (line 16) |
 | Description | Contract and counterparty management. Phase 1 core. |
 
 ### Navigation
@@ -33,6 +33,7 @@ Everything the form does to restrict users is **client-side only** (read-only, h
 |---|---|---|---|
 | Contracts | Contracts | Contract | In Force Contracts (see section 4) |
 | Reference data | Counterparties | Counterparty | Active Counterparties |
+| Reference data | Obligations (added 2026-11-07; the default view of the page is not recorded) | Obligation | not recorded |
 
 ### Steps
 
@@ -149,6 +150,20 @@ Notes:
 3. Contract views (section 4).
 4. Counterparty form and view (section 3).
 5. Load test data with the script (see `scripts/load-test-data.mjs`).
+
+## 6a. The Obligations page and the Obligations grid (added 2026-11-07, ADR-011)
+
+**Not part of Phase 1.** This section records what exists in the app after the work of 2026-11-07.
+
+**Read by the assistant (files of `src/` and the environment):**
+- **The page:** `mwf_obligation` is a table component of the app (`AppModule.xml:16`) and the site map has a sub-area for it **under "Reference data"**, after the Approval Matrix (`AppModuleSiteMap.xml:33`). It could not be placed under "Contracts" (the owner could not drag it there; cosmetic).
+- **The Obligation main form** holds Owner, Name, Contract, Party, Due Date and Obligation Status; the default of the status is the value of Open. Name is not required (the owner's statement).
+- **The grid on the Contract main form:** a read-only grid (the subgrid control of the new designer) named "Obligations", in a new last section of the single tab (`mwf_Contract/FormXml/main/{a72298be-…}.xml`, lines 168 to 199): relationship `mwf_contract_obligation`, table `mwf_obligation`, view Active Obligations (the control is at line 179). **The form library `mwf_contract_form.js` and the onload handler are unchanged and still registered** (compared with the previous revision: the block from `formLibraries` to `events` is identical). The script locks only the five columns of ADR-004; it does not touch the grid, so the grid stays usable on a Pending Approval or In Force contract (owner decision 3 of ADR-011: adding obligations to an In Force contract is allowed).
+- **The view Active Obligations shows only Name and Created On.** Because Name is not required, an obligation created by hand may look blank in the grid. **Changing the view columns is a pending step.**
+
+**Reported by the owner, NOT verified by the assistant:** the work was done as System Administrator; the first two attempts to add the grid failed with "We ran into a problem adding the component" (cause unknown) and it worked after discarding and reopening the form in a fresh session; in the running app, on an In Force contract the script banner and the five locks still work, the Obligations section appears with a New Obligation button and Rows 0, and the Contract lookup on the Obligation form lists contracts; the Obligation form was saved and published.
+
+**NOT tested:** creating an obligation (deliberately, to keep the baseline at 0), opening the app as a non-admin user (the four project roles are not linked to the app and have no privilege on the table: ADR-008, "Update 2026-11-07"), the email link.
 
 ## 7. Not verified
 

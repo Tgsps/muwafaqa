@@ -652,7 +652,7 @@ test('the code never writes to the table of flows, never reads a mailbox, never 
   }
   assert.match(lib, /WRITE_TABLES = \/\^\(mwf_contracts\|mwf_counterparties\|mwf_obligations\|mwf_alertlogs\)/);
   assert.doesNotMatch(lib.replace(/Plug|\[\^\)]/g, ''), /WRITE_TABLES[^;]*workflows/);
-  assert.match(read('./obligation-session.mjs'), /ONE WINDOW HAS BEEN RUN/);
+  assert.match(read('./obligation-session.mjs'), /TWO WINDOWS HAVE BEEN RUN/);
   assert.match(read('./obligation-session.mjs'), /never reads a mailbox|never reads (a|your) mailbox|never read a mailbox|does NOT read|never reads it in any way/i);
 });
 
