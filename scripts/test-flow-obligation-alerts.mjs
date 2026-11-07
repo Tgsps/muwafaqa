@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Test session of the flow "Muwafaqa - Obligation Alerts" (test variant), ONE window (docs/flow-obligation-alerts.md, section 15).
- * ONE WINDOW HAS BEEN RUN (night of 2026-11-03/04); cleanup has not. At the time of writing (2026-11-07) the first flow was deleted by the owner and the Try/catch definition has not been created yet. `--mode=plan` is offline (no network call); `--mode=baseline` is read only (run on 2026-11-04, passed);
+ * ONE WINDOW HAS BEEN RUN (night of 2026-11-03/04); its cleanup ran on 2026-11-07. At the time of writing (2026-11-07) the first flow was deleted by the owner and the Try/catch definition was created OFF and read back identical; it has never been turned on. `--mode=plan` is offline (no network call); `--mode=baseline` is read only (run on 2026-11-04, passed);
  * `setup` and `cleanup` WRITE and need the owner's explicit approval for a window; `await` and `verdict` are read only.
  * The logic is in scripts/lib/obligation-session.mjs; every other mode is covered by unit tests against a mocked environment only.
  *
@@ -15,12 +15,12 @@
  *   --mode=setup                   needs --confirm-mutates-environment and --counters-approved (or --dry-run, which still signs in and reads). Creates the counterparty, one Draft contract, the obligations
  *                                  (due dates relative to the real clock) and the pre-inserted alert log row of case 13; reads everything back; prints READY with the time limit for the ON and the counters hand-off
  *   --mode=await                   READ ONLY: waits until the owner turns the flow ON, prints ON-AT and each claim as it appears, then DONE and TURN THE FLOW OFF NOW, and STILL ON until it is OFF
- *   --mode=verdict [--on-at=<ISO>] read only: waits for the flow to be OFF, then PASS / FAIL / OBS. A "no alert" result counts only if both positive controls fired. Ends with the LINK CHECK pause
+ *   --mode=verdict [--on-at=<ISO>] read only: waits for the flow to be OFF, re-reads flowruns until two reads 30 s apart agree (at most 10 reads), then PASS / FAIL / INCONCLUSIVE / OBS. runs.status is FAIL for any Failed, TimedOut or Cancelled run after BASE, INCONCLUSIVE for a run still open, no run or a read that did not settle, PASS only when every run Succeeded. Exit code 0 only without FAIL and without INCONCLUSIVE. A "no alert" result counts only if both positive controls fired. Ends with the LINK CHECK pause
  *   --mode=cleanup                 REFUSES while ANY flow is ON (the alerts flow row may be absent: a missing flow cannot run, it is logged and treated as Off; two rows of that name refuse). Needs --confirm-mutates-environment (or --dry-run) and --counters-approved with --counters-before=<prefix>:<n> --counters-consumed=<prefix>:<n>.
  *                                  Deletes the alert log rows whose key starts with the id of an obligation this session created, the contract (the obligations go by the cascade) and the counterparty,
  *                                  restores the counter by the rule of lib/counter-snapshot.mjs, checks that nothing is left
  *
- * Usage (plan, baseline, setup, await and verdict have been run, in one window; cleanup has not):
+ * Usage (plan, baseline, setup, await and verdict have been run, in one window; its cleanup ran on 2026-11-07):
  *   node scripts/test-flow-obligation-alerts.mjs --mode=plan
  *   node scripts/test-flow-obligation-alerts.mjs --mode=baseline --env=https://<org>.crm4.dynamics.com --auth=az
  *   node scripts/test-flow-obligation-alerts.mjs --mode=setup --env=... --auth=az --confirm-mutates-environment --counters-approved

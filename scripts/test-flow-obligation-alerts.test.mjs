@@ -19,7 +19,7 @@ test('the modes, and which of them write: only setup and cleanup (await and verd
 
 test('plan runs offline (exit 0, no --env, no sign-in) and prints the cases, the margins and the counters it would consume; it states the state of the flow at the time of writing and that one window has been run', () => {
   const r = run('--mode=plan'); assert.equal(r.status, 0, r.stderr);
-  for (const n of ['PLAN (offline', 'STATE OF THE FLOW at the time of writing', 'deleted by the owner', 'MARGINS', 'consumes ONE number', 'preinserted', 'ONLY THE OWNER CAN READ', 'plan, baseline, setup, await and verdict have been run', 'cleanup has not been run', 'setup (WRITES)', 'cleanup (WRITES)']) assert.ok(r.stdout.includes(n), n);
+  for (const n of ['PLAN (offline', 'STATE OF THE FLOW at the time of writing', 'deleted by the owner', 'MARGINS', 'consumes ONE number', 'preinserted', 'ONLY THE OWNER CAN READ', 'plan, baseline, setup, await and verdict have been run', 'the cleanup of that window ran on 2026-11-07', 'setup (WRITES)', 'cleanup (WRITES)']) assert.ok(r.stdout.includes(n), n);
   assert.equal(r.stderr, '');
 });
 

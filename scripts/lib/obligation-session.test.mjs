@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   FAMILY, FLOW_NAME, CASES, CASE_ORDER, PARAMS, ARM_LIMIT_MS, FIRST_SCAN_MS, MIN_MARGIN_S, ON_MINUTES, CONTRACT_TYPE, Stop,
-  seedPlan, margins, keyFor, planLines, verdict, claimableAtRunStart, caseOfName, nameOf, createSession, describeFailure, maskText,
+  seedPlan, margins, keyFor, planLines, verdict, claimableAtRunStart, caseOfName, nameOf, createSession, describeFailure, maskText, runStatus, RUNS_READ_GAP_MS, RUNS_READ_MAX,
 } from './obligation-session.mjs';
 import { TYPE_DUE_SOON, TYPE_OVERDUE } from '../build-flow-obligation-alerts.mjs';
 import { OBLIGATION_STATUS } from './obligation-schema.mjs';
@@ -93,7 +93,7 @@ test('a good window: no FAIL, both controls PASS, every "no alert" case PASS, 8 
   assert.deepEqual(res.filter((x) => x.status === 'FAIL'), []);
   for (const id of ['ctl.duesoon', 'ctl.overdue', 'duesoon.one', 'overdue.each', 'no.overdueout', 'no.beyondlead', 'no.disputed', 'no.done', 'case13.row', 'keys.valid', 'keys.unique', 'rows.stray', 'rows.count', 'cap.max', 'cap.five.then.two', 'obl.untouched', 'contract.owner', 'flow.off', 'key.active']) assert.equal(r[id]?.status, 'PASS', `${id}: ${JSON.stringify(r[id])}`);
   assert.match(r['rows.count'].detail, /8 row/); assert.match(r['emails.expected'].name, /EXPECTED EMAILS = .* 8/);
-  assert.match(r['case13.runs'].detail, /3 run\(s\): \{"Succeeded":3\}/);
+  assert.equal(r['runs.status'].status, 'PASS'); assert.match(r['runs.counts'].detail, /total 3: \{"Succeeded":3\}/); assert.equal(r['case13.runs'], undefined);   // renamed: it counted ALL runs
   assert.equal(r['cap.five.then.two'].status, 'PASS'); assert.match(r['cap.five.then.two'].detail, /\{"0":5,"1":2\}/);
   assert.match(r['recipient.byeye'].name, /NOT measured/); assert.match(r.byeye.name, /BY YOUR EYE/);
 });
@@ -130,11 +130,72 @@ test('case 13: a row created by the flow for the pre-inserted obligation is a FA
   const w2 = { ...w, rows: w.rows.filter((x) => !x.key.startsWith(s.id)) }; assert.equal(byId(verdict(w2))['case13.row'].status, 'FAIL');
 });
 
-test('case 13 records the run outcomes: if the handled failed insert marks every run Failed, that is what the verdict prints (an observation, not a pass or fail)', () => {
+test('RUN STATUS (verdict): every run Failed (the first design, 2026-11-03/04) is now a FAIL of runs.status and of nothing else; the counts item is an observation of ALL runs after the oldest seed', () => {
   const w = goodWindow(); w.runs = w.runs.map((r) => ({ ...r, status: 'Failed' }));
-  const r = byId(verdict(w)); assert.equal(r['case13.runs'].status, 'OBS'); assert.match(r['case13.runs'].detail, /\{"Failed":3\}/);
-  assert.deepEqual(verdict(w).filter((x) => x.status === 'FAIL'), []);
+  const res = verdict(w); const r = byId(res);
+  assert.equal(r['runs.counts'].status, 'OBS'); assert.match(r['runs.counts'].detail, /total 3: \{"Failed":3\}/); assert.match(r['runs.counts'].name, /ALL flow runs after the oldest seed \(not only case 13\)/);
+  assert.equal(r['runs.status'].status, 'FAIL'); assert.match(r['runs.status'].detail, /3 run\(s\) ended Failed/);
+  assert.deepEqual(res.filter((x) => x.status === 'FAIL').map((x) => x.id), ['runs.status']);   // the 21 other checks are untouched
+  assert.equal(r['case13.runs'], undefined);
 });
+
+test('runStatus: Failed, TimedOut or Cancelled is a FAIL (also next to a Running run); Running, Waiting, another status, no run, or a read that did not settle is INCONCLUSIVE; PASS only when at least one run exists, all Succeeded and the read settled', () => {
+  const R = (...s) => s.map((status) => ({ status }));
+  const ok = runStatus(R('Succeeded', 'Succeeded', 'Succeeded')); assert.equal(ok.status, 'PASS'); assert.equal(ok.detail, 'total 3: {"Succeeded":3} (1 read(s) of flowruns, settled)');
+  for (const bad of ['Failed', 'TimedOut', 'Cancelled']) { const x = runStatus(R('Succeeded', bad)); assert.equal(x.status, 'FAIL', bad); assert.match(x.why, new RegExp(bad)); assert.match(x.detail, new RegExp('"' + bad + '":1')); }
+  assert.equal(runStatus(R('Running', 'Failed')).status, 'FAIL');
+  assert.equal(runStatus(R('Succeeded', 'Failed'), { stable: false, reads: 10, why: 'x' }).status, 'FAIL');   // a bad run is real whatever the read says
+  for (const open of ['Running', 'Waiting']) assert.equal(runStatus(R('Succeeded', open)).status, 'INCONCLUSIVE', open);
+  const other = runStatus(R('Succeeded', 'Aborted')); assert.equal(other.status, 'INCONCLUSIVE'); assert.match(other.why, /Aborted/);
+  const none = runStatus([]); assert.equal(none.status, 'INCONCLUSIVE'); assert.match(none.why, /no run was found/);
+  const lag = runStatus(R('Succeeded'), { stable: false, reads: 10, why: 'flowruns did not settle' }); assert.equal(lag.status, 'INCONCLUSIVE'); assert.match(lag.detail, /NOT settled/); assert.match(lag.why, /did not settle/);
+});
+
+test('runs.status in a mocked window: all Succeeded PASS (two reads 30 s apart at least); one Failed FAIL; the verdict exit value is false for FAIL and for INCONCLUSIVE', async () => {
+  const good = fakeEnv(); await windowed(good); const t0 = good.t;
+  assert.equal(await good.session(approved).runVerdict(), true); assert.match(good.text(), /PASS +runs\.status .*total 2: \{"Succeeded":2\} \(2 read\(s\) of flowruns, settled\)/);
+  assert.ok(good.t - t0 >= RUNS_READ_GAP_MS); assert.match(good.text(), /VERDICT: \d+ PASS, 0 FAIL, 0 INCONCLUSIVE, \d+ OBS\./);
+  assert.equal(good.log.filter((c) => c.path.startsWith('flowruns?')).length, 2);
+  const bad = fakeEnv(); await windowed(bad); bad.runs[1].status = 'Failed';
+  assert.equal(await bad.session(approved).runVerdict(), false); assert.match(bad.text(), /FAIL +runs\.status .*"Failed":1/); assert.match(bad.text(), /VERDICT: \d+ PASS, 1 FAIL, 0 INCONCLUSIVE/);
+  assert.equal(bad.writes().length, 16);   // still read only: the 16 writes are the setup's
+});
+
+test('runs.status: a run still Running is INCONCLUSIVE (not PASS) after the bound of re-reads, with the reason; Failed next to it is still a FAIL', async () => {
+  const env = fakeEnv(); await windowed(env); env.runs[1].status = 'Running'; env.runs[1].endMs = null;
+  assert.equal(await env.session(approved).runVerdict(), false);
+  assert.match(env.text(), /INCONCLUSIVE +runs\.status .*1 run\(s\) still Running or Waiting; flowruns did not settle in 10 reads 30 s apart \(a run is still Running or Waiting\)/);
+  assert.equal(env.log.filter((c) => c.path.startsWith('flowruns?')).length, RUNS_READ_MAX); assert.match(env.text(), /VERDICT: \d+ PASS, 0 FAIL, 1 INCONCLUSIVE/);
+  const both = fakeEnv(); await windowed(both); both.runs[0].status = 'Failed'; both.runs[1].status = 'Running'; both.runs[1].endMs = null;
+  await both.session(approved).runVerdict(); assert.match(both.text(), /FAIL +runs\.status/);
+});
+
+test('runs.status, the lag of flowruns: the count changes between reads (a run record arrives late), then stabilises; the final count is the one reported', async () => {
+  const env = fakeEnv(); const { onAt } = await windowed(env); let ticks = 0;
+  env.onTick = (e) => { ticks++; if (ticks === 1) e.runs.push({ startMs: onAt + 200000, endMs: onAt + 240000, status: 'Succeeded' }); };   // the 3rd run record shows up after the first wait
+  const t0 = env.t; assert.equal(await env.session(approved).runVerdict(), true);
+  assert.match(env.text(), /PASS +runs\.status .*total 3: \{"Succeeded":3\} \(3 read\(s\) of flowruns, settled\)/); assert.match(env.text(), /PASS +runs\.status/);
+  assert.ok(env.t - t0 >= 2 * RUNS_READ_GAP_MS); assert.equal(env.log.filter((c) => c.path.startsWith('flowruns?')).length, 3);
+  const late = fakeEnv(); const w = await windowed(late); late.onTick = (e) => { if (e.runs.length < 3) e.runs.push({ startMs: w.onAt + 200000, endMs: w.onAt + 240000, status: 'Failed' }); };   // a late record that is a FAILED run
+  assert.equal(await late.session(approved).runVerdict(), false); assert.match(late.text(), /FAIL +runs\.status .*"Failed":1/);
+});
+
+test('runs.status, the bound: when the count keeps changing, the verdict reads at most 10 times and reports INCONCLUSIVE with the reason (never PASS)', async () => {
+  const env = fakeEnv(); const { onAt } = await windowed(env); let n = 0;
+  env.onTick = (e) => { n++; e.runs.push({ startMs: onAt + 200000 + n * 1000, endMs: onAt + 200500 + n * 1000, status: 'Succeeded' }); };   // a new run record after every wait
+  assert.equal(await env.session(approved).runVerdict(), false);
+  assert.match(env.text(), /INCONCLUSIVE +runs\.status .*NOT settled\); flowruns did not settle in 10 reads 30 s apart \(the number of runs kept changing\)/);
+  assert.equal(env.log.filter((c) => c.path.startsWith('flowruns?')).length, RUNS_READ_MAX); assert.doesNotMatch(env.text(), /PASS +runs\.status/);
+  assert.match(env.text(), /VERDICT: \d+ PASS, 0 FAIL, 1 INCONCLUSIVE/);
+});
+
+test('the verdict keeps its other checks and does not touch the link check: the LINK CHECK pause text is unchanged, and no verdict item names the link', async () => {
+  const env = fakeEnv(); await windowed(env); await env.session(approved).runVerdict();
+  assert.match(env.text(), /LINK CHECK WINDOW: obligations still exist, say 'link checked' to continue/);
+  const items = env.text().split('\n').filter((l) => /^(PASS|FAIL|OBS|INCONCLUSIVE)/.test(l)); assert.ok(items.length >= 27);
+  assert.ok(!items.some((l) => /link/i.test(l.replace(/LINK CHECK/g, ''))));
+});
+
 
 test('the cap: 6 claims inside one run window FAIL; a first run with only 4 claims fails the "5 then 2" check; overlapping runs are reported and the check is not evaluated', () => {
   const w = goodWindow(); const extra = w.seeds.filter((s) => s.caseId === 'overduein')[5];

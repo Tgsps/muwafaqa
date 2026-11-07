@@ -1,6 +1,6 @@
 /**
  * The test session of the flow "Muwafaqa - Obligation Alerts" (test variant): pure parts (the cases, the seeds with their due dates and margins, the plan, the
- * verdict) and the modes that read and write through an injected `call` (baseline, setup, await, verdict, cleanup). ONE WINDOW HAS BEEN RUN (the night of 2026-11-03/04: setup, await and verdict; cleanup was not run). State of the flow at the time of writing (2026-11-07): the first flow was deleted by the owner after the window of 2026-11-03/04; the Try/catch definition (generator commit cb9ac80) has not been created yet. The modes read the real state themselves: baseline, setup, await and verdict stop unless exactly one flow row of this name exists and every flow is OFF; cleanup accepts no such row (a missing flow cannot run) but still refuses while any flow is ON. The modes are also covered
+ * verdict) and the modes that read and write through an injected `call` (baseline, setup, await, verdict, cleanup). ONE WINDOW HAS BEEN RUN (the night of 2026-11-03/04: setup, await and verdict; its cleanup ran on 2026-11-07). State of the flow at the time of writing (2026-11-07): the first flow was deleted by the owner after the window of 2026-11-03/04; the Try/catch definition (generator commit cb9ac80) was created OFF on 2026-11-07 and read back identical to the generated one; it has never been turned on and has no run. The modes read the real state themselves: baseline, setup, await and verdict stop unless exactly one flow row of this name exists and every flow is OFF; cleanup accepts no such row (a missing flow cannot run) but still refuses while any flow is ON. The modes are also covered
  * by unit tests against a mocked environment. scripts/test-flow-obligation-alerts.mjs is the command line.
  *
  * What the script MEASURES itself: alert log rows (key, creation time), obligation and contract state, flow rows (ON / OFF and when it changed), flow run records
@@ -48,7 +48,7 @@ export const CASES = Object.freeze({
   beyondlead: { label: 'due beyond the lead time', count: 1, status: 'Open', dueOffsetS: 120 * 60, spreadS: 0, expect: 'no alert', observer: 'script: alert log' },
   disputed: { label: 'Disputed, overdue inside the lookback', count: 1, status: 'Disputed', dueOffsetS: -8 * 60, spreadS: 0, expect: 'no alert', observer: 'script: alert log' },
   done: { label: 'Done, overdue inside the lookback', count: 1, status: 'Done', dueOffsetS: -8 * 60, spreadS: 0, expect: 'no alert', observer: 'script: alert log' },
-  preinserted: { label: 'case 13: Open, overdue, its alert log row inserted beforehand with the same key', count: 1, status: 'Open', dueOffsetS: -9 * 60, spreadS: 0, expect: 'no email, no new row, the flow\'s own insert fails (claim failure counted); the run outcome is recorded', preInsert: true, observer: 'script: rows and run statuses; owner: the failed insert output in the run history' },
+  preinserted: { label: 'case 13: Open, overdue, its alert log row inserted beforehand with the same key', count: 1, status: 'Open', dueOffsetS: -9 * 60, spreadS: 0, expect: 'no email, no new row; the flow\'s own insert fails with the duplicate error, which the Try/catch design recognises: it is not counted as a failure and the run must end Succeeded (see runs.status)', preInsert: true, observer: 'script: rows and the run statuses; owner: the Compose_claim_failure output in the run history' },
 });
 export const CASE_ORDER = Object.freeze(['duesoon', 'overduein', 'overdueout', 'beyondlead', 'disputed', 'done', 'preinserted']);
 
@@ -96,7 +96,7 @@ export const keyFor = (obligationId, type, dueIso) => buildAlertKey({ sourceId: 
 // ---------------------------------------------------------------------------------------------------------------- the plan (offline)
 export function planLines() {
   const L = [];
-  L.push(`PLAN (offline, no sign-in, no network). Flow: ${FLOW_NAME} (test variant: lead ${PARAMS.leadMinutes} min, lookback ${PARAMS.lookbackMinutes} min, interval ${PARAMS.intervalMinutes} min). STATE OF THE FLOW at the time of writing (2026-11-07): the first flow was deleted by the owner after the window of 2026-11-03/04; the Try/catch definition (generator commit cb9ac80) has not been created yet. The modes read the real state themselves. A window still needs the owner's explicit approval, and setup and cleanup also need --counters-approved.`);
+  L.push(`PLAN (offline, no sign-in, no network). Flow: ${FLOW_NAME} (test variant: lead ${PARAMS.leadMinutes} min, lookback ${PARAMS.lookbackMinutes} min, interval ${PARAMS.intervalMinutes} min). STATE OF THE FLOW at the time of writing (2026-11-07): the first flow was deleted by the owner after the window of 2026-11-03/04; the Try/catch definition (generator commit cb9ac80) was created OFF on 2026-11-07 and read back identical to the generated one; it has never been turned on and has no run. The modes read the real state themselves. A window still needs the owner's explicit approval, and setup and cleanup also need --counters-approved.`);
   L.push(`WINDOW  one window, the flow ON for about ${ON_MINUTES} minutes. Every row has a name starting ${FAMILY}-. The script never turns a flow on or off. The owner turns it ON no later than ${ARM_LIMIT_MS / MIN} minutes after setup prints READY, and OFF when the await step says so.`);
   L.push('SEEDS  (BASE = the moment the seeds are written; every due date is relative to the real clock, seconds precision)');
   for (const id of CASE_ORDER) {
@@ -111,13 +111,38 @@ export function planLines() {
   L.push('EXPECTED ALERTS  the cap case gives 7 OVERDUE alerts, the due-soon obligation 1 DUESOON (and 1 OVERDUE if the flow is still ON after its due date) = 8 or 9 new alert log rows = 8 or 9 emails. The alert log row of case 13 existed before the window and sends nothing.');
   L.push('COUNTERS  setup creates ONE Draft contract (no approval): it consumes ONE number of the contract-number counter row of contract type ' + CONTRACT_TYPE + ' (the prefix is read from the environment at setup and printed; the reminders sessions consumed type 867640000 and restored it). setup prints --counters-before=<prefix>:<n> --counters-consumed=<prefix>:1. cleanup restores the counter with the same guards as the 29 October restore: only if the counter now equals the snapshot plus the numbers this session consumed, and never below a number that still exists on a contract; otherwise it refuses and says so. NO mode touches the counters without --counters-approved (your explicit approval for the window); without it setup and cleanup refuse before writing anything.');
   L.push('THE SCRIPT MEASURES  alert log rows (keys, creation times, counts per key), obligation and contract state (status, owner, modifiedon), the flow row (ON / OFF, when it changed), flow run records (start, end, status; claims are attributed to runs by containment, ambiguous and unattributed claims are reported), the key index status, counters.');
-  L.push('ONLY THE OWNER CAN READ  the mailbox (how many emails, to whom, subject and body: the script never reads it in any way) and the run history in the designer (the real output of the failed insert of case 13, the Compose_claim_failure output, whether the connector retried, whether a handled failure marked the run Failed).');
-  L.push('MODES  plan (offline, no network) | baseline (read only) | setup (WRITES) | await (read only) | verdict (read only) | cleanup (WRITES). plan, baseline, setup, await and verdict have been run (one window, 2026-11-03/04); cleanup has not been run; setup and cleanup need the owner\'s explicit approval.');
+  L.push('ONLY THE OWNER CAN READ  the mailbox (how many emails, to whom, subject and body: the script never reads it in any way) and the run history in the designer (the real output of the failed insert of case 13, the Compose_claim_failure output, whether the connector retried).');
+  L.push('MODES  plan (offline, no network) | baseline (read only) | setup (WRITES) | await (read only) | verdict (read only) | cleanup (WRITES). plan, baseline, setup, await and verdict have been run (one window, 2026-11-03/04); the cleanup of that window ran on 2026-11-07; setup and cleanup need the owner\'s explicit approval.');
   return L;
 }
 
 // ---------------------------------------------------------------------------------------------------------------- the verdict (pure)
 const out = (id, status, name, detail = '') => ({ id, status, name, detail });
+
+/** The statuses of a flow run that end it badly, and the ones that mean it has not ended. */
+export const RUN_BAD = Object.freeze(['Failed', 'TimedOut', 'Cancelled']);
+export const RUN_OPEN = Object.freeze(['Running', 'Waiting']);
+/**
+ * The run-status check over the runs after BASE. FAIL beats everything (a bad run is real whatever the read says); then INCONCLUSIVE (a run still open, a status of another kind,
+ * no run at all, or flowruns that did not settle); PASS only when there is at least one run, every run Succeeded and the read settled.
+ * @param {{status:string}[]} runs   @param {{stable:boolean, reads:number, why?:string}} read
+ * @returns {{status:'PASS'|'FAIL'|'INCONCLUSIVE', detail:string, why:string}}
+ */
+export function runStatus(runs, read = { stable: true, reads: 1, why: '' }) {
+  const counts = runs.reduce((m, r) => { m[r.status] = (m[r.status] || 0) + 1; return m; }, {});
+  const detail = `total ${runs.length}: ${JSON.stringify(counts)} (${read.reads} read(s) of flowruns${read.stable ? ', settled' : ', NOT settled'})`;
+  const bad = runs.filter((r) => RUN_BAD.includes(r.status)).length;
+  if (bad) return { status: 'FAIL', detail, why: `${bad} run(s) ended ${RUN_BAD.filter((s) => counts[s]).join('/')}` };
+  const open = runs.filter((r) => RUN_OPEN.includes(r.status)).length; const other = runs.filter((r) => ![...RUN_BAD, ...RUN_OPEN, 'Succeeded'].includes(r.status)).length;
+  if (open) return { status: 'INCONCLUSIVE', detail, why: `${open} run(s) still Running or Waiting${read.stable ? '' : `; ${read.why}`}` };
+  if (other) return { status: 'INCONCLUSIVE', detail, why: `${other} run(s) with a status that is neither Succeeded nor a failure (${Object.keys(counts).filter((s) => ![...RUN_BAD, ...RUN_OPEN, 'Succeeded'].includes(s)).join(', ')})` };
+  if (!runs.length) return { status: 'INCONCLUSIVE', detail, why: 'no run was found after the oldest seed' };
+  if (!read.stable) return { status: 'INCONCLUSIVE', detail, why: read.why };
+  return { status: 'PASS', detail, why: '' };
+}
+/** The re-reads of flowruns: the records come late, so the count is only believed when two reads at least this far apart agree and no run is open. */
+export const RUNS_READ_GAP_MS = 30000;
+export const RUNS_READ_MAX = 10;   // at most 10 reads = 9 waits = 4.5 minutes
 
 /** How many seeded, eligible obligations were still unclaimed and in the window at the start of a run. Used for the exact-cap check. */
 export function claimableAtRunStart({ seeds, rows, startMs, params = PARAMS }) {
@@ -136,7 +161,7 @@ export function claimableAtRunStart({ seeds, rows, startMs, params = PARAMS }) {
  * @param {object}   p.contract  { found, status, ownerIsMe, ownerHasEmail }
  * @param {boolean}  p.keyActive
  */
-export function verdict({ seeds, rows, strayRows = [], runs, flow, contract, keyActive, params = PARAMS }) {
+export function verdict({ seeds, rows, strayRows = [], runs, runsRead = { stable: true, reads: 1, why: '' }, flow, contract, keyActive, params = PARAMS }) {
   const R = []; const add = (...a) => R.push(out(...a));
   const byId = new Map(seeds.map((s) => [s.id, s]));
   const parsed = rows.map((r) => { let p = null; try { p = parseAlertKey(r.key); } catch (e) { if (!(e instanceof AlertKeyError)) throw e; } return { ...r, parsed: p, obligationId: p?.source ?? String(r.key).slice(0, 36) }; });
@@ -186,9 +211,11 @@ export function verdict({ seeds, rows, strayRows = [], runs, flow, contract, key
     const all = parsed.filter((r) => r.obligationId === preSeed.id);
     const pre = all.filter(isPre); const later = all.filter((r) => !isPre(r));
     add('case13.row', pre.length === 1 && later.length === 0 ? (controls ? 'PASS' : 'OBS') : 'FAIL', 'case 13: exactly ONE alert log row for the pre-inserted key (the one setup wrote), no row created by the flow', `${pre.length} before the window, ${later.length} created later${pre.length === 1 && later.length === 0 && !controls ? '; INCONCLUSIVE because a positive control did not fire' : ''}`);
-    const statuses = runs.reduce((m, r) => { m[r.status] = (m[r.status] || 0) + 1; return m; }, {});
-    add('case13.runs', 'OBS', 'case 13: the run outcomes while the flow\'s insert for this obligation failed in every run (the obligation stays inside the window): whether a HANDLED failed insert marks the run Failed', `${runs.length} run(s): ${JSON.stringify(statuses)}`);
   }
+  // ---- the runs after BASE (ALL runs since the oldest seed, not only the runs that met case 13)
+  const rs = runStatus(runs, runsRead);
+  add('runs.counts', 'OBS', 'ALL flow runs after the oldest seed (not only case 13): the total and the counts by status. With the Try/catch design every already claimed obligation, case 13 included, meets the duplicate error in every run, and that must NOT fail a run', rs.detail);
+  add('runs.status', rs.status, 'RUN STATUS: every flow run after BASE ended Succeeded (Failed, TimedOut or Cancelled is a FAIL; Running, Waiting, any other status, no run, or a flowruns read that did not settle is INCONCLUSIVE)', rs.why ? `${rs.detail}; ${rs.why}` : rs.detail);
   // ---- keys and counts
   const keyBad = [];
   for (const r of flowRows) {
@@ -398,9 +425,19 @@ export function createSession(d) {
     const baseMs = Math.min(...seeds.map((s) => s.createdMs));
     const reported = flags.onAt ? Date.parse(flags.onAt) : NaN;
     const earliestRun = baseMs - MIN;
-    const rr = await d.call('GET', `flowruns?$filter=${q(`workflowid eq ${fl.workflowid} and starttime ge ${new Date(earliestRun).toISOString()}`)}&$orderby=starttime&$select=status,starttime,endtime&$top=500`);
-    if (!rr.ok) throw new Stop(`flowruns not readable: HTTP ${rr.status}`);
-    const runs = (rr.j.value || []).map((r) => ({ startMs: Date.parse(r.starttime), endMs: r.endtime ? Date.parse(r.endtime) : null, status: r.status }));
+    const readRuns = async () => {
+      const rr = await d.call('GET', `flowruns?$filter=${q(`workflowid eq ${fl.workflowid} and starttime ge ${new Date(earliestRun).toISOString()}`)}&$orderby=starttime&$select=status,starttime,endtime&$top=500`);
+      if (!rr.ok) throw new Stop(`flowruns not readable: HTTP ${rr.status}`);
+      return (rr.j.value || []).map((r) => ({ startMs: Date.parse(r.starttime), endMs: r.endtime ? Date.parse(r.endtime) : null, status: r.status }));
+    };
+    // the run records arrive late (2026-11-03: the verdict saw 12 runs, a later read 14): read again until two reads at least RUNS_READ_GAP_MS apart agree on the count and no run is open
+    let runs = await readRuns(); let reads = 1; let runsRead = { stable: false, reads, why: '' };
+    for (;;) {
+      await d.sleep(RUNS_READ_GAP_MS); const next = await readRuns(); reads++;
+      const same = next.length === runs.length; const open = next.some((r) => RUN_OPEN.includes(r.status)); runs = next;
+      if (same && !open) { runsRead = { stable: true, reads, why: '' }; break; }
+      if (reads >= RUNS_READ_MAX) { runsRead = { stable: false, reads, why: `flowruns did not settle in ${reads} reads ${RUNS_READ_GAP_MS / 1000} s apart (${open ? 'a run is still Running or Waiting' : 'the number of runs kept changing'})` }; break; }
+    }
     const onAtMs = Number.isFinite(reported) ? reported : (runs.length ? Math.min(...runs.map((r) => r.startMs)) - MIN : null);
     const onAtSource = Number.isFinite(reported) ? 'reported' : 'estimated from the first run';
     const offAtMs = off && fl.statecode === 0 ? Date.parse(fl.modifiedon) : null;
@@ -410,12 +447,13 @@ export function createSession(d) {
     const conId = seedsRaw[0]._mwf_contract_value; const me = (await get('WhoAmI')).UserId;
     const cr = await d.call('GET', `mwf_contracts(${conId})?$select=statuscode,_ownerid_value`); const meRow = await get(`systemusers(${me})?$select=internalemailaddress`);
     const contract = cr.ok ? { found: true, status: cr.j.statuscode, ownerIsMe: String(cr.j._ownerid_value).toLowerCase() === String(me).toLowerCase() && cr.j.statuscode === STATUS.Draft, ownerHasEmail: !!meRow.internalemailaddress } : { found: false };
-    const res = verdict({ seeds, rows, strayRows: stray, runs, flow: { on: !off || fl.statecode === 1, onAtMs, onAtSource, offAtMs, baseMs }, contract, keyActive: keyGate(key).ok });
+    const res = verdict({ seeds, rows, strayRows: stray, runs, runsRead, flow: { on: !off || fl.statecode === 1, onAtMs, onAtSource, offAtMs, baseMs }, contract, keyActive: keyGate(key).ok });
     for (const r of res) outLine(r.id, r.status, r.name, r.detail);
     const s = summarize(res);
-    log(`\nVERDICT: ${s.pass} PASS, ${s.fail} FAIL, ${s.obs} OBS.`);
+    const inconclusive = res.filter((r) => r.status === 'INCONCLUSIVE').length;
+    log(`\nVERDICT: ${s.pass} PASS, ${s.fail} FAIL, ${inconclusive} INCONCLUSIVE, ${s.obs} OBS.`);
     log("\nLINK CHECK WINDOW: obligations still exist, say 'link checked' to continue");
-    return s.fail === 0;
+    return s.fail === 0 && inconclusive === 0;
   }
 
   // ------------------------------------------------------------------------------------------------ cleanup
