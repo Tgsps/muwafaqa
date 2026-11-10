@@ -163,7 +163,7 @@ Notes:
 
 **Reported by the owner, NOT verified by the assistant:** the work was done as System Administrator; the first two attempts to add the grid failed with "We ran into a problem adding the component" (cause unknown) and it worked after discarding and reopening the form in a fresh session; in the running app, on an In Force contract the script banner and the five locks still work, the Obligations section appears with a New Obligation button and Rows 0, and the Contract lookup on the Obligation form lists contracts; the Obligation form was saved and published.
 
-**NOT tested:** creating an obligation (deliberately, to keep the baseline at 0), opening the app as a non-admin user (the four project roles are not linked to the app and have no privilege on the table: ADR-008, "Update 2026-11-07"), the email link.
+**NOT tested:** creating an obligation (deliberately, to keep the baseline at 0), opening the app as a non-admin user (on 2026-11-07 the four project roles were not linked to the app and had no privilege on the table: ADR-008, "Update 2026-11-07"; **note 2026-11-10:** since then the four roles hold the obligation privileges (applied 2026-11-07) and were linked to the app on 2026-11-10 (ADR-008, "Update 2026-11-07"); opening the app or the link as an interactive user who holds only a project role is still NOT tested), the email link.
 
 ## 7. Not verified
 
