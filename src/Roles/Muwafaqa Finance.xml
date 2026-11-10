@@ -12,6 +12,7 @@
     <RolePrivilege name="prvReadmwf_ApproverAssignment" level="Global" />
     <RolePrivilege name="prvReadmwf_Contract" level="Global" />
     <RolePrivilege name="prvReadmwf_Counterparty" level="Global" />
+    <RolePrivilege name="prvReadmwf_Obligation" level="Global" />
     <RolePrivilege name="prvWritemwf_Counterparty" level="Global" />
   </RolePrivileges>
 </Role>

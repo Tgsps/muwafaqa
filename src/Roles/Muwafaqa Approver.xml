@@ -7,5 +7,6 @@
     <RolePrivilege name="prvReadmwf_ApprovalStep" level="Global" />
     <RolePrivilege name="prvReadmwf_Contract" level="Global" />
     <RolePrivilege name="prvReadmwf_Counterparty" level="Global" />
+    <RolePrivilege name="prvReadmwf_Obligation" level="Global" />
   </RolePrivileges>
 </Role>

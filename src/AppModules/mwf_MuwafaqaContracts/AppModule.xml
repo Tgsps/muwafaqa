@@ -27,6 +27,10 @@
     <AppModuleComponent type="62" schemaName="mwf_MuwafaqaContracts" />
   </AppModuleComponents>
   <AppModuleRoleMaps>
+    <Role id="{a41c7ede-4cce-f111-a05a-000d3ab4ceb3}" />
+    <Role id="{a6bacbd1-4cce-f111-a05a-000d3ab4ceb3}" />
+    <Role id="{5cc36dd8-4cce-f111-a05a-000d3ab4ceb3}" />
+    <Role id="{62f77bca-4cce-f111-a05a-000d3ab4ceb3}" />
     <Role id="{627090ff-40a3-4053-8790-584edc5be201}" />
     <Role id="{119f245c-3cc8-4b62-b31c-d1a046ced15d}" />
   </AppModuleRoleMaps>

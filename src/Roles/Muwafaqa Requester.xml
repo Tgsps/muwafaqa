@@ -5,12 +5,17 @@
   <Description>Creates and submits own contracts: Create, Read, Write and Delete of own contracts (User level), and picks a counterparty. No access to approval steps, the matrix, the assignments or the counter.</Description>
   <RolePrivileges>
     <RolePrivilege name="prvAppendmwf_Contract" level="Basic" />
+    <RolePrivilege name="prvAppendmwf_Obligation" level="Basic" />
     <RolePrivilege name="prvAppendTomwf_Contract" level="Basic" />
     <RolePrivilege name="prvAppendTomwf_Counterparty" level="Global" />
     <RolePrivilege name="prvCreatemwf_Contract" level="Basic" />
+    <RolePrivilege name="prvCreatemwf_Obligation" level="Basic" />
     <RolePrivilege name="prvDeletemwf_Contract" level="Basic" />
+    <RolePrivilege name="prvDeletemwf_Obligation" level="Basic" />
     <RolePrivilege name="prvReadmwf_Contract" level="Basic" />
     <RolePrivilege name="prvReadmwf_Counterparty" level="Global" />
+    <RolePrivilege name="prvReadmwf_Obligation" level="Basic" />
     <RolePrivilege name="prvWritemwf_Contract" level="Basic" />
+    <RolePrivilege name="prvWritemwf_Obligation" level="Basic" />
   </RolePrivileges>
 </Role>
