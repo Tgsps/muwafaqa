@@ -6,6 +6,7 @@
   <AsyncAutoDelete>0</AsyncAutoDelete>
   <Description>Freezes the USD value when a contract is created directly as Pending Approval.</Description>
   <FilteringAttributes></FilteringAttributes>
+  <ImpersonatingUserIdName></ImpersonatingUserIdName>
   <InvocationSource>1</InvocationSource>
   <Mode>0</Mode>
   <Rank>1</Rank>

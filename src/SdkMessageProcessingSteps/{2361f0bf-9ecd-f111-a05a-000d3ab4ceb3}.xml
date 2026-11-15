@@ -6,6 +6,7 @@
   <AsyncAutoDelete>0</AsyncAutoDelete>
   <Description>Approval chain builder (ADR-007): Update of mwf_contract, PostOperation, real submissions only.</Description>
   <FilteringAttributes>statuscode</FilteringAttributes>
+  <ImpersonatingUserIdName></ImpersonatingUserIdName>
   <InvocationSource>1</InvocationSource>
   <Mode>0</Mode>
   <Rank>1</Rank>

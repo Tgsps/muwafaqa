@@ -6,6 +6,7 @@
   <AsyncAutoDelete>0</AsyncAutoDelete>
   <Description>Contract number generator (ADR-006): Create of mwf_contract, PreOperation, after plug-in 1.</Description>
   <FilteringAttributes></FilteringAttributes>
+  <ImpersonatingUserIdName></ImpersonatingUserIdName>
   <InvocationSource>1</InvocationSource>
   <Mode>0</Mode>
   <Rank>10</Rank>

@@ -6,6 +6,7 @@
   <AsyncAutoDelete>0</AsyncAutoDelete>
   <Description>Contract State Guard (ADR-004): Update of mwf_contract, PreValidation.</Description>
   <FilteringAttributes>statuscode,statecode,mwf_value,transactioncurrencyid,mwf_contracttype,mwf_direction,mwf_counterpartyid,mwf_contractnumber,mwf_valueusdfrozen,mwf_approvalround</FilteringAttributes>
+  <ImpersonatingUserIdName></ImpersonatingUserIdName>
   <InvocationSource>0</InvocationSource>
   <Mode>0</Mode>
   <Rank>1</Rank>
