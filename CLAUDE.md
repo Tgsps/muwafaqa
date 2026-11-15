@@ -14,6 +14,7 @@ Portfolio project: a contract and approval management system on Microsoft Power 
 - If the owner's idea is bad, say so and propose an alternative.
 - State the trade-off for every design suggestion.
 - The data model must be reviewed and approved before anything is built on it.
+- **Unit tests: run only `node --test scripts/*.test.mjs scripts/lib/*.test.mjs`. Never run bare `node --test`:** it also picks up the live `scripts/test-*.mjs` scripts, which are tests against the environment and are not unit tests (a bare run on 2026-11-07 reported 616 tests with 16 failures, each one a stop at the usage check). Expected with the command above on 2026-11-15: 597 tests, 596 pass, 0 fail, 1 skipped on purpose.
 
 ## Confidentiality
 
