@@ -112,7 +112,7 @@ Learn (the maker page "Define alternate keys to reference rows with Microsoft Da
 
 **Reported by the owner, NOT verified by the assistant:** the work was done as System Administrator; the first two attempts to add the grid to the Contract form failed with "We ran into a problem adding the component" (cause unknown) and it worked after discarding and reopening the form in a fresh session; in the running app, on an In Force contract the script banner and the five locks still work, the Obligations section shows a New Obligation button and Rows 0, and the Contract lookup on the Obligation form lists contracts; the Obligation form was saved and published and is visible in the live app.
 
-**NOT tested:** creating an obligation (deliberately, to keep the baseline at 0), opening the app as a non-admin user, the email link. **The status stays Proposed.**
+**NOT tested:** creating an obligation (deliberately, to keep the baseline at 0), opening the app as a non-admin user, the email link. **Status (the owner's decision of 2026-11-15): Accepted for the obligations and the due alerts, Proposed for the renewal alerts; see the Status line.** (When this section was written, on 2026-11-07, the sentence here was "The status stays Proposed.")
 
 ## Not proven
 

@@ -1,6 +1,6 @@
 # Flow Specification: Approval Reminders
 
-Decision and context: [ADR-010](decisions/ADR-010-reminders-and-escalation.md) (status Proposed). Every claim is tagged **(script)** when a script checked it, **(unit)** for a unit test, **(from Learn)**, or **(not tested)**.
+Decision and context: [ADR-010](decisions/ADR-010-reminders-and-escalation.md) (status Accepted, the owner's decision of 2026-11-15; the items under "Not proven" stay unproven). Every claim is tagged **(script)** when a script checked it, **(unit)** for a unit test, **(from Learn)**, or **(not tested)**.
 
 ## 0. Status (2026-10-26)
 
