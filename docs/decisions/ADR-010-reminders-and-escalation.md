@@ -122,7 +122,7 @@ Sources: the session script `scripts/test-flow-reminders.mjs` (the verdict, read
 
 ## Open questions
 
-1. Channel: Outlook or an informational approval (needs the owner's answer, and a check that the account has a mailbox).
+1. Channel: Outlook or an informational approval (needed the owner's answer, and a check that the account has a mailbox). **Decided by the owner on 2026-10-26: Office 365 Outlook** (the mailbox exists; see Status). **Used:** in the two test windows of 2026-10-29 the flow sent through it, and 12 emails arrived (the owner, by eye; see "Test evidence", "Mailbox"). The action-level run history was viewed for one run only (SendEmailV2, statusCode 200; see "Not proven").
 2. **Escalation target is an assumption (A1)**, not a business rule.
 3. **The reminder and escalation hours (48 h, 96 h) are placeholders**; also whether weekends count.
 4. **The 30-day run limit:** what must happen to a contract whose step waits longer.

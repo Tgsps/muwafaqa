@@ -165,8 +165,12 @@ One row per step of the approval chain of one contract and one approval round. *
 | `mwf_decision` | Choice (local) | ApplicationRequired | Pending 867640000, Waiting ...01, Approved ...02, Rejected ...03, Informed ...04, Cancelled ...05 |
 | `mwf_originalapprover`, `mwf_actualapprover` | Lookup to `systemuser` | None | Remove link on delete |
 | `mwf_decidedon` | Date and Time (user local) | None | |
+| `mwf_remindedon` | Date and Time (user local) | None | Added 2026-10-26 (ADR-010). Audit ON. Null = no reminder recorded yet for the step; the reminder flow writes it before it sends |
+| `mwf_escalatedon` | Date and Time (user local) | None | Added 2026-10-26 (ADR-010). Audit ON. Null = no escalation recorded yet for the step; the reminder flow writes it before it sends |
 | `mwf_comments` | Multiple lines, 4000 | None | |
 | `mwf_delegated` | Yes/No, default No | None | Phase 3; nothing writes it yet |
+
+**Added later (2026-10-26):** `mwf_remindedon` and `mwf_escalatedon` (the two rows above), source: `docs/decisions/ADR-010-reminders-and-escalation.md` (section "New columns" and "Implementation note (2026-10-26)") and `src/Entities/mwf_ApprovalStep/Entity.xml` (both columns read: type `datetime`, not required, audit ON). Not part of the 12 columns created on 2026-10-22.
 
 **Alternate key** `mwf_ApprovalStepKey` on (`mwf_contract`, `mwf_approvalround`, `mwf_steporder`), index Active. A Lookup is a valid alternate key column type (from Learn, "Work with alternate keys"), so no text key column was added.
 

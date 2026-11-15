@@ -44,6 +44,7 @@ The approval flow of Phase 1 has two fixed stages with one fixed approver addres
 | `mwf_originalapprover` | Lookup to `systemuser` | None | Remove link on delete |
 | `mwf_actualapprover` | Lookup to `systemuser` | None | Remove link on delete. Differs from the original after a delegation |
 | `mwf_decidedon` | Date and Time (UserLocal behavior) | None | The completion time of the approval |
+| `mwf_remindedon`, `mwf_escalatedon` | Date and Time (user local) | None | **Added on 2026-10-26 by ADR-010, not part of this table's first batch** (so not among the 15 columns checked below); the time of the reminder and of the escalation, written by the reminder flow; audit ON; source: `docs/decisions/ADR-010-reminders-and-escalation.md` (section "New columns" and "Implementation note (2026-10-26)") and `src/Entities/mwf_ApprovalStep/Entity.xml` (both columns read: type `datetime`, not required, audit ON) |
 | `mwf_comments` | Multiple lines, 4000 | None | |
 | `mwf_delegated` | Yes/No, default No | None | Phase 3 |
 
