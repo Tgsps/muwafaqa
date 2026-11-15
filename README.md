@@ -4,6 +4,8 @@ A contract and approval management system on Microsoft Power Platform: Dataverse
 
 It is a portfolio project for the PL-400 and AB-620 skill areas. I designed, directed and verified it, and built it together with AI tools (see "How this was built"), in a single Dataverse development environment.
 
+Walkthrough video (about 3 minutes): https://lnkd.in/p/dAzgpX_H
+
 ## Architecture
 
 ```mermaid
