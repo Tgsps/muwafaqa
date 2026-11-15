@@ -12,6 +12,9 @@
         <row name="result" id="mwf_obligationid">
           <cell name="mwf_name" width="300" />
           <cell name="createdon" width="125" />
+          <cell name="mwf_duedate" width="100" />
+          <cell name="mwf_party" width="100" />
+          <cell name="mwf_status" width="138" />
         </row>
       </grid>
     </layoutxml>
@@ -26,6 +29,9 @@
           <filter type="and">
             <condition attribute="statecode" operator="eq" value="0" />
           </filter>
+          <attribute name="mwf_duedate" />
+          <attribute name="mwf_party" />
+          <attribute name="mwf_status" />
         </entity>
       </fetch>
     </fetchxml>
