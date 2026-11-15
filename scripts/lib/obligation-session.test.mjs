@@ -1,4 +1,4 @@
-// Tests of the session of the obligation alerts flow against a MOCKED, stateful environment. Nothing here talks to an environment (one window has been run against the real environment on 2026-11-03/04; these tests are not it).
+// Tests of the session of the obligation alerts flow against a MOCKED, stateful environment. Nothing here talks to an environment (two windows have been run (2026-11-03/04 and 2026-11-07) against the real environment; these tests are not them).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
