@@ -231,7 +231,7 @@ export function relevantDiffs(kind, diffs) {
 
 // ---------------------------------------------------------------------------------------------------------------- ADR-011: two column settings of the new tables
 /**
- * The ONLY two column audit settings, besides COLUMN_ENABLE, that scripts/configure-auditing.mjs may write (ADR-011, status Proposed). Both come from what the
+ * The ONLY two column audit settings, besides COLUMN_ENABLE, that scripts/configure-auditing.mjs may write (ADR-011, status Accepted for the obligations and the due alerts, the owner's decision of 2026-11-15). Both come from what the
  * environment stored after scripts/add-obligation-schema.mjs --stage=tables on 2026-11-03: the lookup was stored with audit OFF although ON was requested (as for the
  * other lookups of this project, ADR-009), and the primary name of the service table was stored with audit ON although OFF was requested. Nothing here has run.
  * 'value' is the IsAuditEnabled.Value to set. They are not in COLUMN_ENABLE on purpose: mwf_obligation and mwf_alertlog are not in AUDIT_TABLES, so the table-level

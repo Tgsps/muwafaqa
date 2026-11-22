@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * The two tables of ADR-011 (status Proposed): mwf_obligation (audit ON) and mwf_alertlog (service table, audit OFF, alternate key on mwf_alertkey).
- * Written for review. NOT RUN against any environment: ADR-011 has not been approved and the data model must be reviewed first.
+ * The two tables of ADR-011 (status Accepted for the obligations and the due alerts, the owner's decision of 2026-11-15): mwf_obligation (audit ON) and mwf_alertlog (service table, audit OFF, alternate key on mwf_alertkey).
+ * Written for review. NOT RUN against any environment: ADR-011 is Accepted for the obligations and the due alerts (the owner's decision of 2026-11-15) and Proposed for the renewal alerts (Decision 7), and the data model must be reviewed first.
  *
  *   --mode=plan    (default) prints exactly what --mode=apply would create for the stage, the solution it would use, and the gates. No network, no
  *                  sign-in, no --env needed. Writes nothing.

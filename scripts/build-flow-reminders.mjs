@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Builds, checks and (on purpose) creates the scheduled flow "Muwafaqa - Approval Reminders" (ADR-010, status Proposed; docs/flow-approval-reminders.md).
+ * Builds, checks and (on purpose) creates the scheduled flow "Muwafaqa - Approval Reminders" (ADR-010, status Accepted, the owner's decision of 2026-11-15; docs/flow-approval-reminders.md).
  * The flow scans the approval steps that are Waiting and sends ONE reminder to the approver and, later, ONE informational escalation notice to the owner
  * of the contract. Same style as scripts/build-flow-v2.mjs: the definition is code in this file, no id, address or host is stored (the record link keeps
  * the placeholder <ORG_HOST>, which `create` replaces with the host of --env in memory only).

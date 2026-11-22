@@ -1,5 +1,5 @@
 /**
- * The key of one alert (ADR-011, status Proposed): "<sourceGuid>-<TYPE>-<yyyyMMdd>". Pure builder and validator, unit tested
+ * The key of one alert (ADR-011; the two OBLIGATION types belong to the obligations and the due alerts, status Accepted, the owner's decision of 2026-11-15; the two RENEWAL types belong to the renewal alerts, Decision 7, status Proposed): "<sourceGuid>-<TYPE>-<yyyyMMdd>". Pure builder and validator, unit tested
  * (alert-key.test.mjs). No network, no id, no address.
  *
  * The date is the DUE date of an obligation or the EXPIRY date of a contract (the date the alert is about), so a changed date gives a new

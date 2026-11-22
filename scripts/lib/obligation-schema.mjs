@@ -1,5 +1,5 @@
 /**
- * The two tables of ADR-011 (status Proposed): mwf_obligation (audit ON) and mwf_alertlog (service table, audit OFF, no project role).
+ * The two tables of ADR-011 (status Accepted for the obligations and the due alerts, the owner's decision of 2026-11-15): mwf_obligation (audit ON) and mwf_alertlog (service table, audit OFF, no project role).
  * Pure parts only: the definitions, the request bodies, the plan text and the read-back checks. The script that uses them is
  * scripts/add-obligation-schema.mjs. No id, address or token is written by this module. NOTHING here has run against an environment.
  *

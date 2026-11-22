@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * Adds the two columns of the reminder and escalation design (ADR-010, status Proposed) to mwf_approvalstep, in the solution:
+ * Adds the two columns of the reminder and escalation design (ADR-010, status Accepted, the owner's decision of 2026-11-15) to mwf_approvalstep, in the solution:
  *   mwf_remindedon   Date and Time (user local, as mwf_decidedon), audit ON
  *   mwf_escalatedon  Date and Time (user local, as mwf_decidedon), audit ON
- * Written for review. NOT RUN against any environment (ADR-010 has not been approved, and the data model must be reviewed first).
+ * Written for review. NOT RUN against any environment (ADR-010 is Accepted, the owner's decision of 2026-11-15, and the data model must be reviewed first).
  *
  *   --mode=plan    (default) prints what would be created. No network, no sign-in, no --env needed. Writes nothing.
  *   --mode=check   read only: for each column, exists or not, and the checks on the ones that exist.

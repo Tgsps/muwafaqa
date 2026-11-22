@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Generator of the scheduled flow "Muwafaqa - Obligation Alerts" (ADR-011, status Proposed; docs/flow-obligation-alerts.md). OFFLINE ONLY.
+ * Generator of the scheduled flow "Muwafaqa - Obligation Alerts" (ADR-011, status Accepted for the obligations and the due alerts, the owner's decision of 2026-11-15; the renewal alerts, Decision 7, are not part of this flow and stay Proposed; docs/flow-obligation-alerts.md). OFFLINE ONLY.
  * Modeled on scripts/build-flow-reminders.mjs. FOUR modes; there is NO replace mode and no code path that changes an existing flow:
  *
  *   --mode=check   OFFLINE. Structural checks of the generated definition; exit code 1 on any failure.

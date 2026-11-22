@@ -1,5 +1,5 @@
 /**
- * Which waiting approval steps need a reminder or an escalation notice now (ADR-010, status Proposed). Pure: no network, no clock
+ * Which waiting approval steps need a reminder or an escalation notice now (ADR-010, status Accepted, the owner's decision of 2026-11-15). Pure: no network, no clock
  * (the caller passes `nowMs`). The reminder flow reads the rows; this function decides. Everything it cannot be sure about is
  * SKIPPED with a reason and never sent (fail-safe): a wrong silence costs one late reminder, a wrong notice costs a spurious mail.
  *

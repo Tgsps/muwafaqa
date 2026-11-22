@@ -1,5 +1,5 @@
 /**
- * The steps of scripts/test-alertlog-uniqueness.mjs (ADR-011, status Proposed), with the HTTP layer injected so that they are unit tested
+ * The steps of scripts/test-alertlog-uniqueness.mjs (ADR-011, status Accepted for the obligations and the due alerts, the owner's decision of 2026-11-15), with the HTTP layer injected so that they are unit tested
  * against a mock (alertlog-uniqueness.test.mjs). NOTHING here has run against an environment.
  *
  * What it checks and what it only records:

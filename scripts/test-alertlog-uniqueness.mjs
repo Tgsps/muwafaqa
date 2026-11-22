@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Test of the uniqueness of the alert log (ADR-011, status Proposed): does the alternate key on mwf_alertkey reject a second row with the same key,
+ * Test of the uniqueness of the alert log (ADR-011, status Accepted for the obligations and the due alerts, the owner's decision of 2026-11-15): does the alternate key on mwf_alertkey reject a second row with the same key,
  * and what does the server do with an empty or a null key and with concurrent inserts. Written for review. NOT RUN against any environment:
  * the tables of ADR-011 do not exist yet (scripts/add-obligation-schema.mjs has not been applied). The steps are in lib/alertlog-uniqueness.mjs and are
  * unit tested against a mocked HTTP layer only.

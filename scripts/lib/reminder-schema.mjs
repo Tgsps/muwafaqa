@@ -1,5 +1,5 @@
 /**
- * The two columns that reminders and escalation need on mwf_approvalstep (ADR-010, status Proposed). Pure parts only: the
+ * The two columns that reminders and escalation need on mwf_approvalstep (ADR-010, status Accepted, the owner's decision of 2026-11-15). Pure parts only: the
  * definitions, the request bodies and the read-back checks. The script that uses them is scripts/add-reminder-columns.mjs.
  * No id, address or token is written by this module.
  *

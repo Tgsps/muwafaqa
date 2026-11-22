@@ -1,5 +1,5 @@
 /**
- * The apply logic of scripts/add-obligation-schema.mjs (ADR-011, status Proposed), with the HTTP layer injected so that it is unit tested against a
+ * The apply logic of scripts/add-obligation-schema.mjs (ADR-011, status Accepted for the obligations and the due alerts, the owner's decision of 2026-11-15), with the HTTP layer injected so that it is unit tested against a
  * mocked, stateful environment (obligation-apply.test.mjs). NOTHING here has run against an environment.
  *
  * Two stages, never in one run:
